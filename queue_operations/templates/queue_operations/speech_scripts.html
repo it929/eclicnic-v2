@@ -1,0 +1,76 @@
+{% load static %}
+
+<script src="{% static 'admin-js/speech.js' %}"></script>
+
+<!-- Speech Synthesis (Text-to-Speech) -->
+<script>
+document.getElementById('listenBtn').addEventListener('click', function() {
+    const translation = document.getElementById('translatedText').textContent;
+    if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(translation);
+        // Configure voice options
+        const voices = window.speechSynthesis.getVoices();
+        utterance.voice = voices.find(voice => voice.lang.includes('en')) || voices[0];
+        utterance.rate = 0.9;  // Slightly slower than normal
+        window.speechSynthesis.speak(utterance);
+    } else {
+        alert('Text-to-speech not supported in your browser');
+    }
+});
+</script>
+
+<!-- Save to EMR Functionality -->
+<script>
+document.getElementById('saveBtn').addEventListener('click', function() {
+    const translatedText = document.getElementById('translatedText').textContent;
+    const originalText = document.getElementById('originalText').textContent;
+    
+    fetch('/save_consultation/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({
+            original_text: originalText,
+            translated_text: translatedText,
+            patient_id: '{{ patient.id }}'  // Pass patient ID from template context
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Consultation saved successfully!');
+        } else {
+            alert('Error saving consultation');
+        }
+    });
+});
+</script>
+
+<!-- Language Detection (Optional) -->
+<script>
+// This can be expanded based on your needs
+function detectLanguage(text) {
+    // Simple heuristic detection - expand with proper library
+    if (/[ا-ي]/.test(text)) return 'ar';
+    if (/[α-ω]/.test(text)) return 'el';
+    // Add more language patterns as needed
+    return 'en';  // Default fallback
+}
+</script>
+<script>
+    // Add to speech_scripts.html
+    function populateVoiceList() {
+        const voices = window.speechSynthesis.getVoices();
+        const voiceSelect = document.createElement('select');
+        voices.forEach(voice => {
+            const option = document.createElement('option');
+            option.textContent = `${voice.name} (${voice.lang})`;
+            option.setAttribute('data-voice', voice.voiceURI);
+            voiceSelect.appendChild(option);
+        });
+        document.body.appendChild(voiceSelect);
+}
+</script>
+

@@ -1,0 +1,524 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <style>
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .patient-info-card {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+        .bed-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .bed-item {
+            padding: 15px;
+            text-align: center;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .bed-item:hover {
+            border-color: #4CAF50;
+            background-color: #f0fff0;
+        }
+        .bed-item.selected {
+            border-color: #4CAF50;
+            background-color: #e8f5e9;
+            font-weight: bold;
+        }
+        .bed-item.occupied {
+            background-color: #ffebee;
+            border-color: #f44336;
+            cursor: not-allowed;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn-allocate {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .btn-allocate:hover {
+            background-color: #45a049;
+        }
+        .btn-allocate:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .btn-close {
+            background-color: #757575;
+            color: white;
+        }
+        .btn-close:hover {
+            background-color: #616161;
+        }
+        .btn-discharge {
+            background-color: #f44336;
+            color: white;
+        }
+        .btn-discharge:hover {
+            background-color: #d32f2f;
+        }
+        .current-allocation {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
+        }
+        .hidden {
+            display: none;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .available { background-color: #4CAF50; }
+        .occupied { background-color: #f44336; }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+    <div class="container" style="padding-bottom: 20px;">
+        <div>
+            <h2>Allocate In-patient Bed</h2>
+            
+            <!-- Patient Information -->
+            <div class="patient-info-card">
+                <p><strong>Name:</strong> {{ patient.surname }} {{ patient.first_name }}</p>
+                <p><strong>Medical Record No:</strong> {{ patient.hospital_number|default:"N/A" }}</p>
+                <!-- <p><strong>Phone:</strong> {{ patient.phone_number|default:"N/A" }}</p> -->
+            </div>
+            
+            <!-- Current Allocation Section -->
+            {% if current_allocation %}
+            <div class="current-allocation">
+                <h3>Current Allocation</h3>
+                <p><strong>Ward:</strong> {{ current_allocation.ward.ward_name }}</p>
+                <p><strong>Bed:</strong> {{ current_allocation.bed.bed_name }}</p>
+                <p><strong>Allocated on:</strong> {{ current_allocation.created_date|date:"Y-m-d H:i" }}</p>
+                <p><strong>Allocated by:</strong> Nurse {{ current_allocation.staff.username|default:"N/A" }}</p>
+                 <!-- check to be sure the request is not coming from either doctors or front desks -->
+                    {% if request.user.department.department != 'Nursing' and request.user.department.department != 'Front Desk' %}
+                <div class="button-group">
+                    <button class="btn-discharge" data-toggle="modal" data-target="#pinDischargeModal">Discharge Patient</button>
+                    
+                    <!-- Pin Code Modal for patient discharge authentication -->
+                    <div class="modal fade" id="pinDischargeModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+                        <div class="modal-dialog" role="document">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                                </div>
+                                <div>
+                                    <div style="padding-inline: 30px; padding-block: 20px;">
+                                        <input type="password" id="pin_code_input_discharge_patient" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button class="btn-discharge" onclick="dischargePatient()">Discharge Patient</button>
+                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                    </div>
+                                </div>
+                            </div> 
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary ml-2" onclick="window.history.back()">
+                    <i class="fa fa-arrow-left"></i> Back
+                </button>
+                </div>
+                {% else %}
+                <button class="btn btn-secondary ml-2" onclick="window.history.back()">
+                    <i class="fa fa-arrow-left"></i> Go Back
+                {% endif %}
+            </div>
+            {% else %}
+            <!-- Bed Allocation Form -->
+            <div class="section">
+                <h3>Select Ward and Bed</h3>
+                    <!-- check to be sure the request is not coming from either doctors or front desks -->
+                    {% if request.user.department.department != 'Clinical' and request.user.department.department != 'Front Desk' %}
+                <label for="wardSelect">Ward/Room:</label>
+                <select id="wardSelect" onchange="loadAvailableBeds()">
+                    <option value="">Select Ward</option>
+                    {% for ward in wards %}
+                    <option value="{{ ward.id }}">{{ ward.ward_name }}</option>
+                    {% endfor %}
+                </select>
+                
+                <label>Available Beds:</label>
+                <div id="bedContainer">
+                    <p class="loading">Select a ward to see available beds</p>
+                </div>
+                <div class="button-group">
+                    <button class="btn-allocate" data-toggle="modal" data-target="#pinAllocateModal">Allocate Bed</button>
+
+                    <!-- Pin Code Modal for patient's bed allocation authentication -->
+                    <div class="modal fade" id="pinAllocateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+                        <div class="modal-dialog" role="document">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                                </div>
+                                <div>
+                                    <div style="padding-inline: 30px; padding-block: 20px;">
+                                        <input type="password" id="pin_code_input_allocate_bed" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button id="allocateBtn" class="btn-allocate" onclick="allocateBed()" disabled>Allocate Bed</button>
+                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                    </div>
+                                </div>
+                            </div> 
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary ml-2" onclick="window.history.back()">
+                    <i class="fa fa-arrow-left"></i> Back </button>
+                </div>
+                {% else %}
+                <p style="color: brown; font-weight: bold;">You are not authorize to allocate Bed to this patient</p>
+                <button class="btn btn-secondary ml-2" onclick="window.history.back()">
+                    <i class="fa fa-arrow-left"></i> Go Back
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+    let selectedBedId = null;
+    const patientId = '{{ patient.id }}';
+    
+    function loadAvailableBeds() {
+        let wardId = $('#wardSelect').val();
+        if (!wardId) {
+            $('#bedContainer').html('<p class="loading">Select a ward to see available beds</p>');
+            selectedBedId = null;
+            $('#allocateBtn').prop('disabled', true);
+            return;
+        }
+        
+        $('#bedContainer').html('<p class="loading">Loading available beds...</p>');
+        
+        $.get('/allocations/available-beds/', {ward_id: wardId}, function(data) {
+            if (data.beds.length > 0) {
+                let html = '<div class="bed-grid">';
+                data.beds.forEach(function(bed) {
+                    html += `
+                        <div class="bed-item" onclick="selectBed(${bed.id})" id="bed-${bed.id}">
+                            <span class="status-indicator available"></span>
+                            <strong>${bed.name}</strong><br>
+                            <small>${bed.ward}</small>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                $('#bedContainer').html(html);
+            } else {
+                $('#bedContainer').html('<p class="loading">No available beds in this ward</p>');
+            }
+        }).fail(function() {
+            $('#bedContainer').html('<p class="loading">Error loading beds. Please try again.</p>');
+        });
+    }
+    
+    function selectBed(bedId) {
+        $('.bed-item').removeClass('selected');
+        $(`#bed-${bedId}`).addClass('selected');
+        selectedBedId = bedId;
+        $('#allocateBtn').prop('disabled', false);
+    }
+    
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    function allocateBed() {
+        if (!selectedBedId) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Bed Selected',
+                text: 'Please select a bed before proceeding.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+        
+        // Get PIN from modal input
+        const pinCode = document.getElementById('pin_code_input_allocate_bed').value;
+        
+        if (!pinCode) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'PIN Required',
+                text: 'Please enter your PIN code to authorize this action.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+        
+        // Close the PIN modal
+        $('#pinAllocateModal').modal('hide');
+        
+        // Show loading
+        Swal.fire({
+            title: 'Processing...',
+            text: 'Please wait while we allocate the bed.',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+        
+        const csrftoken = getCookie('csrftoken');
+        
+        $.ajax({
+            url: `/allocations/allocate/${patientId}/`,
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            data: JSON.stringify({
+                bed_id: selectedBedId,
+                pin_code: pinCode
+            }),
+            timeout: 30000,
+            success: function(response) {
+                if (response.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success!',
+                        text: response.message,
+                        confirmButtonColor: '#3085d6'
+                    }).then((result) => {
+                        if (response.redirect_url) {
+                            window.location.href = response.redirect_url;
+                        } else {
+                            location.reload();
+                        }
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Allocation Failed',
+                        text: response.message,
+                        confirmButtonColor: '#3085d6'
+                    });
+                    $('#allocateBtn').prop('disabled', false);
+                    // Clear PIN input
+                    document.getElementById('pin_code_input_allocate_bed').value = '';
+                }
+            },
+            error: function(xhr) {
+                let errorMessage = 'Error allocating bed. Please try again.';
+                if (xhr.responseText) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        errorMessage = response.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = xhr.responseText;
+                    }
+                }
+                
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Allocation Failed',
+                    text: errorMessage,
+                    confirmButtonColor: '#3085d6'
+                });
+                $('#allocateBtn').prop('disabled', false);
+                document.getElementById('pin_code_input_allocate_bed').value = '';
+            }
+        });
+    }
+    
+    function dischargePatient() {
+        // Get PIN from modal input
+        const pinCode = document.getElementById('pin_code_input_discharge_patient').value;
+        
+        if (!pinCode) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'PIN Required',
+                text: 'Please enter your PIN code to authorize this action.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+        
+        // Close the PIN modal
+        $('#pinDischargeModal').modal('hide');
+        
+        // Confirm action
+        Swal.fire({
+            title: 'Confirm Discharge',
+            text: `Are you sure you want to discharge {{ patient.surname }} {{ patient.first_name }}?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, discharge patient',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading
+                Swal.fire({
+                    title: 'Processing...',
+                    text: 'Please wait while we process the discharge.',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                const csrftoken = getCookie('csrftoken');
+                
+                $.ajax({
+                    url: `/allocations/discharge/${patientId}/`,
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify({
+                        pin_code: pinCode
+                    }),
+                    timeout: 30000,
+                    success: function(response) {
+                        if (response.success) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Discharged!',
+                                text: response.message,
+                                confirmButtonColor: '#3085d6'
+                            }).then((result) => {
+                                if (response.redirect_url) {
+                                    window.location.href = response.redirect_url;
+                                } else {
+                                    location.reload();
+                                }
+                            });
+                        } else {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Discharge Failed',
+                                text: response.message,
+                                confirmButtonColor: '#3085d6'
+                            });
+                            document.getElementById('pin_code_input_discharge_patient').value = '';
+                        }
+                    },
+                    error: function(xhr) {
+                        let errorMessage = 'Error discharging patient. Please try again.';
+                        if (xhr.responseText) {
+                            try {
+                                const response = JSON.parse(xhr.responseText);
+                                errorMessage = response.message || errorMessage;
+                            } catch (e) {
+                                errorMessage = xhr.responseText;
+                            }
+                        }
+                        
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Discharge Failed',
+                            text: errorMessage,
+                            confirmButtonColor: '#3085d6'
+                        });
+                        document.getElementById('pin_code_input_discharge_patient').value = '';
+                    }
+                });
+            } else {
+                // Clear PIN input if cancelled
+                document.getElementById('pin_code_input_discharge_patient').value = '';
+            }
+        });
+    }
+    
+    // Clear PIN inputs when modals are closed
+    $('#pinAllocateModal').on('hidden.bs.modal', function () {
+        document.getElementById('pin_code_input_allocate_bed').value = '';
+    });
+    
+    $('#pinDischargeModal').on('hidden.bs.modal', function () {
+        document.getElementById('pin_code_input_discharge_patient').value = '';
+    });
+    
+    // Initialize
+    $(document).ready(function() {
+        {% if not current_allocation %}
+        $('#allocateBtn').prop('disabled', true);
+        {% endif %}
+    });
+</script>
+{% endblock content %}

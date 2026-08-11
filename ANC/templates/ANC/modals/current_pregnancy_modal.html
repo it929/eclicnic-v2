@@ -1,0 +1,69 @@
+<div id="current_pregnancy" class=" antenatal-form-section color-current-pregnancy">
+                    <h3>Current Pregnancy <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{pregnancy_instance.staff.fullname}}</span></h3>
+                    <form id="currentPregnancyForm" method="post" data-form-type="current_pregnancy">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="current_pregnancy">
+                        
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.last_menstrual_period.id_for_label }}">Last Menstrual Period: </label>
+                                    {{ current_pregnancy_form.last_menstrual_period }} 
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.gestational_age_weeks.id_for_label }}">Gestational Age (weeks):</label>
+                                    {{ current_pregnancy_form.gestational_age_weeks }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.bleeding.id_for_label }}">Bleeding:</label>
+                                    {{ current_pregnancy_form.bleeding }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.blurred_vision.id_for_label }}">Blurred Vision:</label>
+                                    {{ current_pregnancy_form.blurred_vision }}
+                                </div>
+                            </div>
+
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.oedema.id_for_label }}">Oedema:</label>
+                                    {{ current_pregnancy_form.oedema }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.expected_date_of_delivery.id_for_label }}">Expected Date of Delivery:</label>
+                                    {{ current_pregnancy_form.expected_date_of_delivery }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.number_of_foetus.id_for_label }}">Number of Foetus:</label>
+                                    {{ current_pregnancy_form.number_of_foetus }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.vomiting.id_for_label }}">Vomiting:</label>
+                                    {{ current_pregnancy_form.vomiting }}
+                                </div>
+                            </div>
+                        
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.breathlessness.id_for_label }}">Breathlessness:</label>
+                                    {{ current_pregnancy_form.breathlessness }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.placenta_previa.id_for_label }}">Placenta Previa:</label>
+                                    {{ current_pregnancy_form.placenta_previa }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.discharge.id_for_label }}">Discharge:</label>
+                                    {{ current_pregnancy_form.discharge }}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ current_pregnancy_form.history_of_present_pregnancy.id_for_label }}">History of Present Pregnancy:</label>
+                            {{ current_pregnancy_form.history_of_present_pregnancy }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" style="float: right;">Change Record</button>
+                    </form>
+                </div>

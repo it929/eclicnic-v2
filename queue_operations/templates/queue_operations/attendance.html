@@ -1,0 +1,156 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+{% if page == 'attendants-today' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <!-- Content Row -->
+      <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Register Date</th>
+                        </tr>
+                    </thead>
+                    <tfoot>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Register Date</th>
+                        </tr>
+                    </tfoot>
+                    <tbody>
+                        {% for patient in patients %}
+                        <tr>
+                            
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.plan.plan|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date }}</a></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No patients on the attendance list today</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% elif page == 'attendants-all' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <!-- Content Row -->
+      <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> 
+                &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} 
+                <!-- export option -->
+                <a href="{% url 'export_attendance' %}?category={{ request.POST.category }}&date1={{ request.POST.date1 }}&date2={{ request.POST.date2 }}" style="float: right; margin-top: -7px;" 
+                class="btn btn-success">
+                <i class="fas fa-download"></i> Export Results <i class="fas fa-clipboard-list"></i>
+            </a>
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Register Date</th>
+                        </tr>
+                    </thead>
+                    <tfoot>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Register Date</th>
+                        </tr>
+                    </tfoot>
+                    <tbody>
+                        {% for patient in patients %}
+                        <tr>
+                            
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date }}</a></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No patients on the attendance list</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="attendanceModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+<div class="modal-content">
+    <div class="modal-header">
+        <h5 class="modal-title text-primary" id="exampleModalLabel" style="font-weight: bold;"><i class="fas fa-filter"></i> Filter Attendance</h5>
+        <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">×</span>
+        </button>
+    </div>
+    <div class="modal-body" style="padding-inline: 30px; background: #f5f5f5;">
+        <form method="post">
+            {% csrf_token %}
+            <p><span class="text-primary">Select Category (Optional)</span></p>
+            <p>
+                <select name="category" class="form-control" style="margin-top: -7px;">
+                <option value="">--Select Category--</option>
+                <option>Private</option>
+                <option>ANC</option>
+                <option>HMO</option>
+                <option>NHIS</option>
+                <option>Retainership</option>
+            </select>
+            </p>
+            <p style="margin-top: -7px;"><span class="text-primary">Select Date From (Optional)</span></p>
+            <p style="margin-top: -7px;"><input type="date" class="form-control" name="date1"/></p>
+
+            <p style="margin-top: -7px;"><span class="text-primary">Select Date To (Optional)</span></p>
+            <p style="margin-top: -7px;"><input type="date" class="form-control" name="date2"/></p>
+    </div>
+    <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" >Filter Now <i class="fas fa-filter"></i>
+        </button>
+    </div>
+</form>
+</div>
+</div>
+</div>
+{% endif %}
+{% endblock %}

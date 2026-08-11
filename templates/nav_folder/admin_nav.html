@@ -1,0 +1,137 @@
+ <!-- Admin Profile Settings -->
+    <div class="sidebar-heading">
+        Admin Tools
+    </div>
+    
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyAdmin"
+            aria-expanded="true" aria-controls="collapseMyAdmin">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseMyAdmin" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item" style="margin-top: -20px;">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseAdmin2"
+            aria-expanded="true" aria-controls="collapseAdmin2">
+            <i class="fas fa-fw fa-tasks"></i>
+            <span>Task Manager</span>
+        </a>
+        <div id="collapseAdmin2" class="collapse" aria-labelledby="headingAdmin2" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin1Submenu" aria-expanded="false">
+                     Staff Management
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin1Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-primary" href="{% url 'staff_manager' %}">Manage Users</a>
+                    <a class="collapse-item text-primary" href="{% url 'online_users' %}">View Online Users</a>
+                    <a class="collapse-item text-primary" href="{% url 'all_activities' %}">User Activity logs</a>
+                    <a class="collapse-item text-primary" href="{% url 'activity_dashboard' %}">Activities Dashboard</a>
+                    <a class="collapse-item text-primary" href="{% url 'verify_staff' %}">Authenticate Users ID</a>
+                </div>
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin2Submenu" aria-expanded="false">
+                    Queue Monitor
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin2Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-info" href="{% url 'doctor_queues_all' %}">Waiting List</a>
+                    <a class="collapse-item text-info" href="{% url 'doctor_completes_all' %}">Completed List</a>
+                </div>
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-success font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin3Submenu" aria-expanded="false">
+                    <i class="fas fa-chart-line"></i> Statistical Insights
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin3Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-info" href="{% url 'diagnosis_analytics' %}">Medical Diagnosis</a>
+                    <a class="collapse-item text-info" href="{% url 'financial_analytics' %}">Financial Data</a>
+                </div>
+            </div>
+        </div>
+    </li>
+    
+    <li class="nav-item">
+        <a class="nav-link" href="#" id="departmentDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <i class="fas fa-fw fa-building text-warning"></i>
+            <span style="font-weight: bold;" class="text-warning">Switch Department ▼</span>
+        </a>
+        <div class="dropdown-menu" aria-labelledby="departmentDropdown" style="width: 100%;">
+            <a class="dropdown-item" href="#" onclick="loadDepartment('frontdesk')">🏥 Front Desk</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('nursing')">💉 Nursing</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('clinical')">👨‍⚕️ Clinical</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('inventory')">📦 Inventory</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('ipd1')">💊 IPD Pharmacy 1</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('ipd2')">💊 IPD Pharmacy 2</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('ipd3')">💊 IPD Pharmacy 3</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('opd1')">💊 OPD Pharmacy 1</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('opd2')">💊 OPD Pharmacy 2</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('laboratory')">🔬 Laboratory</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('radiology')">📡 Radiology</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('billings')">💰 Billings Unit</a>
+            <a class="dropdown-item" href="#" onclick="loadDepartment('reporting')"><i class="fas fa-chart-line"></i> Reporting Unit</a>
+        </div>
+    </li>
+    
+    <div id="departmentNavContainer">
+        <!-- Default: Front Desk navigation -->
+        <div id="nav-frontdesk" class="department-nav" style="display: none;">
+            {% include 'nav_folder/frontdesk_nav.html' %}
+        </div>
+        
+        <div id="nav-nursing" class="department-nav" style="display: none;">
+            {% include 'nav_folder/nursing_nav.html' %}
+        </div>
+        
+        <div id="nav-clinical" class="department-nav" style="display: none;">
+            {% include 'nav_folder/clinical_nav.html' %}
+        </div>
+        
+        <div id="nav-inventory" class="department-nav" style="display: none;">
+            {% include 'nav_folder/inventory_nav.html' %}
+        </div>
+        
+        <div id="nav-ipd1" class="department-nav" style="display: none;">
+            {% include 'nav_folder/ipd1_nav.html' %}
+        </div>
+        
+        <div id="nav-ipd2" class="department-nav" style="display: none;">
+            {% include 'nav_folder/ipd2_nav.html' %}
+        </div>
+        
+        <div id="nav-ipd3" class="department-nav" style="display: none;">
+            {% include 'nav_folder/ipd3_nav.html' %}
+        </div>
+        
+        <div id="nav-opd1" class="department-nav" style="display: none;">
+            {% include 'nav_folder/opd1_nav.html' %}
+        </div>
+        
+        <div id="nav-opd2" class="department-nav" style="display: none;">
+            {% include 'nav_folder/opd2_nav.html' %}
+        </div>
+        
+        <div id="nav-laboratory" class="department-nav" style="display: none;">
+            {% include 'nav_folder/laboratory_nav.html' %}
+        </div>
+        
+        <div id="nav-radiology" class="department-nav" style="display: none;">
+            {% include 'nav_folder/radiology_nav.html' %}
+        </div>
+        
+        <div id="nav-billings" class="department-nav" style="display: none;">
+            {% include 'nav_folder/billings_nav.html' %}
+        </div>
+
+        <div id="nav-reporting" class="department-nav" style="display: none;">
+            {% include 'nav_folder/reports_nav.html' %}
+        </div>
+    </div>

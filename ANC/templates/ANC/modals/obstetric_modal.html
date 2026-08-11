@@ -1,0 +1,87 @@
+<div id="obstetric_history" class="antenatal-form-section color-obstetric">
+    <h3>Obstetric History <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{obstetric_instance.staff.fullname}}</span></h3>
+    <form id="obstetricForm" method="post" data-form-type="obstetric">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="obstetric">
+        
+        <div class="form-grid">
+            <div class="form-col-1">
+                <div class="form-group">
+                    <label for="{{ obstetric_form.is_first_pregnancy.id_for_label }}">First Pregnancy:</label>
+                    {{ obstetric_form.is_first_pregnancy }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.history_spontaneous_abortions.id_for_label }}">History of 3+ Spontaneous Abortions:</label>
+                    {{ obstetric_form.history_spontaneous_abortions }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.birthweight_gt_4500g.id_for_label }}">Last Baby Weight > 4500g:</label>
+                    {{ obstetric_form.birthweight_gt_4500g }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.previous_caesarean_section.id_for_label }}">Previous Caesarean Section:</label>
+                    {{ obstetric_form.previous_caesarean_section }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.previous_surgery_reproductive_tract.id_for_label }}">Previous Surgery on Reproductive Tract:</label>
+                    {{ obstetric_form.previous_surgery_reproductive_tract }}
+                </div>
+                <div class="form-group" style="margin-top: 35px;">
+                    <label for="{{ obstetric_form.age_gt_40_years.id_for_label }}">Age > 40 Years:</label>
+                    {{ obstetric_form.age_gt_40_years }}
+                </div>
+            </div>
+            <div class="form-col-2">
+                <div class="form-group">
+                    <label for="{{ obstetric_form.vaginal_bleeding.id_for_label }}">Vaginal Bleeding:</label>
+                    {{ obstetric_form.vaginal_bleeding }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.diastolic_bp_gt_90.id_for_label }}">Diastolic BP ≥ 90 mmHg:</label>
+                    {{ obstetric_form.diastolic_bp_gt_90 }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.family_history_twins.id_for_label }}">Family History of Twins:</label>
+                    {{ obstetric_form.family_history_twins }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.previous_stillbirth_neonatal_loss.id_for_label }}">Previous Stillbirth/Neonatal Loss:</label>
+                    {{ obstetric_form.previous_stillbirth_neonatal_loss }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.birthweight_lt_2500g.id_for_label }}">Last Baby Weight < 2500g:</label>
+                    {{ obstetric_form.birthweight_lt_2500g }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.last_pregnancy_hospital_admission.id_for_label }}">Last Pregnancy Hospital Admission for HTN/Preeclampsia:</label>
+                    {{ obstetric_form.last_pregnancy_hospital_admission }}
+                </div>
+            </div>
+            <div class="form-col-3">
+                <div class="form-group">
+                    <label for="{{ obstetric_form.multiple_pregnancy.id_for_label }}">Multiple Pregnancy:</label>
+                    {{ obstetric_form.multiple_pregnancy }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.age_lt_16_years.id_for_label }}">Age < 16 Years:</label>
+                    {{ obstetric_form.age_lt_16_years }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.isoimmunization_rh.id_for_label }}">Isoimmunization Rh:</label>
+                    {{ obstetric_form.isoimmunization_rh }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.pelvic_mass.id_for_label }}">Pelvic Mass:</label>
+                    {{ obstetric_form.pelvic_mass }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ obstetric_form.insulin_dependent_diabetes.id_for_label }}">Insulin Dependent Diabetes:</label>
+                    {{ obstetric_form.insulin_dependent_diabetes }}
+                </div>
+                <div class="form-group" style="margin-top: 58px;">
+                    <button type="submit" class="btn btn-primary">Change Record</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>

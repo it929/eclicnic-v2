@@ -1,0 +1,109 @@
+<!-- templates/emr/add_diagnosis.html -->
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>Add Diagnosis for {{ patient.patient_id }}</h2>
+    
+    <div class="card">
+        <div class="card-body">
+            <form method="post" id="diagnosis-form">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                    <label for="icd11-search" class="form-label">Search ICD-11 Code</label>
+                    <input type="text" class="form-control" id="icd11-search" 
+                           placeholder="Start typing to search ICD-11 codes...">
+                    <div id="icd11-results" class="list-group mt-2" style="display: none;"></div>
+                </div>
+                
+                <div class="mb-3">
+                    {{ form.icd11_code.label_tag }}
+                    {{ form.icd11_code }}
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            {{ form.diagnosis_date.label_tag }}
+                            {{ form.diagnosis_date }}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3 form-check">
+                            {{ form.confirmed }}
+                            {{ form.confirmed.label_tag }}
+                        </div>
+                        <div class="mb-3 form-check">
+                            {{ form.primary_diagnosis }}
+                            {{ form.primary_diagnosis.label_tag }}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    {{ form.notes.label_tag }}
+                    {{ form.notes }}
+                </div>
+                
+                <button type="submit" class="btn btn-success">Save Diagnosis</button>
+                <a href="{% url 'emr:patient_diagnoses' patient.patient_id %}" class="btn btn-secondary">Cancel</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('icd11-search');
+    const resultsDiv = document.getElementById('icd11-results');
+    const codeSelect = document.getElementById('id_icd11_code');
+    
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        
+        if (query.length < 2) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+        
+        fetch(`{% url 'emr:icd11_autocomplete' %}?q=${encodeURIComponent(query)}`)
+            .then(response => response.json())
+            .then(data => {
+                resultsDiv.innerHTML = '';
+                
+                if (data.results.length > 0) {
+                    data.results.forEach(result => {
+                        const item = document.createElement('button');
+                        item.type = 'button';
+                        item.className = 'list-group-item list-group-item-action';
+                        item.innerHTML = `
+                            <strong>${result.code}</strong> - ${result.title}
+                            ${result.description ? `<br><small>${result.description}</small>` : ''}
+                        `;
+                        item.addEventListener('click', function() {
+                            // Set the selected code in the dropdown
+                            codeSelect.value = result.id;
+                            searchInput.value = `${result.code} - ${result.title}`;
+                            resultsDiv.style.display = 'none';
+                        });
+                        resultsDiv.appendChild(item);
+                    });
+                    resultsDiv.style.display = 'block';
+                } else {
+                    resultsDiv.style.display = 'none';
+                }
+            });
+    });
+    
+    // Hide results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+            resultsDiv.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}

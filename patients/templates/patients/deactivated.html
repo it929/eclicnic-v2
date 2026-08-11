@@ -1,0 +1,61 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+{% if page == 'deactivated' %}
+<div class="container-fluid">
+<!-- Page Heading -->
+    <h1 class="h3 mb-1 text-gray-800" style="color: rgb(42, 41, 41);"><i class="fa fa-user-times"></i> &nbsp;{{title}} <span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> </h1>
+  <p></p>
+
+    <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">{{title}} Records</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Time Registered</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Time Registered</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in patients %}
+                    <tr>
+                        <td>{{ patient.id }}</td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date }}</a></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No Deactivated patients</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+{% endif %}
+
+{% endblock content %}

@@ -1,0 +1,845 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+
+{% block content %}
+
+<style>
+
+    @media print {
+        body * {
+            visibility: hidden;
+        }
+        
+        .print-only, .print-only * {
+            visibility: visible;
+        }
+        
+        .print-only {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            margin: 0;
+            padding: 20px;
+            background: white;
+        }
+        
+        .no-print,
+        .filters,
+        .btn-filter,
+        .btn-reset,
+        .btn-print,
+        .alert,
+        .info-bar,
+        .summary-cards,
+        .main-sidebar,
+        .main-header,
+        .navbar,
+        .sidebar,
+        .footer {
+            display: none !important;
+        }
+        
+        .day-book-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+        }
+        
+        .day-book-table th,
+        .day-book-table td {
+            border: 1px solid #ddd !important;
+            padding: 8px !important;
+        }
+        
+        .print-header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #000;
+        }
+        
+        .print-footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+            font-size: 10px;
+        }
+    }
+    
+    /* Filter Section */
+    .filters {
+        padding: 20px 30px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+        display: grid;
+        grid-template-columns: 170px 170px 170px 170px 170px 170px ;
+        gap: -15px;
+        align-items: flex-end;
+        margin-top: -15px;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0px;
+    }
+    
+    .filter-group label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-left: -25px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        width: 90%;
+        min-width: 150px;
+        margin-left: -30px;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .filter-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: flex-start;
+    }
+    
+    .btn-filter {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background 0.3s;
+        white-space: nowrap;
+    }
+    
+    .btn-filter:hover {
+        background: #5a67d8;
+    }
+    
+    .btn-reset {
+        background: #6c757d;
+    }
+    
+    .btn-reset:hover {
+        background: #5a6268;
+    }
+    
+    .btn-print {
+        background: #28a745;
+    }
+    
+    .btn-print:hover {
+        background: #218838;
+    }
+    
+    .btn-excel {
+        background: #17a2b8;
+    }
+    
+    .btn-excel:hover {
+        background: #138496;
+    }
+    
+    /* Summary Cards */
+    .summary-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        padding: 30px;
+        background: #f8f9fa;
+    }
+    
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .card-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #888;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+    }
+    
+    .card-amount {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .card-amount.positive {
+        color: #28a745;
+    }
+    
+    .card-amount.negative {
+        color: #dc3545;
+    }
+    
+    .card-amount.neutral {
+        color: #ffc107;
+    }
+    
+    /* Table Section */
+    table {
+        cursor: pointer;
+    }
+    
+    th, td {
+        font-size: 11px;
+    }
+    
+    tr:hover {
+        background: #f5f5f5;
+    }
+    
+    .text-right {
+        text-align: right;
+    }
+    
+    .text-center {
+        text-align: center;
+    }
+    
+    .text-medication {
+        color: #1976d2;
+    }
+    
+    .text-investigations {
+        color: #7b1fa2;
+    }
+    
+    .text-consultation {
+        color: #388e3c;
+    }
+    
+    .text-services {
+        color: #f57c00;
+    }
+    
+    .text-admission {
+        color: #c62828;
+    }
+    
+    .text-registration {
+        color: #00838f;
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 50px;
+        color: #999;
+    }
+    
+    .alert {
+        padding: 15px 20px;
+        margin: 20px 30px;
+        border-radius: 8px;
+        background: #fff3cd;
+        border: 1px solid #ffeeba;
+        color: #856404;
+    }
+    
+    .alert-info {
+        background: #d1ecf1;
+        border-color: #bee5eb;
+        color: #0c5460;
+    }
+    
+    .info-bar {
+        padding: 10px 30px;
+        background: #e9ecef;
+        font-size: 12px;
+        color: #666;
+        border-top: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+    }
+    
+    /* Patient search autocomplete styles */
+    .search-wrapper {
+        position: relative;
+    }
+    
+    .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .search-results.show {
+        display: block;
+    }
+    
+    .search-result-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .search-result-item:hover {
+        background: #f0f2f5;
+    }
+    
+    .search-result-item .patient-id {
+        font-size: 11px;
+        color: #888;
+    }
+    
+    @media print {
+        .search-results {
+            display: none !important;
+        }
+    }
+</style>
+
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);">
+        <i class="fa fa-book-open"></i> &nbsp;Transactions Day Book
+            <!-- <button class="btn-filter btn-sm" onclick="applyFilters()" style="float: right;">Apply</button> -->
+            <button class="btn-filter btn-reset btn-sm" onclick="resetFilters()" style="float: right;">Reset</button>
+            <button class="btn-filter btn-print btn-sm" onclick="printDayBook()" style="float: right; margin-right: 10px;">🖨️ Print</button>
+            <button class="btn-filter btn-excel btn-sm" onclick="exportToExcel()" style="float: right; margin-right: 10px;">📊 Excel</button>
+    </h1>
+    <p></p>
+    <hr style="margin-top: -5px;">
+    
+    <!-- Filters -->
+    <div class="filters no-print">
+        <div class="filter-group">
+            <label>Date From</label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+        </div>
+        
+        <div class="filter-group">
+            <label>Date To</label>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+        </div>
+        
+        <!-- Service Type Filter -->
+        <div class="filter-group">
+            <label>Transaction Type</label>
+            <select id="service_type">
+                <option value="All" {% if service_type == 'All' %}selected{% endif %}>All</option>
+                <option value="Registration" {% if service_type == 'Registration' %}selected{% endif %}>Registration</option>
+                <option value="Consultation" {% if service_type == 'Consultation' %}selected{% endif %}>Consultation</option>
+                <option value="Medication" {% if service_type == 'Medication' %}selected{% endif %}>Medication</option>
+                <option value="Investigations" {% if service_type == 'Investigations' %}selected{% endif %}>Investigations</option>
+                <option value="Services" {% if service_type == 'Services' %}selected{% endif %}>Services</option>
+                <option value="Admission" {% if service_type == 'Admission' %}selected{% endif %}>Admission</option>
+                <option value="Antenatal" {% if service_type == 'Antenatal' %}selected{% endif %}>Antenatal</option>
+            </select>
+        </div>
+        <!-- Patient Search Filter -->
+        <div class="filter-group">
+            <label>Patient Search</label>
+            <div class="search-wrapper">
+                <input type="text" id="patient_search" name="patient" 
+                       placeholder="Name/Hospital Number..." 
+                       value="{{ patient_search }}"
+                       autocomplete="off">
+                <div id="search_results" class="search-results"></div>
+            </div>
+        </div>
+
+        <!-- Patient Category Filter -->
+        <div class="filter-group">
+            <label>Patient Category</label>
+            <select id="transaction_type">
+                <option value="All" {% if transaction_type == 'All' %}selected{% endif %}>All</option>
+                <option value="Private" {% if transaction_type == 'Private' %}selected{% endif %}>Private</option>
+                <option value="HMO" {% if transaction_type == 'HMO' %}selected{% endif %}>HMO</option>
+                <option value="ANC" {% if transaction_type == 'ANC' %}selected{% endif %}>ANC</option>
+                <option value="NHIS" {% if transaction_type == 'NHIS' %}selected{% endif %}>NHIS</option>
+                <option value="Retainership" {% if transaction_type == 'Retainership' %}selected{% endif %}>Retainership</option>
+            </select>
+        </div>
+        
+        <!-- Patient Type Filter -->
+        <div class="filter-group">
+            <label>Patient Type</label>
+            <select id="patient_type">
+                <option value="All" {% if patient_type == 'All' %}selected{% endif %}>All</option>
+                {% for pt in patient_types %}
+                    <option value="{{ pt }}" {% if patient_type == pt %}selected{% endif %}>{{ pt }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+    </div>
+    
+    {% if not has_data %}
+    <div class="alert alert-info no-print">
+        <strong>No data found!</strong> No transactions match the selected criteria.
+    </div>
+    {% endif %}
+    
+    <!-- Summary Cards -->
+    <div class="summary-cards no-print">
+        <div class="card">
+            <div class="card-title">Total Revenues</div>
+            <div class="card-amount positive">₦ {{ total_revenues|currency|default:"0.00" }}</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Total Collections</div>
+            <div class="card-amount positive">₦ {{ total_collections|currency|default:"0.00" }}</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Total Refunds</div>
+            <div class="card-amount negative">₦ {{ total_refunds|currency|default:"0.00" }}</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Outstanding Balance</div>
+            <div class="card-amount {% if total_balance > 0 %}positive{% elif total_balance < 0 %}negative{% else %}neutral{% endif %}">
+                ₦ {{ total_balance|currency|default:"0.00" }}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Table -->
+    <div class="table-wrapper">
+        <table class="table table-bordered table-striped day-book-table" id="dayBookTable">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Patient</th>
+                    <th>Details</th>
+                    <th class="text-right">Revenues (₦)</th>
+                    <th class="text-right">Collections (₦)</th>
+                    <th class="text-right">Settled (₦)</th>
+                    <th class="text-right">Refunds (₦)</th>
+                    <th class="text-right">Balance (₦)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if day_book_entries %}
+                    {% for entry in day_book_entries %}
+                    <tr>
+                        <td>{{ entry.date }}</td>
+                        <td><a href="{% url 'patient_profile' entry.patient_url.id %}" class="text-secondary">
+                            <strong>{{ entry.patient }}</strong>
+                            [<small style="color: #888;">{{ entry.patient_id }}</small>]
+                            </a>
+                        </td>
+                        <td>
+                            <div class="badge-container">
+                                {% with details_list=entry.details|split:", " %}
+                                    {% for detail in entry.details|split:", " %}
+                                        <span class="text-{{ detail|lower }}">
+                                            {{ detail }}
+                                        </span>
+                                        {% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                {% endwith %}
+                            </div>
+                        </td>
+                        <td class="text-right">{{ entry.revenue|floatformat:2 }}</td>
+                        <td class="text-right">{{ entry.collections|floatformat:2 }}</td>
+                        <td class="text-right">{{ entry.settled|floatformat:2 }}</td>
+                        <td class="text-right">{{ entry.refunds|floatformat:2 }}</td>
+                        <td class="text-right {% if entry.balance > 0 %}positive{% elif entry.balance < 0 %}negative{% endif %}">
+                            {{ entry.balance|floatformat:2 }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="8" class="no-data">No transactions found for the selected period</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+            {% if day_book_entries %}
+            <tfoot>
+                <tr>
+                    <td colspan="3"><strong>Total Summary</strong></td>
+                    <td class="text-right"><strong>₦ {{ total_revenues|floatformat:2|default:"0.00" }}</strong></td>
+                    <td class="text-right"><strong>₦ {{ total_collections|floatformat:2|default:"0.00" }}</strong></td>
+                    <td class="text-right"><strong>₦ 0.00</strong></td>
+                    <td class="text-right"><strong>₦ {{ total_refunds|floatformat:2|default:"0.00" }}</strong></td>
+                    <td class="text-right"><strong>₦ {{ total_balance|floatformat:2|default:"0.00" }}</strong></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+    
+    <div class="info-bar no-print">
+        <span>Generated on: {{ current_date|date:"d M Y h:i A" }}</span>
+        <span>{{ entries_count }} transaction(s) found</span>
+    </div>
+</div>
+
+<!-- Print Section - Hidden on screen, visible only when printing -->
+<div class="print-only" style="display: none;">
+    <div class="print-header">
+        <h2>Transaction Day Book</h2>
+        <p>
+            Period: 
+            {% if start_date and end_date %}
+                {{ start_date|date:"d M Y" }} to {{ end_date|date:"d M Y" }}
+            {% else %}
+                {{ current_date|date:"d M Y" }}
+            {% endif %}
+            | Type: {{ transaction_type }}
+        </p>
+    </div>
+    
+    <table class="table table-bordered" style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="border: 1px solid #000; padding: 8px;">Date</th>
+                <th style="border: 1px solid #000; padding: 8px;">Patient</th>
+                <th style="border: 1px solid #000; padding: 8px;">Details</th>
+                <th style="border: 1px solid #000; padding: 8px; text-align: right;">Revenues (₦)</th>
+                <th style="border: 1px solid #000; padding: 8px; text-align: right;">Collections (₦)</th>
+                <th style="border: 1px solid #000; padding: 8px; text-align: right;">Settled (₦)</th>
+                <th style="border: 1px solid #000; padding: 8px; text-align: right;">Refunds (₦)</th>
+                <th style="border: 1px solid #000; padding: 8px; text-align: right;">Balance (₦)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if day_book_entries %}
+                {% for entry in day_book_entries %}
+                <tr>
+                    <td style="border: 1px solid #000; padding: 8px;">{{ entry.date }}</td>
+                    <td style="border: 1px solid #000; padding: 8px;">
+                        {{ entry.patient }} [{{ entry.patient_id }}]
+                    </td>
+                    <td style="border: 1px solid #000; padding: 8px;">{{ entry.details }}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">{{ entry.revenue|floatformat:2 }}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">{{ entry.collections|floatformat:2 }}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">{{ entry.settled|floatformat:2 }}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">{{ entry.refunds|floatformat:2 }}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">{{ entry.balance|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            {% endif %}
+        </tbody>
+        {% if day_book_entries %}
+        <tfoot>
+            <tr>
+                <td colspan="3" style="border: 1px solid #000; padding: 8px;"><strong>Total</strong></td>
+                <td style="border: 1px solid #000; padding: 8px; text-align: right;"><strong>{{ total_revenues|floatformat:2 }}</strong></td>
+                <td style="border: 1px solid #000; padding: 8px; text-align: right;"><strong>{{ total_collections|floatformat:2 }}</strong></td>
+                <td style="border: 1px solid #000; padding: 8px; text-align: right;"><strong>0.00</strong></td>
+                <td style="border: 1px solid #000; padding: 8px; text-align: right;"><strong>{{ total_refunds|floatformat:2 }}</strong></td>
+                <td style="border: 1px solid #000; padding: 8px; text-align: right;"><strong>{{ total_balance|floatformat:2 }}</strong></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+    
+    <div class="print-footer">
+        <p>Generated on: {{ current_date|date:"d M Y h:i A" }} | {{ entries_count }} transaction(s) found</p>
+    </div>
+</div>
+
+<script>
+    // Auto-complete for patient search
+    let searchTimeout;
+    const searchInput = document.getElementById('patient_search');
+    const searchResults = document.getElementById('search_results');
+    
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        const query = this.value.trim();
+        
+        if (query.length < 2) {
+            searchResults.classList.remove('show');
+            return;
+        }
+        
+        searchTimeout = setTimeout(function() {
+            fetchPatients(query);
+        }, 300);
+    });
+    
+    function fetchPatients(query) {
+        fetch(`/api/patients/search/?q=${encodeURIComponent(query)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.results && data.results.length > 0) {
+                    searchResults.innerHTML = data.results.map(patient => `
+                        <div class="search-result-item" onclick="selectPatient('${patient.id}', '${patient.full_name}')">
+                            <strong>${patient.full_name}</strong>
+                            <div class="patient-id">${patient.hospital_number || 'No ID'}</div>
+                        </div>
+                    `).join('');
+                    searchResults.classList.add('show');
+                } else {
+                    searchResults.innerHTML = '<div class="search-result-item" style="color: #888;">No patients found</div>';
+                    searchResults.classList.add('show');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching patients:', error);
+            });
+    }
+    
+    function selectPatient(id, name) {
+        searchInput.value = name;
+        searchResults.classList.remove('show');
+        // Store patient ID for filtering
+        searchInput.dataset.patientId = id;
+        // Auto-apply filter
+        applyFilters();
+    }
+    
+    // Close search results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.search-wrapper')) {
+            searchResults.classList.remove('show');
+        }
+    });
+    
+    function applyFilters() {
+        const startDate = document.getElementById('start_date').value;
+        const endDate = document.getElementById('end_date').value;
+        const transactionType = document.getElementById('transaction_type').value;
+        const patientSearch = document.getElementById('patient_search').value;
+        const patientType = document.getElementById('patient_type').value;
+        const serviceType = document.getElementById('service_type').value;
+        
+        let url = window.location.pathname + '?';
+        
+        if (startDate) url += `start_date=${startDate}&`;
+        if (endDate) url += `end_date=${endDate}&`;
+        if (transactionType && transactionType !== 'All') url += `type=${transactionType}&`;
+        if (patientSearch) url += `patient=${encodeURIComponent(patientSearch)}&`;
+        if (patientType && patientType !== 'All') url += `patient_type=${encodeURIComponent(patientType)}&`;
+        if (serviceType && serviceType !== 'All') url += `service_type=${encodeURIComponent(serviceType)}&`;
+        
+        url = url.replace(/[?&]$/, '');
+        window.location.href = url;
+    }
+    
+    function resetFilters() {
+        window.location.href = window.location.pathname;
+    }
+    
+    function printDayBook() {
+        const printSection = document.querySelector('.print-only');
+        printSection.style.display = 'block';
+        window.print();
+        setTimeout(function() {
+            printSection.style.display = 'none';
+        }, 100);
+    }
+    
+    function exportToExcel() {
+        const table = document.getElementById('dayBookTable');
+        const rows = table.querySelectorAll('tr');
+        const excelData = [];
+        
+        // Headers
+        const headers = ['Date', 'Patient', 'Details', 'Revenues (₦)', 'Collections (₦)', 'Settled (₦)', 'Refunds (₦)', 'Balance (₦)'];
+        excelData.push(headers);
+        
+        // Data rows - exclude header and footer
+        let totalRevenue = 0;
+        let totalCollection = 0;
+        let totalRefund = 0;
+        let totalBalance = 0;
+        let hasData = false;
+        
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const cols = row.querySelectorAll('td');
+            
+            // Skip if no columns or if it's a total row (contains 'Total Summary' or 'TOTAL')
+            if (cols.length === 0) continue;
+            
+            // Check if this is a total row
+            const firstColText = cols[0]?.innerText?.trim() || '';
+            if (firstColText.includes('Total Summary') || firstColText.includes('TOTAL')) {
+                // if This is the total row - we'll handle it separately
+                continue;
+            }
+            
+            // Check if this row has actual data 
+            if (cols.length >= 8 && cols[0]?.innerText?.trim() && !cols[0]?.innerText?.includes('No transactions')) {
+                hasData = true;
+                const rowData = [];
+                
+                // Date
+                rowData.push(cols[0]?.innerText.trim() || '');
+                
+                // Patient 
+                let patientText = cols[1]?.innerText.trim() || '';
+                patientText = patientText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+                rowData.push(patientText);
+                
+                // Details 
+                let detailsText = cols[2]?.innerText.trim() || '';
+                detailsText = detailsText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+                rowData.push(detailsText);
+                
+                // Revenue - removing ₦ symbol and commas
+                let revenue = cols[3]?.innerText.trim() || '0';
+                revenue = revenue.replace(/[₦,]/g, '').trim();
+                rowData.push(revenue);
+                
+                // Collections
+                let collection = cols[4]?.innerText.trim() || '0';
+                collection = collection.replace(/[₦,]/g, '').trim();
+                rowData.push(collection);
+                
+                // Settled
+                let settled = cols[5]?.innerText.trim() || '0';
+                settled = settled.replace(/[₦,]/g, '').trim();
+                rowData.push(settled);
+                
+                // Refunds
+                let refund = cols[6]?.innerText.trim() || '0';
+                refund = refund.replace(/[₦,]/g, '').trim();
+                rowData.push(refund);
+                
+                // Balance
+                let balance = cols[7]?.innerText.trim() || '0';
+                balance = balance.replace(/[₦,]/g, '').trim();
+                rowData.push(balance);
+                
+                excelData.push(rowData);
+                
+                // Accumulate totals for verification
+                totalRevenue += parseFloat(revenue) || 0;
+                totalCollection += parseFloat(collection) || 0;
+                totalRefund += parseFloat(refund) || 0;
+                totalBalance += parseFloat(balance) || 0;
+            }
+        }
+        
+        // the total row from the tfoot
+        const tfoot = table.querySelector('tfoot');
+        if (tfoot && hasData) {
+            const totalRow = tfoot.querySelector('tr');
+            if (totalRow) {
+                const totalCols = totalRow.querySelectorAll('td');
+                if (totalCols.length >= 8) {
+                    // the actual totals from the footer
+                    let footerRevenue = totalCols[3]?.innerText.trim() || '0';
+                    footerRevenue = footerRevenue.replace(/[₦,]/g, '').trim();
+                    
+                    let footerCollection = totalCols[4]?.innerText.trim() || '0';
+                    footerCollection = footerCollection.replace(/[₦,]/g, '').trim();
+                    
+                    let footerSettled = totalCols[5]?.innerText.trim() || '0';
+                    footerSettled = footerSettled.replace(/[₦,]/g, '').trim();
+                    
+                    let footerRefund = totalCols[6]?.innerText.trim() || '0';
+                    footerRefund = footerRefund.replace(/[₦,]/g, '').trim();
+                    
+                    let footerBalance = totalCols[7]?.innerText.trim() || '0';
+                    footerBalance = footerBalance.replace(/[₦,]/g, '').trim();
+                    
+                    // Adding an empty row for spacing
+                    excelData.push(['', '', '', '', '', '', '', '']);
+                    
+                    // Adding total row
+                    excelData.push([
+                        'TOTAL',
+                        '',
+                        '',
+                        footerRevenue,
+                        footerCollection,
+                        footerSettled,
+                        footerRefund,
+                        footerBalance
+                    ]);
+                }
+            }
+        }
+        
+        // If no data was found, add a message
+        if (!hasData) {
+            excelData.push(['No transactions found for the selected period']);
+        }
+        
+        // Convert to CSV with proper escaping
+        const csvContent = excelData.map(row => 
+            row.map(cell => {
+                if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+                    return `"${cell.replace(/"/g, '""')}"`;
+                }
+                return cell;
+            }).join(',')
+        ).join('\n');
+        
+        // Create download
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        // Generate filename
+        const startDate = document.getElementById('start_date').value;
+        const endDate = document.getElementById('end_date').value;
+        let filename = 'Transaction_Day_Book';
+        if (startDate && endDate) {
+            filename += `_${startDate}_to_${endDate}`;
+        } else {
+            const today = new Date().toISOString().split('T')[0];
+            filename += `_${today}`;
+        }
+        
+        link.href = url;
+        link.download = `${filename}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+    
+    // Auto-apply filters on change
+    let dateTimeout;
+    function handleAutoApply() {
+        clearTimeout(dateTimeout);
+        dateTimeout = setTimeout(() => {
+            applyFilters();
+        }, 500);
+    }
+    
+    document.getElementById('start_date').addEventListener('change', handleAutoApply);
+    document.getElementById('end_date').addEventListener('change', handleAutoApply);
+    document.getElementById('transaction_type').addEventListener('change', applyFilters);
+    document.getElementById('patient_type').addEventListener('change', applyFilters);
+    document.getElementById('service_type').addEventListener('change', applyFilters);
+    
+    // Enter key for patient search
+    document.getElementById('patient_search').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyFilters();
+        }
+    });
+</script>
+
+{% endblock %}

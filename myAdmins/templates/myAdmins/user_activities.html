@@ -1,0 +1,146 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="h3 mb-3 text-gray-800 font-weight-bold">User Activities 
+                <span class="badge badge-secondary">{{ total_count }}</span>
+            </h1>
+            
+            <!-- Filter Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="font-weight-bold">Filter Activities</h6>
+                </div>
+                <div class="card-body">
+                    <form method="GET" class="row">
+                        <div class="col-md-3">
+                            <label>Activity Type</label>
+                            <select name="type" class="form-control">
+                                <option value="">All Activities</option>
+                                {% for value, label in activity_types %}
+                                <option value="{{ value }}" {% if current_type == value %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label>Start Date</label>
+                            <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label>End Date</label>
+                            <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-primary btn-block">Apply Filters</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Activities Table -->
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped" id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Activity Type</th>
+                            <th>Description</th>
+                            <th>Browser</th>
+                            <th>OS</th>
+                            <th>Device</th>
+                            <th>IP Address</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for activity in activities %}
+                        <tr>
+                            <td>{{ activity.user.fullname }}</td>
+                            <td>
+                                {% if activity.activity_type == 'login' %}
+                                    <span class="badge badge-success">Login</span>
+                                {% elif activity.activity_type == 'logout' %}
+                                    <span class="badge badge-info">Logout</span>
+                                {% elif activity.activity_type == 'password_reset' %}
+                                    <span class="badge badge-warning">Password Reset</span>
+                                {% elif activity.activity_type == 'deactivated' %}
+                                    <span class="badge badge-danger">Deactivated</span>
+                                {% elif activity.activity_type == 'activated' %}
+                                    <span class="badge badge-success">Activated</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">{{ activity.get_activity_type_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ activity.description|default:"-" }}</td>
+                            <td>
+                                {% if activity.browser_name %}
+                                    {{ activity.browser_name }} {{ activity.browser_version }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if activity.os_name %}
+                                    {{ activity.os_name }} {{ activity.os_version }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if activity.device_type %}
+                                    <i class="fas fa-{% if activity.device_type == 'Mobile' %}mobile-alt{% elif activity.device_type == 'Desktop' %}desktop{% else %}tablet-alt{% endif %}"></i>
+                                    {{ activity.device_type }}
+                                    {% if activity.device_brand %}
+                                        ({{ activity.device_brand }})
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ activity.ip_address|default:"-" }}</td>
+                            <td>{{ activity.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center">No activities found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add DataTables for better display -->
+<link href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap4.min.css" rel="stylesheet">
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap4.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    $('#dataTable').DataTable({
+        "order": [[8, "desc"]], // Order by timestamp descending
+        "pageLength": 25,
+        "language": {
+            "search": "Search activities:"
+        }
+    });
+});
+</script>
+
+<style>
+    .badge {
+        font-size: 11px;
+        padding: 5px 8px;
+    }
+    table td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}

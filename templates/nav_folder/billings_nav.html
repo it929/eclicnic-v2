@@ -1,0 +1,75 @@
+<div class="sidebar-heading">
+    {% if request.user.department.department == 'Billings' %}<span>Billings</span>{% else %}<span class="text-warning font-weight-bold">💰 Billings</span>{% endif %}
+</div>
+
+    {% if request.user.department.department == 'Billings' %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+                    aria-expanded="true" aria-controls="collapseTwo">
+                    <i class="fas fa-fw fa-cog"></i>
+                    <span>Profile Settings</span>
+                </a>
+                <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                        <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                        <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+                    </div>
+                </div>
+            </li> 
+    {% endif %}   
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseExport"
+            aria-expanded="true" aria-controls="collapseExport">
+            <i class="fas fa-users"></i>
+            <span>Queues Management</span>
+        </a>
+        <div id="collapseExport" class="collapse" aria-labelledby="headingExport" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#within24Hours" aria-expanded="false">
+                Within 24 Hours
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="within24Hours" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'get_transactions' %}">Unprocessed Bills</a>
+                <a class="collapse-item" href="{% url 'get_partially_paid_transactions' %}">Partially Cleared</a>
+                <a class="collapse-item" href="{% url 'get_completed_transactions' %}">Fully Paid</a>
+                <a class="collapse-item" href="{% url 'get_transactions_table' %}">Transactions log</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#above24Hours" aria-expanded="false">
+                Beyond 24 Hours
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="above24Hours" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'get_transactions_all' %}">Unprocessed Bills</a>
+                <a class="collapse-item" href="{% url 'get_partially_paid_transactions_all' %}">Partially Cleared</a>
+                <a class="collapse-item" href="{% url 'get_completed_transactions_all' %}">Fully Paid</a>
+                <a class="collapse-item" href="{% url 'get_transactions_table_all' %}">Transactions log</a>
+            </div>
+            </div>
+        </div>
+    </li>
+
+    <li class="nav-item">
+        <a class="nav-link" href="{% url 'financial_analytics' %}">
+            <i class="fas fa-chart-line"></i>
+            <span>Daily Revenue Chart</span>
+        </a>
+    </li>
+
+    <li class="nav-item">
+        <a class="nav-link" href="{% url 'transaction_day_book' %}">
+            <i class="fas fa-list"></i>
+            <span>Transaction Day Book</span>
+        </a>
+    </li>
+
+
+    <li class="nav-item">
+        <a class="nav-link" href="{% url 'search_page' %}">
+            <i class="fas fa-search"></i>
+            <span>Search for Patients</span>
+        </a>
+    </li>

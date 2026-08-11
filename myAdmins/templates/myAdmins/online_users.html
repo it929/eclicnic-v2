@@ -1,0 +1,442 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800 font-weight-bold">
+            <i class="fas fa-users"></i> Online Users
+            <span class="badge badge-success ml-2" id="onlineCount">{{ total_online }}</span>
+        </h1>
+        <div>
+            <button class="btn btn-primary btn-sm" onclick="refreshData()">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+            <button class="btn btn-info btn-sm" onclick="startAutoRefresh()">
+                <i class="fas fa-play"></i> Auto Refresh (30s)
+            </button>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                <i class="fas fa-users"></i> Currently Online
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalOnline">
+                                {{ total_online }}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                <i class="fas fa-desktop"></i> Desktop Users
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ devices.Desktop }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-desktop fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                <i class="fas fa-mobile-alt"></i> Mobile Users
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ devices.Mobile }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-mobile-alt fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                <i class="fas fa-clock"></i> Timeout (minutes)
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ timeout_minutes }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-hourglass-half fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Online Users Table -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-user-clock"></i> Currently Active Users
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped table-hover" id="onlineUsersTable">
+                    <thead class="bg-dark text-white">
+                        <tr>
+                            <th>Status</th>
+                            <th>User</th>
+                            <th>Department</th>
+                            <th>Device</th>
+                            <th>Browser / OS</th>
+                            <th>IP Address</th>
+                            <th>Last Activity</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="onlineUsersBody">
+                        {% for user in online_users %}
+                        <tr>
+                            <td>
+                                <span class="badge badge-success">
+                                    <i class="fas fa-circle"></i> Online
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    {% if user.user.avatar %}
+                                        <img src="{{ user.user.avatar.url }}" class="rounded-circle mr-2" width="40" height="40">
+                                    {% else %}
+                                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mr-2" style="width: 40px; height: 40px;">
+                                            {{ user.user.username|make_list|first|upper }}
+                                        </div>
+                                    {% endif %}
+                                    <div>
+                                        <strong>{{ user.user.fullname|default:user.user.username }}</strong>
+                                        <br>
+                                        <small class="text-muted">@{{ user.user.username }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>{{ user.user.department|default:"-" }}</td>
+                            <td>
+                                <i class="fas fa-{% if user.device == 'Desktop' %}desktop{% elif user.device == 'Mobile' %}mobile-alt{% else %}tablet-alt{% endif %}"></i>
+                                {{ user.device }}
+                            </td>
+                            <td>
+                                <div>
+                                    <i class="fab fa-{% if 'Chrome' in user.browser %}chrome{% elif 'Firefox' in user.browser %}firefox{% elif 'Safari' in user.browser %}safari{% elif 'Edge' in user.browser %}edge{% else %}internet-explorer{% endif %}"></i>
+                                    {{ user.browser|default:"Unknown" }}
+                                </div>
+                                <small class="text-muted">{{ user.os|default:"Unknown" }}</small>
+                            </td>
+                            <td><code>{{ user.ip_address|default:"Unknown" }}</code></td>
+                            <td>
+                                <div class="text-nowrap">
+                                    <i class="fas fa-clock"></i> 
+                                    <span class="last-active-time" data-time="{{ user.last_activity|date:'Y-m-d H:i:s' }}">
+                                        {{ user.last_activity|timesince }} ago
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <button class="btn btn-danger btn-sm" onclick="forceLogout({{ user.user.id }}, '{{ user.user.username }}', '{{ user.user.fullname|default:user.user.username }}')">
+                                    <i class="fas fa-sign-out-alt"></i> Force Logout
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" class="text-center py-5">
+                                <i class="fas fa-user-slash fa-3x text-muted mb-3"></i>
+                                <h5>No users currently online</h5>
+                                <p class="text-muted">Users who are active within the last {{ timeout_minutes }} minutes will appear here.</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let autoRefreshInterval = null;
+
+    function forceLogout(userId, username, fullname) {
+        const displayName = fullname || username;
+        
+        Swal.fire({
+            title: 'Force Logout?',
+            html: `Are you sure you want to forcefully logout <strong>${displayName}</strong>?<br><small>This will terminate their current session immediately.</small>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, force logout!',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading
+                Swal.fire({
+                    title: 'Processing...',
+                    text: `Force logging out ${displayName}...`,
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // Get CSRF token
+                const csrftoken = getCookie('csrftoken');
+                
+                fetch(`/force-logout-user/${userId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Success!',
+                            text: data.message,
+                            showConfirmButton: false,
+                            timer: 2000
+                        });
+                        // Refresh the online users list after 2 seconds
+                        setTimeout(() => {
+                            refreshData();
+                        }, 2000);
+                    } else {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error!',
+                            text: data.error || 'Failed to logout user'
+                        });
+                    }
+                })
+                .catch(error => {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error!',
+                        text: 'An error occurred. Please try again.'
+                    });
+                    console.error('Error:', error);
+                });
+            }
+        });
+    }
+
+    // Helper function to get CSRF token from cookies
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Refresh data function
+    function refreshData() {
+        fetch('/online-users-api/')
+            .then(response => response.json())
+            .then(data => {
+                updateOnlineUsersTable(data.users);
+                document.getElementById('totalOnline').innerText = data.total;
+                document.getElementById('onlineCount').innerText = data.total;
+                
+                // Update device statistics
+                const devices = {
+                    'Desktop': 0,
+                    'Mobile': 0, 
+                    'Tablet': 0,
+                    'Unknown': 0
+                };
+                
+                data.users.forEach(user => {
+                    const device = user.device || 'Unknown';
+                    devices[device] = (devices[device] || 0) + 1;
+                });
+                
+                // Update stats display if you have these elements
+                if (document.getElementById('desktopCount')) {
+                    document.getElementById('desktopCount').innerText = devices.Desktop;
+                    document.getElementById('mobileCount').innerText = devices.Mobile;
+                    document.getElementById('tabletCount').innerText = devices.Tablet;
+                }
+            })
+            .catch(error => console.error('Error fetching online users:', error));
+    }
+
+    // Update the table dynamically
+    function updateOnlineUsersTable(users) {
+        const tbody = document.getElementById('onlineUsersBody');
+        
+        if (!users || users.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center py-5">
+                        <i class="fas fa-user-slash fa-3x text-muted mb-3"></i>
+                        <h5>No users currently online</h5>
+                        <p class="text-muted">Users who are active within the last 5 minutes will appear here.</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        tbody.innerHTML = '';
+        
+        users.forEach(user => {
+            const row = `
+                <tr>
+                    <td>
+                        <span class="badge badge-success">
+                            <i class="fas fa-circle"></i> Online
+                        </span>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mr-2" style="width: 40px; height: 40px;">
+                                ${user.fullname ? user.fullname.charAt(0).toUpperCase() : user.username.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <strong>${user.fullname || user.username}</strong>
+                                <br>
+                                <small class="text-muted">@${user.username}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${user.department || '-'}</td>
+                    <td>
+                        <i class="fas fa-${user.device === 'Desktop' ? 'desktop' : (user.device === 'Mobile' ? 'mobile-alt' : 'tablet-alt')}"></i>
+                        ${user.device || 'Unknown'}
+                    </td>
+                    <td>
+                        <div>${user.browser || 'Unknown'}</div>
+                        <small class="text-muted">${user.os || 'Unknown'}</small>
+                    </td>
+                    <td><code>${user.ip_address || 'Unknown'}</code></td>
+                    <td>
+                        <div class="text-nowrap">
+                            <i class="fas fa-clock"></i> 
+                            <span class="last-active-time" data-time="${user.last_activity}">
+                                ${getTimeAgo(user.last_activity)}
+                            </span>
+                        </div>
+                    </td>
+                    <td>
+                        <button class="btn btn-danger btn-sm" onclick="forceLogout(${user.id}, '${user.username}', '${user.fullname}')">
+                            <i class="fas fa-power-off"></i> Force Logout
+                        </button>
+                    </td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+
+    // Helper function to get time ago
+    function getTimeAgo(dateString) {
+        const now = new Date();
+        const date = new Date(dateString);
+        const seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return `${seconds} seconds ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+        return `${Math.floor(hours / 24)} days ago`;
+    }
+
+    // Auto-refresh every 30 seconds
+    let refreshInterval = setInterval(refreshData, 30000);
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            clearInterval(refreshInterval);
+        } else {
+            refreshInterval = setInterval(refreshData, 30000);
+            refreshData(); // Refresh immediately when page becomes visible
+        }
+    });
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', function() {
+        refreshData();
+    });
+</script>
+
+<style>
+    .badge-success {
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.6;
+        }
+        100% {
+            opacity: 1;
+        }
+    }
+    
+    .rounded-circle {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    code {
+        background-color: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+    
+    .table td {
+        vertical-align: middle;
+    }
+    table{
+        font-size: 13px;
+    }
+</style>
+{% endblock %}

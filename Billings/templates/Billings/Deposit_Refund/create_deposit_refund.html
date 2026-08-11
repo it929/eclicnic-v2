@@ -1,0 +1,112 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    {% include 'Billings/Deposit_Refund/navigation-bills.html' %}
+    <p></p>
+
+    <div class="row mb-4">
+        <div class="col-sm-8">
+            <a href="{% url 'list_deposits' patient.id %}" class="btn btn-outline-success">View History</a>
+        </div>
+        <div class="col-sm-4 text-right">
+            <a href="{% url 'list_refunds' patient.id %}" class="btn btn-outline-warning">View History</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="m-0">Process Deposit</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        {% csrf_token %}
+                        {% for field in deposit_form %}
+                            <div class="form-group">
+                                <label>{{ field.label }}</label>
+                                {{ field }}
+                                {% if field.errors %}<small class="text-danger">{{ field.errors }}</small>{% endif %}
+                            </div>
+                        {% endfor %}
+                        <button type="button" data-toggle="modal" data-target="#pinDepositModal" class="btn btn-success btn-block mt-3">Confirm Deposit</button>
+                        <!-- pinDepositModal modal -->
+                        <div class="modal fade" id="pinDepositModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                        aria-hidden="true">
+                            <div class="modal-dialog" role="document">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <div style="padding-inline: 30px; padding-block: 20px;">
+                                            <input type="password" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                        </div>
+                                            <div class="modal-footer">
+                                                <button type="submit" name="deposit_submit" class="btn btn-success"><i class="fa fa-plus"></i> Create Deposit</button>
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                            </div>
+                                    </div>
+                                </div> 
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-warning">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="m-0">Process Refund</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        {% csrf_token %}
+                        {% for field in refund_form %}
+                            <div class="form-group">
+                                <label>{{ field.label }}</label>
+                                {{ field }}
+                                {% if field.errors %}<small class="text-warning">{{ field.errors }}</small>{% endif %}
+                            </div>
+                        {% endfor %}
+                        <span>Payment to</span>
+                        <select class="form-control" name="payment_to" style="margin-top: 8px;">
+                            <option value="personal">My Personal Account</option>
+                            <option value="hospital">My Hospital Account</option>
+                        </select>
+                        <button type="button"  data-toggle="modal" data-target="#pinRefundModal" class="btn btn-warning btn-block mt-3">Confirm Refund</button>
+                        <!-- pinRefundModal modal -->
+                        <div class="modal fade" id="pinRefundModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                        aria-hidden="true">
+                            <div class="modal-dialog" role="document">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <div style="padding-inline: 30px; padding-block: 20px;">
+                                            <input type="password" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                        </div>
+                                            <div class="modal-footer">
+                                                <button type="submit" name="refund_submit" class="btn btn-warning"><i class="fa fa-plus"></i> Create Refund</button>
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                            </div>
+                                    </div>
+                                </div> 
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

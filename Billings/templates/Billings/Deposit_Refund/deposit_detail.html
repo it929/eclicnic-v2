@@ -1,0 +1,29 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    {% include 'Billings/Deposit_Refund/navigation-bills.html' %}
+    <p></p>
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Edit Deposit</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">Recorded on {{ deposit.created_date }} by {{ deposit.staff }}</p>
+                    <form method="POST">
+                        {% csrf_token %}
+                        {{ form.as_p }}
+                        <hr>
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'list_deposits' patient.id %}" class="btn btn-light">Cancel</a>
+                            <button type="submit" class="btn btn-primary">Update Deposit</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

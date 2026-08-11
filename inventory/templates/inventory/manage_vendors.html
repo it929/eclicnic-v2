@@ -1,0 +1,197 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+
+<div class="container-fluid">
+    <h1 class="h3 mb-0 text-gray-800 font-weight-bold" style="padding-left: 10px;">Manage Vendor</h1>
+    <p></p>
+<div class="row">
+    <div class="col-lg-6">
+        <!-- Basic Card Example -->
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"> Record new Payment(s)</h6>
+            </div>
+            <div class="card-body">
+                <form method="Post">
+                    {% csrf_token %}
+                    <div class="form-group">
+                        <input type="number" class="form-control" name="amount" placeholder="Enter the Amount" required />
+                    </div>
+
+                    <button type="submit" name="payment" class="btn btn-primary">Update Payment <i class="fa fa-adjust"></i></button>
+                </form>
+            </div>
+        </div>
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="fa fa-edit"></i> Edit Vendor's Record</h6>
+            </div>
+            <div class="card-body">
+                <a href="#"data-toggle="modal" data-target="#editVendorModal" class="btn btn-primary" >Edit Vendor <i class="fa fa-edit"></i></a>
+            </div>
+        </div>
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="fa fa-history"></i> Payment History</h6>
+            </div>
+            <div class="card-body">
+                <table class="table" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Amount Paid</th>
+                        <th>Date</th>
+                        <th>Signature</th>
+                    </tr>
+                </thead>
+                <tbody> 
+                    
+                {% for amt in payment_history %}
+                    <tr >
+                        <td><a href="#" style="text-decoration: none; ">&#8358; {{amt.payment | currency}}</a></td>
+                        <td><a href="#" style="text-decoration: none; ">{{amt.created_date|date:"M d, Y"}}</a></td>
+                        <td><a href="#" style="text-decoration: none; ">{{amt.staff.fullname}}</a></td>
+                    </tr>
+                {% endfor %}
+                    
+                </tbody>
+            </table>           
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <!-- Card Header - Accordion -->
+            <a href="#collapseCardExample" class="d-block card-header py-3" data-toggle="collapse"
+                role="button" aria-expanded="true" aria-controls="collapseCardExample">
+                <h6 class="m-0 font-weight-bold text-primary">Vendor's Record</h6>
+            </a>
+            <!-- Card Content - Collapse -->
+            <div class="collapse show" id="collapseCardExample">
+                <div class="card-body">
+                    <table cellpadding="6">
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Vendor</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.vendor_name}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Vendor's ID</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.vendor_id}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product's Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.product_name}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product ID (SKU)</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.product_id}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Minimum UoM</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.minimum_UoM}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Quantity</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{vendor.quantity}} {{vendor.minimum_UoM}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Unit Price</td><td>&nbsp;&nbsp;&nbsp;</td><td>&#8358; {{vendor.unit_price | currency}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Total Cost</td><td>&nbsp;&nbsp;&nbsp;</td><td>&#8358; {{vendor.total_cost | currency}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Initial Deposit</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-primary">&#8358; {{initial_payment | currency}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Other Deposit(s)</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-primary">&#8358; {{other_payments | currency}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Total Payments</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-success">&#8358; {{vendor.payment | currency}}</td></tr>
+                        {% if vendor.due > 0 %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Bills Payable (Debts)</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-danger">&#8358; {{vendor.due | currency}}</td></tr>
+                        {% else %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Bill Payable (Dues)</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-success">&#8358; {{vendor.due | currency}}</td></tr>
+                        {% endif %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Date Created</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{vendor.created_date}}</td></tr>                  
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Created By</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-primary">{{vendor.staff.fullname}}</td></tr>                  
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+<div class="modal fade" id="editVendorModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 150%; margin-right: 100px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel"><i class="fa fa-edit"></i> Edit Vendor's Record</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <form class="form" action="" method="POST">
+                {% csrf_token %}
+                {% if form.errors %}
+                    <div class="alert alert-danger">
+                        {% for field, errors in form.errors.items %}
+                            {% for error in errors %}
+                                <p>{{ field|title }}: {{ error }}</p>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                <div class="left" style="width: 45%; height: 410px;">
+                    <h6 class="text-secondary">Vendor Name</h6>
+                    <p>
+                        {{ form.vendor_name }}
+                        {% if form.vendor_name.errors %}
+                            <div class="text-danger small">{{ form.vendor_name.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Vendor ID</h6>
+                    <p>
+                        {{ form.vendor_id }}
+                        {% if form.vendor_id.errors %}
+                            <div class="text-danger small">{{ form.vendor_id.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Product Name</h6>
+                    <p>
+                        {{ form.product_name }}
+                        {% if form.product_name.errors %}
+                            <div class="text-danger small">{{ form.product_name.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Product ID</h6>
+                    <p>
+                        {{ form.product_id }}
+                        {% if form.product_id.errors %}
+                            <div class="text-danger small">{{ form.product_id.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Unit Price</h6>
+                    <p>
+                        {{ form.unit_price }}
+                        {% if form.unit_price.errors %}
+                            <div class="text-danger small">{{ form.unit_price.errors }}</div>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="right" style="width: 45%; margin-left:50%; margin-top: -410px; height: 330px;" >
+                    <h6>Minimum UoM</h6>
+                    <p>
+                        {{ form.minimum_UoM }}
+                        {% if form.minimum_UoM.errors %}
+                            <div class="text-danger small">{{ form.minimum_UoM.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Quantity(s)</h6>
+                    <p>
+                        {{ form.quantity }}
+                        {% if form.quantity.errors %}
+                            <div class="text-danger small">{{ form.quantity.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Total Cost</h6>
+                    <p>
+                        {{ form.total_cost }}
+                        {% if form.total_cost.errors %}
+                            <div class="text-danger small">{{ form.total_cost.errors }}</div>
+                        {% endif %}
+                    </p>
+                    <h6 class="text-secondary">Payment Made</h6>
+                        <p>
+                            {{ form.payment }}
+                            {% if form.payment.errors %}
+                                <div class="text-danger small">{{ form.payment.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <p>
+                            <button type="submit" name="edit_vendor" class="btn btn-primary" style="width: 100%; margin-top: 27px;"><i class="fa fa-edit"></i> Edit Vendor's Record </button>
+                        </p>
+                </div>
+                <div style="margin-top: 70px; "></div>
+              </form>
+        </div>
+    </div>
+    </div>
+</div>
+{% endblock content %}
+

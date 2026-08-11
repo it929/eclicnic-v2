@@ -1,0 +1,327 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp;Manage Staff <span id="total-count" class="badge badge-secondary bg-sign">{{counts}}</span> </h1>
+    <p></p>
+    <div class="table-responsive mt-2">
+        <table class="table table-bordered table-striped" id="dataTable">
+            <thead>
+                <tr>
+                    <th>Staff Names</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Activities</th>
+                    <th>Password Reset</th>
+                    <th>Pin Reset</th>
+                    <th>Deactivate</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in get_users %}
+                <tr id="user-row-{{ user.id }}">
+                    <td><a href="{% url 'user-profile' user.id %}" style="text-decoration: none;">{{user.fullname}}</a></td>
+                    <td><a href="{% url 'user-profile' user.id %}" style="text-decoration: none;">{{user.department}}</a></td>
+                    <td>
+                        {% if user.active == '1' %}
+                            <span class="badge badge-success bg-sign">Active</span>
+                        {% else %}
+                            <span class="badge badge-danger bg-sign">Deactivated</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'user_activities_detail' user.id %}" class="btn btn-info btn-sm">
+                            <i class="fas fa-history"></i> View Activities
+                        </a>
+                    </td>
+                    <td><button class="btn btn-warning btn-sm reset-password-btn" data-user-id="{{user.id}}" data-user-name="{{user.fullname}}">
+                        <i class="fa fa-key"></i> <i class="fa fa-rotate"></i> Reset Password</button>
+                    </td>
+                    <td>
+                        <button class="btn btn-warning btn-sm reset-pin-btn" data-user-id="{{user.id}}" data-user-name="{{user.fullname}}">
+                            <i class="fa fa-calculator"></i> <i class="fa fa-pen-to-square"></i> Reset Pin</button>
+                    </td>
+                    <td>
+                        {% if user.active == '1' %}
+                            <button class="btn btn-danger btn-sm deactivate-btn" data-user-id="{{user.id}}" data-user-name="{{user.fullname}}"><i class="fa fa-pause"></i> Deactivate</button>
+                        {% else %}
+                            <button class="btn btn-success btn-sm activate-btn" data-user-id="{{user.id}}" data-user-name="{{user.fullname}}"><i class="fa fa-play"></i> Reactivate</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Include SweetAlert2 and jQuery -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    // Function to get CSRF token from cookies
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    const csrftoken = getCookie('csrftoken');
+    
+    // Function to update button and status after deactivation/activation
+    function updateActionButton(userId, newStatus, userName) {
+        const row = $(`#user-row-${userId}`);
+        const actionCell = row.find('td:eq(6)'); // Activate/Deactivate column
+        const statusCell = row.find('td:eq(3)'); // Status column
+        
+        if (newStatus === 'deactivated') {
+            // Update status badge
+            statusCell.html('<span class="badge badge-danger bg-sign">Deactivated</span>');
+            // Change button from Deactivate to Activate
+            actionCell.html(`<button class="btn btn-success btn-sm activate-btn" data-user-id="${userId}" data-user-name="${userName}">Activate</button>`);
+            // Rebind the new activate button
+            bindActivateButton();
+        } else if (newStatus === 'activated') {
+            // Update status badge
+            statusCell.html('<span class="badge badge-success bg-sign">Active</span>');
+            // Change button from Activate to Deactivate
+            actionCell.html(`<button class="btn btn-danger btn-sm deactivate-btn" data-user-id="${userId}" data-user-name="${userName}">Deactivate</button>`);
+            // Rebind the new deactivate button
+            bindDeactivateButton();
+        }
+    }
+    
+    // Function to show PIN input modal and perform action
+    function showPinAndConfirm(action, userId, userName, actionDisplayText, isActivation = false) {
+        let confirmMessage = '';
+        if (action === 'reset_password') {
+            confirmMessage = `reset the password for`;
+        } else if (action === 'reset_pin') {
+            confirmMessage = `reset the PIN for`;
+        } else if (action === 'deactivate') {
+            confirmMessage = `deactivate`;
+        } else if (action === 'activate') {
+            confirmMessage = `activate`;
+        }
+        
+        Swal.fire({
+            title: `${actionDisplayText} - Confirm`,
+            html: `
+                <div style="text-align: left;">
+                    <p>You are about to ${confirmMessage} <strong>${userName}</strong></p>
+                    <p>Please enter your admin PIN to continue:</p>
+                    <input type="password" id="admin-pin" class="swal2-input" placeholder="Enter Admin PIN" maxlength="6" pattern="[0-9]+">
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Confirm',
+            cancelButtonText: 'Cancel',
+            preConfirm: () => {
+                const pin = document.getElementById('admin-pin').value;
+                if (!pin) {
+                    Swal.showValidationMessage('PIN is required');
+                    return false;
+                }
+                if (!/^\d+$/.test(pin)) {
+                    Swal.showValidationMessage('PIN must contain only numbers');
+                    return false;
+                }
+                return pin;
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading
+                Swal.fire({
+                    title: 'Processing...',
+                    text: 'Please wait',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // Send AJAX request
+                $.ajax({
+                    url: "{% url 'staff_action' %}",
+                    type: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify({
+                        action: action,
+                        user_id: userId,
+                        pin_code: result.value
+                    }),
+                    success: function(response) {
+                        if (response.success) {
+                            Swal.fire({
+                                title: 'Success!',
+                                text: response.message,
+                                icon: 'success',
+                                confirmButtonColor: '#3085d6'
+                            }).then(() => {
+                                // If action is deactivate or activate, update the button and status
+                                if (action === 'deactivate' || action === 'activate') {
+                                    updateActionButton(userId, response.new_status, userName);
+                                } else {
+                                    // For password/pin reset, just reload
+                                    location.reload();
+                                }
+                            });
+                        } else {
+                            Swal.fire({
+                                title: 'Error!',
+                                text: response.message,
+                                icon: 'error',
+                                confirmButtonColor: '#3085d6'
+                            });
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        let errorMessage = 'An error occurred. Please try again.';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message;
+                        }
+                        Swal.fire({
+                            title: 'Error!',
+                            text: errorMessage,
+                            icon: 'error',
+                            confirmButtonColor: '#3085d6'
+                        });
+                    }
+                });
+            }
+        });
+    }
+    
+    // Bind Reset Password buttons
+    function bindResetPasswordButtons() {
+        $('.reset-password-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            const userId = $(this).data('user-id');
+            const userName = $(this).data('user-name');
+            
+            Swal.fire({
+                title: 'Reset Password?',
+                html: `Are you sure you want to reset the password for <strong>${userName}</strong>?<br><small>The new password will be: <strong>password123</strong></small>`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, reset it!',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    showPinAndConfirm('reset_password', userId, userName, 'Reset Password');
+                }
+            });
+        });
+    }
+    
+    // Bind Reset PIN buttons
+    function bindResetPinButtons() {
+        $('.reset-pin-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            const userId = $(this).data('user-id');
+            const userName = $(this).data('user-name');
+            
+            Swal.fire({
+                title: 'Reset PIN?',
+                html: `Are you sure you want to reset the PIN for <strong>${userName}</strong>?<br><small>The new PIN will be: <strong>1234</strong></small>`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, reset it!',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    showPinAndConfirm('reset_pin', userId, userName, 'Reset PIN');
+                }
+            });
+        });
+    }
+    
+    // Bind Deactivate buttons
+    function bindDeactivateButton() {
+        $('.deactivate-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            const userId = $(this).data('user-id');
+            const userName = $(this).data('user-name');
+            
+            Swal.fire({
+                title: 'Deactivate User?',
+                html: `Are you sure you want to deactivate <strong>${userName}</strong>?<br><small>This user will no longer be able to access the system.</small>`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, deactivate!',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    showPinAndConfirm('deactivate', userId, userName, 'Deactivate User');
+                }
+            });
+        });
+    }
+    
+    // Bind Activate buttons
+    function bindActivateButton() {
+        $('.activate-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            const userId = $(this).data('user-id');
+            const userName = $(this).data('user-name');
+            
+            Swal.fire({
+                title: 'Activate User?',
+                html: `Are you sure you want to activate <strong>${userName}</strong>?<br><small>This user will be able to access the system again.</small>`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, activate!',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    showPinAndConfirm('activate', userId, userName, 'Activate User');
+                }
+            });
+        });
+    }
+    
+    // Initialize all button bindings
+    bindResetPasswordButtons();
+    bindResetPinButtons();
+    bindDeactivateButton();
+    bindActivateButton();
+});
+</script>
+
+<style>
+    .swal2-input {
+        font-size: 18px !important;
+        letter-spacing: 2px !important;
+        text-align: center !important;
+    }
+    .bg-sign {
+        font-size: 12px;
+        padding: 5px 10px;
+    }
+</style>
+
+{% endblock content %}

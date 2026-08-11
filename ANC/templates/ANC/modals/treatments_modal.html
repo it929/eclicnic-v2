@@ -1,0 +1,74 @@
+            <form>
+                <div class="card" id="treatments">
+                    <div class="card-header bg-light">
+                    <b>Treatment</b>
+                    </div>
+
+                    <div class="card-body row">
+
+                    <div class="col-md-4 mb-3">
+                    <label>Received malaria IPT1?</label>
+                    <select name="malaria_ipt1" class="form-control autosave">
+                        <option value="No" {% if anc.malaria_ipt1 == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.malaria_ipt1 == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>Received malaria IPT2?</label>
+                    <select name="malaria_ipt2" class="form-control autosave">
+                        <option value="No" {% if anc.malaria_ipt2 == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.malaria_ipt2 == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>Received malaria IPT3?</label>
+                    <select name="malaria_ipt3" class="form-control autosave">
+                        <option value="No" {% if anc.malaria_ipt3 == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.malaria_ipt3 == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>Received TT?</label>
+                    <select name="received_tt" class="form-control autosave">
+                        <option value="No" {% if anc.received_tt == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.received_tt == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>Receiving haematinics?</label>
+                    <select name="haematinics_received" class="form-control autosave">
+                        <option value="No" {% if anc.haematinics_received == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.haematinics_received == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>Receiving LLIN?</label>
+                    <select name="received_llin" class="form-control autosave">
+                        <option value="No" {% if anc.received_llin == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.received_llin == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>PW counseled for family planning?</label>
+                    <select name="family_planning_counseled" class="form-control autosave">
+                        <option value="No" {% if anc.family_planning_counseled == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.family_planning_counseled == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>PW counseled for maternal nutrition?</label>
+                    <select name="maternal_nutrition_counseled" class="form-control autosave">
+                        <option value="No" {% if anc.maternal_nutrition_counseled == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.maternal_nutrition_counseled == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+                    </div>
+                </div>
+            </form>

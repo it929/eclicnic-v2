@@ -1,0 +1,256 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    select{
+        border: 1px solid #d5cdcd;
+        color: #8e8b8b; padding: 2px; border-radius: 3px;
+    }
+</style>
+<div class="container-fluid">
+
+    <!-- Background health history -->
+        <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+    <div class="collapse navbar-collapse" id="navbarText">
+      <ul class="navbar-nav mr-auto">
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'vital_signs' patient.id %}">Collect Vital Signs</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'modify_vital_signs' patient.id %}">Modify Vital Signs</a>
+        </li>
+         <li class="nav-item active">
+          <a class="nav-link" href="{% url 'background_health' patient.id %}">Background Health</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-toggle="modal" data-target="#allergyUpdateModal">Update Allergies</a>
+        </li>
+        <li class="nav-item">
+            {% if patient.is_admitted %}
+            <a class="nav-link" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+            {% endif %}
+        </li>
+      </ul>
+    </div>
+  </nav>
+  <br>
+  <div class="modal fade" id="allergyUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">Update patient's allergies</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <form method="POST">
+                        {% csrf_token %}
+                        {{ alergy_form.as_p }}                    
+                </div>
+            <div class="modal-footer">
+                <a name="allergy" class="btn btn-info" href="#" data-toggle="modal" data-target="#allergyPinUpdateModal">Save Reports <i class="fa fa-arrow-right"></i></a>                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+        </div>
+        </div> 
+    </div>
+</div>
+    <div class="modal fade" id="allergyPinUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" name="allergy" class="btn btn-warning">Save Reports <i class="fa fa-arrow-right"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+            </form>
+        </div>
+        </div> 
+    </div>
+</div>
+  {% if health_id != 1 %}
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"> Select Background Health History </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <form method="post">
+                    {% csrf_token %}
+                    <table cellpadding="4">
+                        <!-- first row -->
+                        <tr>
+                            <td>Hypertension:</td><td>&nbsp;{{form.hypertension}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Asthma:</td><td>&nbsp;{{form.asthma}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Diabetics:</td><td>&nbsp;{{form.diabetics}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Epilepsy:</td><td>&nbsp;{{form.epilepsy}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Tuberculosis:</td><td>&nbsp;{{form.tuberculosis}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            
+                        </tr>
+                        <!-- second row -->
+                        
+                        <tr style="margin-top: 20px;">
+                            <td>Sickle Cell:</td><td>&nbsp;{{form.sickle_cell}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Stroke:</td><td>&nbsp;{{form.stroke}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Eye Problem:</td><td>&nbsp;{{form.eye_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Kidney Problem:</td><td>&nbsp;{{form.kidney_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Cancer:</td><td>&nbsp;{{form.cancer}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <!-- third row -->
+                        
+                        <tr>
+                            <td>Mental Illness:</td><td>&nbsp;{{form.mental_illness}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Liver Problem:</td><td>&nbsp;{{form.liver_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Allergies:</td><td>&nbsp;{{form.allergies}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Latex:</td><td>&nbsp;{{form.latex}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Drugs:</td><td>&nbsp;{{form.drugs}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <tr>
+                            <td>Surgical Operation:</td><td>&nbsp;{{form.surgical_operation}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Blood Transfution:</td><td>&nbsp;{{form.blood_transfution}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+                    </table>
+                    <a class="btn btn-primary" href="#" data-toggle="modal" data-target="#backgroundHistoryModal" style="text-decoration: none;">Save Details <i class="fa fa-arrow-right"></i></a>
+                    <a class="btn btn-secondary" href="{% url 'operations_profile' patient.id %}" style="text-decoration: none; float: right;"><i class="fa fa-arrow-left"></i> Back </a>
+                    <div class="modal fade" id="backgroundHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                            </div>
+                            <div>
+                                <div style="padding-inline: 30px; padding-block: 20px;">
+                                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                                </div>
+                            <div class="modal-footer">
+                                <input type="text" value="0" style="display: none;" name="valu"/>   
+                                <button type="submit" name="save_details" class="btn btn-warning">Save Details</button>
+                                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                            </div>
+                            </form>
+                        </div>
+                        </div>
+    </div>
+</div>
+
+{% else %}
+    <!-- Modify Background health history -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"> Edit Background Health History </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <form method="post">
+                    {% csrf_token %}
+                    <table cellpadding="4">
+                        <!-- first row -->
+                        <tr>
+                            <td>Hypertension:</td><td>&nbsp;{{modify_form.hypertension}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Asthma:</td><td>&nbsp;{{modify_form.asthma}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Diabetics:</td><td>&nbsp;{{modify_form.diabetics}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Epilepsy:</td><td>&nbsp;{{modify_form.epilepsy}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Tuberculosis:</td><td>&nbsp;{{modify_form.tuberculosis}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            
+                        </tr>
+                        <!-- second row -->
+                        
+                        <tr style="margin-top: 20px;">
+                            <td>Sickle Cell:</td><td>&nbsp;{{modify_form.sickle_cell}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Stroke:</td><td>&nbsp;{{modify_form.stroke}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Eye Problem:</td><td>&nbsp;{{modify_form.eye_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Kidney Problem:</td><td>&nbsp;{{modify_form.kidney_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Cancer:</td><td>&nbsp;{{modify_form.cancer}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <!-- third row -->
+                        
+                        <tr>
+                            <td>Mental Illness:</td><td>&nbsp;{{modify_form.mental_illness}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Liver Problem:</td><td>&nbsp;{{modify_form.liver_problem}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Allergies:</td><td>&nbsp;{{modify_form.allergies}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Latex:</td><td>&nbsp;{{modify_form.latex}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Drugs:</td><td>&nbsp;{{modify_form.drugs}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <tr>
+                            <td>Surgical Operation:</td><td>&nbsp;{{modify_form.surgical_operation}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Blood Transfution:</td><td>&nbsp;{{modify_form.blood_transfution}}</td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+                    </table>
+                    <a class="btn btn-primary" href="#" data-toggle="modal" data-target="#backgroundHistoryModal" style="text-decoration: none; margin-top: 30px;">Modify Details <i class="fa fa-adjust"></i></a>
+                    <a class="btn btn-secondary" href="{% url 'operations_profile' patient.id %}" style="text-decoration: none; margin-top: 30px;"><i class="fa fa-arrow-left"></i> Back to Profile</a>
+                <div class="modal fade" id="backgroundHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                            </div>
+                            <div>
+                                <div style="padding-inline: 30px; padding-block: 20px;">
+                                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                                </div>
+                            <div class="modal-footer">
+                                <input type="text" value="0" style="display: none;" name="valu"/>   
+                                <button type="submit" name="modify_details" class="btn btn-warning">Save Details</button>
+                                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                            </div>
+                            </form>
+                        </div>
+                        </div>
+    </div>
+{% endif %}
+{% endblock content %}

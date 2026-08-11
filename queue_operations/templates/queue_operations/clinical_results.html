@@ -1,0 +1,325 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    #medical-module-wrapper .dropdown-menu {
+        display: block;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(15px);
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+    }
+    
+    .filter-section {
+        background: #f8f9fc;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        border: 1px solid #e3e6f0;
+    }
+    
+    .date-group-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+        overflow: hidden;
+    }
+    
+    .date-group-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    
+    .btn-print {
+        background: #1cc88a;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 500;
+        margin-left: 10px;
+    }
+    
+    .btn-print:hover {
+        background: #17a673;
+        color: white;
+    }
+    
+    .filter-badge {
+        background: #4e73df;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+    /* .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 12px;
+    margin-left: 8px;
+    background: rgba(255,255,255,0.3);
+    color: white;
+} */
+</style>
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span>
+        </h3>
+    </div>
+    <!-- Navbar -->
+ {% if request.user.department.department != 'Nursing' %}
+    {% include 'queue_operations/crumbs/doctors_general_nav2.html' %}
+  {% endif %}
+
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+
+        <!-- Print, download and result Buttons Group -->
+        <div class="btn-group" role="group">
+            <div>
+            <!-- show filtered result status -->
+            <a class="font-weight-bold mb-3" style="margin-left: 500px;">
+                {% if filter_type == 'latest' %}
+                    <span class="text-secondary">Showing Latest Record Only</span>
+                {% elif filter_type == 'single_record' and selected_date %}
+                    <span class="text-secondary">Filtered by: {{ selected_date }}</span>
+                {% elif filter_type == 'date_range' and start_date and end_date %}
+                    <span class="text-secondary">Date Range: {{ start_date }} to {{ end_date }}</span>
+                {% elif filter_type == 'all_records' %}
+                    <span class="text-secondary">Showing All Records</span>
+                {% endif %}
+            </a> &nbsp;
+                <!-- PDF Download Button -->
+                <a href="{% url 'print_clinical_results_pdf' patient.id %}?filter_type={{ filter_type }}&selected_date={{ selected_date }}&start_date={{ start_date }}&end_date={{ end_date }}" 
+                class="btn btn-danger" target="_blank" style="font-size: 12px;" >
+                    <i class="fas fa-file-pdf"></i> PDF
+                </a>
+                
+                <!-- Browser Print Button (Backup) -->
+                <a href="{% url 'print_clinical_results_browser' patient.id %}?filter_type={{ filter_type }}&selected_date={{ selected_date }}&start_date={{ start_date }}&end_date={{ end_date }}" 
+                class="btn btn-info" target="_blank"  style="font-size: 12px;" 
+                onclick="window.open(this.href, 'print_window', 'width=900,height=700,toolbar=yes,menubar=yes,scrollbars=yes'); return false;">
+                    <i class="fas fa-print"></i> Print 
+                </a>
+            </div>
+            
+        </div>
+
+        
+        <form method="GET" action="" id="filterForm">
+            <div class="row" style="margin-top: -30px;">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>Filter Type</label>
+                        <select name="filter_type" class="form-control" id="filterType" onchange="toggleFilterFields()">
+                            <option value="latest" {% if filter_type == 'latest' %}selected{% endif %}>Latest Record (Default)</option>
+                            <option value="single_record" {% if filter_type == 'single_record' %}selected{% endif %}>Single Date</option>
+                            <option value="date_range" {% if filter_type == 'date_range' %}selected{% endif %}>Date Range</option>
+                            <option value="all_records" {% if filter_type == 'all_records' %}selected{% endif %}>All Records</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="col-md-3" id="singleDateField" style="display: none;">
+                    <div class="form-group">
+                        <label>Select Date</label>
+                        <input type="date" name="selected_date" class="form-control" value="{{ selected_date }}">
+                    </div>
+                </div>
+                
+                <div class="col-md-3" id="dateRangeFields" style="display: none;">
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                    </div>
+                </div>
+                
+                <div class="col-md-3" id="dateRangeFieldsEnd" style="display: none;">
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                    </div>
+                </div>
+                
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn btn-primary btn-block">
+                            <i class="fas fa-search"></i> Apply Filter
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Display Records Grouped by Date -->
+    {% if grouped_records %}
+        {% for date, records in grouped_records.items %}
+            <div class="date-group-card">
+                <div class="date-group-header">
+                    <i class="fas fa-calendar-alt"></i> {{ date|date:"l, F d, Y" }}
+                    <!-- <span class="badge badge-light">
+                        {% with total=records.labs|length|add:records.scans|length|add:records.drugs|length %}
+                            {{ total }} record{{ total|pluralize }}
+                        {% endwith %}
+                    </span> -->
+                </div>
+                <div class="card-body">
+                    
+                    <!-- Lab Results Section for this date -->
+                    {% if records.labs %}
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3 bg-light">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="fas fa-flask"></i> Lab Results ({{ records.labs|length }})
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            {% for result in records.labs %}
+                                <div class="lab-result" style="margin-top: 10px; padding: 15px; border-left: 3px solid #4e73df; background: #f8f9fc;">
+                                    <h6 class="text-secondary font-weight-bold">{{ result.investigation }}</h6>
+                                    <p><strong>Results:</strong> {{ result.results|default:"No results entered" }}</p>
+                                    <p><strong>Created:</strong> {{ result.created_date|date:"g:i A" }}</p>
+                                    <span><strong>Carried out by:</strong> {{ result.staff.fullname }}</span> 
+                                </div>
+                                {% if not forloop.last %}<hr>{% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Scan Results Section for this date -->
+                    {% if records.scans %}
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3 bg-light">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="fas fa-x-ray"></i> Scan Results ({{ records.scans|length }})
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            {% for result in records.scans %}
+                                <div class="scan-result" style="margin-top: 10px; padding: 15px; border-left: 3px solid #1cc88a; background: #f8f9fc;">
+                                    <h6 class="text-secondary font-weight-bold">{{ result.investigation }}</h6>
+                                    <p><strong>Results:</strong> {{ result.results|default:"No results entered" }}</p>
+                                    <p><strong>Created:</strong> {{ result.created_date|date:"g:i A" }} &nbsp;<span><strong>Carried out by:</strong> {{ result.staff.fullname }}</span></p>
+                                    {% if result.scan %}
+                                        <img src="{{ result.scan.url }}" style="border-radius: 5px; width: 100%; max-width: 600px; height: auto; margin-top: 10px;"/>
+                                    {% else %}
+                                        <p>No record of uploaded Scanned Image</p>
+                                    {% endif %}
+                                </div>
+                                {% if not forloop.last %}<hr>{% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Dispensed Drugs Section for this date -->
+                    {% if records.drugs %}
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3 bg-light">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="fas fa-pills"></i> Dispensed Drugs ({{ records.drugs|length }})
+                            </h6>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-striped" style="font-size: 13px;">
+                                <thead class="thead-light">
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Unit</th>
+                                        <th>Route</th>
+                                        <th>Dose</th>
+                                        <th>Freq.</th>
+                                        <th>Duration</th>
+                                        <th>Prescribed by</th>
+                                        <th>Dispensed by</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for drug in records.drugs %}
+                                    <tr>
+                                        <td>{{ drug.item }}</td>
+                                        <td>{{ drug.quantity }} {{ drug.UoM|default:"-" }}</td>
+                                        <td>{{ drug.route|default:"-" }}</td>
+                                        <td>{{ drug.dose|default:"-" }}</td>
+                                        <td>{{ drug.frequency|default:"-" }}</td>
+                                        <td>{{ drug.duration|default:"-" }}</td>
+                                        <td>Dr. {{ drug.staff.fullname }}</td>
+                                        <td>{{ drug.pharm_staff }}</td>
+                                        <td>{{ drug.created_date|date:"g:i A" }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Message if no records for this date -->
+                    {% if not records.labs and not records.scans and not records.drugs %}
+                        <div class="alert alert-info text-center">
+                            <i class="fas fa-info-circle"></i> No clinical records found for {{ date|date:"F d, Y" }}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-warning text-center">
+            <i class="fas fa-exclamation-triangle"></i> No record of clinical results found for this patient.
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    function toggleFilterFields() {
+        const filterType = document.getElementById('filterType').value;
+        const singleDateField = document.getElementById('singleDateField');
+        const dateRangeFields = document.getElementById('dateRangeFields');
+        const dateRangeFieldsEnd = document.getElementById('dateRangeFieldsEnd');
+        
+        if (filterType === 'single_record') {
+            singleDateField.style.display = 'block';
+            dateRangeFields.style.display = 'none';
+            dateRangeFieldsEnd.style.display = 'none';
+        } else if (filterType === 'date_range') {
+            singleDateField.style.display = 'none';
+            dateRangeFields.style.display = 'block';
+            dateRangeFieldsEnd.style.display = 'block';
+        } else {
+            singleDateField.style.display = 'none';
+            dateRangeFields.style.display = 'none';
+            dateRangeFieldsEnd.style.display = 'none';
+        }
+    }
+    
+    // Call on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        toggleFilterFields();
+    });
+</script>
+
+{% endblock content %}

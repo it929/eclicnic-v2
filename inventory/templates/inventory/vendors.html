@@ -1,0 +1,399 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+
+  <!-- Page Heading -->
+  <!-- Content Row -->
+{% if page == 'view-vendors' %}
+<div class="container-fluid">
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <span><a href="#"data-toggle="modal" data-target="#balanceStockModal" class="m-0 font-weight-bold text-primary"><i class="fa fa-eye"></i> Current Assets </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#paymentModal" class="m-0 font-weight-bold text-success" style="padding-left: 20px;"><i class="fa fa-eye"></i> Total Payment Made <span class="badge badge-warning"></span> </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#billsPayableModal" class="m-0 font-weight-bold text-danger" style="padding-left: 20px;"><i class="fa fa-eye"></i> Bills Payable <span class="badge badge-warning"></span> </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#creditorsListModal" class="m-0 font-weight-bold text-warning" style="padding-left: 20px;"><i class="fa fa-eye"></i> Creditor's Lists <span class="badge badge-warning">{{creditors_counts}}</span> </a></span>
+        <a href="#"data-toggle="modal" data-target="#uploadVendorsModal" class="font-weight-bold text-info" style="text-decoration: underline; font-family: cursive; margin: 10px 65px;"> <i class="fa fa-plus"></i> Upload Record</a> 
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Vendors</th>
+                        <th>Product Name</th>
+                        <th>Qty</th>
+                        <th>UoM</th>
+                        <th>Unit Price</th>
+                        <th>Total Cost</th>
+                        <th>Amt Paid</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Vendors</th>
+                        <th>Product Name</th>
+                        <th>Qty</th>
+                        <th>UoM</th>
+                        <th>Unit Price</th>
+                        <th>Total Cost</th>
+                        <th>Amt Paid</th>
+                        <th>Date</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in vendors %}
+                    {% if prod.due < 1 %}
+                    <tr >
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.vendor_name}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.quantity}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.minimum_UoM}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.unit_price | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.total_cost | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.payment | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.created_date|date:"M d, Y"}}</a></td>
+                    </tr>
+                    {% else %}
+                    <tr class="alert alert-success">
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">{{prod.vendor_name}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;"> {{prod.quantity}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">{{prod.minimum_UoM}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">&#8358; {{prod.unit_price | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">&#8358; {{prod.total_cost | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">&#8358; {{prod.payment | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; color: brown;">{{prod.created_date|date:"M d, Y"}}</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- ---modals--- -->
+<div class="modal fade" id="balanceStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Current Assets Balance</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div style="padding: 20px; font-family: cursive; font-size: 23px; font-weight: bold;" class="text-primary">
+            &#8358; {{total_assets | currency}}
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="paymentModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Total Payment made</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div style="padding: 20px; font-family: cursive; font-size: 23px; font-weight: bold;" class="text-success">
+            &#8358; {{total_payments | currency}}
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="billsPayableModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Current Bills Payable</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div style="padding: 20px; font-family: cursive; font-size: 23px; font-weight: bold;" class="text-danger">
+            &#8358; {{bills_payable | currency}}
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="creditorsListModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 220%; position: relative; right: 220px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Creditor's List <span class="badge badge-warning">{{creditors_counts}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        <th>Product Name</th>
+                        <th>Qty</th>
+                        <th>Unit Price</th>
+                        <th>Total Cost</th>
+                        <th>Amt Paid</th>
+                        <th>Bill Payable</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Vendor</th>
+                        <th>Product Name</th>
+                        <th>Qty</th>
+                        <th>Unit Price</th>
+                        <th>Total Cost</th>
+                        <th>Amt Paid</th>
+                        <th>Bill Payable</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in vendors %}
+                    {% if prod.due > 0 %}
+                    <tr>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.vendor_name}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td style="width: 8%;"><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">{{prod.quantity}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.unit_price | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; " class="text-primary"> &#8358;{{prod.total_cost | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; " class="text-success">&#8358; {{prod.payment | currency}}</a></td>
+                        <td><a href="{% url 'manage_vendors' prod.id %}" style="text-decoration: none; " class="text-danger">&#8358; {{prod.due | currency}}</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="uploadVendorsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" >
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel"><i class="fa fa-user-plus"></i> Vendors Records</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <form class="form" action="" method="POST" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div style="padding-bottom: 30px;">
+                    <div class="mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Excel File Requirements</h5>
+                            </div>
+                            <div class="card-body">
+                                <ul>
+                                    <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                                    <li>First row must contain column headers</li>
+                                    <li> <code>All columns are required</code></li>
+                                    <li>Download <a href="{% url 'download_vendor_format' %}">template file</a> for reference</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <p>{{form}}</p>
+
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit" name="upload"><i class="fas fa-upload"></i> Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    </div>
+</div>
+<!-- Create a new record for vendor -->
+<div class="modal fade" id="viewVendorsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 240%; position: relative; right: 310px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> <span id="inAssetValue2" class="text-primary" style="font-family: cursive;">Vendor's form</span> </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table id="item-table" class="table">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        <th>Vendor ID </th>
+                        <th>Product Name</th>
+                        <th>Product ID</th>
+                        <th>Qty</th>
+                        <th>UoM</th>
+                        <th>Unit Cost (₦)</th>
+                        <th>Payment (₦)</th>
+                        <th>Add</th>
+                        <th>Rem</th>
+                    </tr>
+                </thead>
+                <tbody id="item-body">
+                    <tr>
+                        <td><input type="text" class="form-control vendor" placeholder="Name" ></td>
+                        <td><input type="text" class="form-control vendor_id" placeholder="ID"></td>
+                        <td><input type="text" class="form-control product_name" placeholder="Name"></td>
+                        <td><input type="text" class="form-control product_id" placeholder="ID"></td>
+                        <td><input type="number" value="1" class="form-control qty"  ></td>
+                        <td>
+                            <select class="form-control uom">
+                                <option value="ampoules">Ampoules</option><option value="bottles">Bottles</option><option value="boxes">Boxes</option>
+                                <option value="cartons">Cartons</option><option value="rolls">Rolls</option><option value="packs">Packs</option><option value="pieces">Pieces</option>
+                                <option value="prefilled_syringe">Prefilled Syringe</option><option value="sachets">Sachets</option><option value="syringes">Syringes</option>
+                                <option value="tins">Tins</option><option value="tubes">Tubes</option><option value="vial">Vial</option><option value="others">Others</option><option value="each">Each</option>
+                                <option value="mls">mls (mililiters)</option>
+                            </select>
+                        </td>
+                        <td><input type="number" class="form-control rate" placeholder="Amount"></td>
+                        <td><input type="number" class="form-control payment" placeholder="Deposit"></td>
+                        <td><button type="button" class="btn btn-success add-row">+</button></td>
+                        <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                    </tr>
+                </tbody>
+            </table>
+                <button type="button" id="submitItems" class="btn btn-primary"><i class="fa fa-plus"></i> Create Record</button>
+        </div>
+    </div>
+    </div>
+</div>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function () {
+    // Add new row (clones the current row and clears inputs)
+    $(document).on("click", ".add-row", function () {
+        const currentRow = $(this).closest("tr");
+        const newRow = currentRow.clone(true); // clone handlers too
+        newRow.find("input").val("");
+        $("#item-body").append(newRow);
+    });
+
+    // Remove row but prevent removing the last one
+    $(document).on("click", ".remove-row", function () {
+        const rowCount = $("#item-body tr").length;
+
+        if (rowCount <= 1) {
+            // Use SweetAlert2 if available, otherwise alert()
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Can't remove",
+                    text: "At least one row must remain.",
+                });
+            } else {
+                Swal.fire({
+                icon: 'info',
+                title: 'Action Not Allowed',
+                text: 'At least one row must remain.'
+            });
+            }
+            return;
+        }
+
+        $(this).closest("tr").remove();
+    });
+
+    // Submit rows via AJAX
+    $("#submitItems").on("click", function () {
+        const items = [];
+
+        $("#item-body tr").each(function () {
+            const vendor = $(this).find(".vendor").val().trim();
+            const vendor_id = $(this).find(".vendor_id").val().trim();
+            const product_name = $(this).find(".product_name").val().trim();
+            const product_id = $(this).find(".product_id").val().trim();
+            const qty = $(this).find(".qty").val().trim();
+            const uom = $(this).find(".uom").val().trim();
+            const rateRaw = $(this).find(".rate").val().trim();
+            const payRaw = $(this).find(".payment").val().trim();
+
+            // treat only fully filled rows as valid
+            if (vendor !== "" && rateRaw !== "" && vendor_id !== "" && product_id !== "" && product_name !== "" && qty !== "") {
+                const rate = parseFloat(rateRaw);
+                const payment = parseFloat(payRaw);
+                if (!Number.isNaN(rate)) {
+                    items.push({ vendor: vendor, vendor_id: vendor_id, product_name: product_name, product_id: product_id, qty: qty, uom: uom, rate: rate, payment: payment });
+                }
+            }
+        });
+
+        if (items.length === 0) {
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "No items",
+                    text: "Please add at least one item with a rate before saving.",
+                });
+            } else {
+                alert("Please add at least one item with a rate before saving.");
+            }
+            return;
+        }
+
+        // AJAX payload 
+        $.ajax({
+            url: "{% url 'create_vendors_records' %}",
+            type: "POST",
+            data: JSON.stringify({ items: items }),
+            contentType: "application/json",
+            headers: { "X-CSRFToken": "{{ csrf_token }}" },
+            success: function (resp) {
+                if (resp.success) {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({
+                            icon: "success",
+                            title: "Saved",
+                            text: resp.message || "Items saved successfully",
+                        }).then(() => location.reload());
+                    } else {
+                        alert(resp.message || "Items saved successfully");
+                        location.reload();
+                    }
+                } else {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({ icon: "error", title: "Error", text: resp.error || "Save failed" });
+                    } else {
+                        alert("Error: " + (resp.error || "Save failed"));
+                    }
+                }
+            },
+            error: function (xhr) {
+                if (typeof Swal !== "undefined") {
+                    Swal.fire({ icon: "error", title: "Server error", text: xhr.responseText || "Something went wrong." });
+                } else {
+                    alert("Something went wrong. See console for details.");
+                }
+                console.error(xhr);
+            }
+        });
+    });
+});
+</script>
+
+
+{% endif %}
+{% endblock content%}

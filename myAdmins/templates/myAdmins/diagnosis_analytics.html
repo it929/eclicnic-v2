@@ -1,0 +1,653 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800 font-weight-bold">
+            <i class="fas fa-chart-line"></i> Diagnosis Analytics Dashboard
+        </h1>
+        <div>
+            <button onclick="exportToPDF()" class="btn btn-danger btn-sm">
+                <i class="fas fa-file-pdf"></i> Export PDF
+            </button>
+            <button onclick="exportToExcel()" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel"></i> Export Excel
+            </button>
+            <button onclick="window.location.reload()" class="btn btn-info btn-sm">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-xl-4 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                <i class="fas fa-stethoscope"></i> Total Encounters
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalEncounters">{{ total_encounters }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-chart-bar fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                <i class="fas fa-diagnoses"></i> Unique Diagnoses
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="uniqueDiagnoses">{{ unique_diagnoses }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-tag fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                <i class="fas fa-calendar"></i> Date Range
+                            </div>
+                            <div class="h6 mb-0 font-weight-bold text-gray-800">
+                                {% if min_date and max_date %}
+                                    {{ min_date }} to {{ max_date }}
+                                {% else %}
+                                    No data available
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-calendar-alt fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters Section -->
+    <div class="card shadow mb-4">
+        <div class="card-header bg-primary text-white">
+            <h6 class="mb-0 font-weight-bold">
+                <i class="fas fa-filter"></i> Analytics Filters
+            </h6>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="filterForm" class="row">
+                <div class="col-md-4 mb-3">
+                    <label><i class="fas fa-calendar-alt"></i> Date Range</label>
+                    <div class="input-group">
+                        <input type="date" name="start_date" id="start_date" class="form-control" value="{{ start_date }}">
+                        <span class="input-group-text">to</span>
+                        <input type="date" name="end_date" id="end_date" class="form-control" value="{{ end_date }}">
+                    </div>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <label><i class="fas fa-users"></i> Patient Category</label>
+                    <select name="patient_category" id="patient_category" class="form-control">
+                        <option value="">All Categories</option>
+                        {% for category in patient_categories %}
+                            <option value="{{ category.id }}" {% if selected_category_id|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>
+                                {{ category.category }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="col-md-2 mb-3">
+                    <label>&nbsp;</label>
+                    <div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search"></i> Apply Filters
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <label>&nbsp;</label>
+                    <div>
+                        <button type="button" onclick="refreshChartData()" class="btn btn-info">
+                            <i class="fas fa-chart-line"></i> Real-time Update
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row">
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-success text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-arrow-up"></i> Top 10 Most Common Diagnoses
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="topDiagnosesChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-warning text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-arrow-down"></i> Bottom 10 Least Common Diagnoses
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="bottomDiagnosesChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top 10 Diagnoses Table -->
+    <div class="row">
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-success text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-table"></i> Top 10 Diagnoses Details
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Diagnosis</th>
+                                    <th>Freq.</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topTableBody">
+                                {% for diagnosis in top_diagnoses %}
+                                <tr>
+                                    <td class="text-center">
+                                        <span class="badge badge-success badge-pill">{{ forloop.counter }}</span>
+                                    </td>
+                                    <td>{{ diagnosis.0 }}</td>
+                                    <td class="text-center"><strong>{{ diagnosis.1 }}</strong></td>
+                                    <td style="width: 40%;">
+                                        <div class="progress">
+                                            <div class="progress-bar bg-success" role="progressbar" 
+                                                style="width: {% widthratio diagnosis.1 total_encounters 100 %}%">
+                                                {% widthratio diagnosis.1 total_encounters 100 %}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom 10 Diagnoses Table -->
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-warning text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-table"></i> Bottom 10 Diagnoses Details
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Diagnosis</th>
+                                    <th>Freq.</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bottomTableBody">
+                                {% for diagnosis in bottom_diagnoses %}
+                                <tr>
+                                    <td class="text-center">
+                                        <span class="badge badge-warning badge-pill">{{ forloop.counter }}</span>
+                                    </td>
+                                    <td>{{ diagnosis.0 }}</td>
+                                    <td class="text-center"><strong>{{ diagnosis.1 }}</strong></td>
+                                    <td style="width: 40%;">
+                                        <div class="progress">
+                                            <div class="progress-bar bg-warning" role="progressbar" 
+                                                style="width: {% widthratio diagnosis.1 total_encounters 100 %}%">
+                                                {% widthratio diagnosis.1 total_encounters 100 %}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center">No data available</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+// Wait for the DOM to be fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM fully loaded");
+    
+    // Get canvas elements
+    const topCanvas = document.getElementById('topDiagnosesChart');
+    const bottomCanvas = document.getElementById('bottomDiagnosesChart');
+    
+    if (!topCanvas) {
+        console.error("topDiagnosesChart canvas not found!");
+        return;
+    }
+    
+    if (!bottomCanvas) {
+        console.error("bottomDiagnosesChart canvas not found!");
+        return;
+    }
+    
+    // Get data from Django template
+    let topLabels = {{ top_labels|safe }};
+    let topData = {{ top_data|safe }};
+    let bottomLabels = {{ bottom_labels|safe }};
+    let bottomData = {{ bottom_data|safe }};
+    
+    console.log("Top Labels:", topLabels);
+    console.log("Top Data:", topData);
+    
+    // Check if we have data
+    if (!topLabels || topLabels.length === 0) {
+        console.warn("No top diagnoses data available");
+        topCanvas.style.display = 'none';
+        topCanvas.parentElement.insertAdjacentHTML('beforeend', 
+            '<div class="alert alert-warning text-center mt-3">No diagnosis data available for the selected filters</div>');
+    } else {
+        // Create Top Chart
+        try {
+            const topCtx = topCanvas.getContext('2d');
+            
+            window.topChart = new Chart(topCtx, {
+                type: 'bar',
+                data: {
+                    labels: topLabels,
+                    datasets: [{
+                        label: 'Number of Occurrences',
+                        data: topData,
+                        backgroundColor: [
+                            '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
+                            '#858796', '#5a5c69', '#2e59d9', '#17a673', '#2c9faf'
+                        ],
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { font: { size: 12 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Occurrences: ${context.parsed.x}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Frequency (Number of Occurrences)',
+                                font: { size: 12, weight: 'bold' }
+                            },
+                            ticks: { stepSize: 1, precision: 0, font: { size: 11 } }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Diagnosis',
+                                font: { size: 12, weight: 'bold' }
+                            },
+                            ticks: { font: { size: 10 }, autoSkip: false }
+                        }
+                    }
+                }
+            });
+            console.log("Top chart created successfully!");
+        } catch(error) {
+            console.error("Error creating top chart:", error);
+        }
+    }
+    
+    // Create Bottom Chart
+    if (!bottomLabels || bottomLabels.length === 0) {
+        console.warn("No bottom diagnoses data available");
+        bottomCanvas.style.display = 'none';
+        bottomCanvas.parentElement.insertAdjacentHTML('beforeend', 
+            '<div class="alert alert-warning text-center mt-3">No diagnosis data available for the selected filters</div>');
+    } else {
+        try {
+            const bottomCtx = bottomCanvas.getContext('2d');
+            
+            window.bottomChart = new Chart(bottomCtx, {
+                type: 'bar',
+                data: {
+                    labels: bottomLabels,
+                    datasets: [{
+                        label: 'Number of Occurrences',
+                        data: bottomData,
+                        backgroundColor: '#f6c23e',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderColor: '#dda20a'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { font: { size: 12 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Occurrences: ${context.parsed.x}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Frequency (Number of Occurrences)',
+                                font: { size: 12, weight: 'bold' }
+                            },
+                            ticks: { stepSize: 1, precision: 0, font: { size: 11 } }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Diagnosis',
+                                font: { size: 12, weight: 'bold' }
+                            },
+                            ticks: { font: { size: 10 }, autoSkip: false }
+                        }
+                    }
+                }
+            });
+            console.log("Bottom chart created successfully!");
+        } catch(error) {
+            console.error("Error creating bottom chart:", error);
+        }
+    }
+});
+
+// Refresh chart data based on filters
+function refreshChartData() {
+    const startDate = document.getElementById('start_date').value;
+    const endDate = document.getElementById('end_date').value;
+    const patientCategory = document.getElementById('patient_category').value;
+    
+    Swal.fire({
+        title: 'Updating...',
+        text: 'Fetching latest diagnosis data',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+    
+    let url = `/diagnosis-analytics-api/?start_date=${startDate}&end_date=${endDate}&patient_category=${patientCategory}`;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            console.log("API Response:", data);
+            
+            if (data.top_diagnoses && data.top_diagnoses.length > 0) {
+                const topLabels = data.top_diagnoses.map(d => d.name.length > 35 ? d.name.substring(0, 35) + '...' : d.name);
+                const topData = data.top_diagnoses.map(d => d.count);
+                
+                if (window.topChart) {
+                    window.topChart.data.labels = topLabels;
+                    window.topChart.data.datasets[0].data = topData;
+                    window.topChart.update();
+                }
+                
+                updateTopTable(data.top_diagnoses, data.total_encounters);
+            }
+            
+            if (data.bottom_diagnoses && data.bottom_diagnoses.length > 0) {
+                const bottomLabels = data.bottom_diagnoses.map(d => d.name.length > 35 ? d.name.substring(0, 35) + '...' : d.name);
+                const bottomData = data.bottom_diagnoses.map(d => d.count);
+                
+                if (window.bottomChart) {
+                    window.bottomChart.data.labels = bottomLabels;
+                    window.bottomChart.data.datasets[0].data = bottomData;
+                    window.bottomChart.update();
+                }
+                
+                updateBottomTable(data.bottom_diagnoses, data.total_encounters);
+            }
+            
+            document.getElementById('totalEncounters').textContent = data.total_encounters;
+            document.getElementById('uniqueDiagnoses').textContent = data.unique_diagnoses;
+            
+            Swal.fire({
+                icon: 'success',
+                title: 'Updated!',
+                text: `Found ${data.total_encounters} encounters with ${data.unique_diagnoses} unique diagnoses`,
+                timer: 2000,
+                showConfirmButton: false
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error!',
+                text: 'Failed to update data. Please try again.',
+                timer: 3000
+            });
+        });
+}
+
+// Update top table
+function updateTopTable(diagnoses, totalEncounters) {
+    const tbody = document.getElementById('topTableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    diagnoses.forEach((diagnosis, index) => {
+        const percentage = totalEncounters > 0 ? Math.round((diagnosis.count / totalEncounters) * 100) : 0;
+        const row = tbody.insertRow();
+        row.innerHTML = `
+            <td class="text-center"><span class="badge badge-success badge-pill">${index + 1}</span></td>
+            <td>${diagnosis.name}</td>
+            <td class="text-center"><strong>${diagnosis.count}</strong></td>
+            <td style="width: 40%;">
+                <div class="progress">
+                    <div class="progress-bar bg-success" role="progressbar" style="width: ${percentage}%">
+                        ${percentage}%
+                    </div>
+                </div>
+            </td>
+        `;
+    });
+}
+
+// Update bottom table
+function updateBottomTable(diagnoses, totalEncounters) {
+    const tbody = document.getElementById('bottomTableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    diagnoses.forEach((diagnosis, index) => {
+        const percentage = totalEncounters > 0 ? Math.round((diagnosis.count / totalEncounters) * 100) : 0;
+        const row = tbody.insertRow();
+        row.innerHTML = `
+            <td class="text-center"><span class="badge badge-warning badge-pill">${index + 1}</span></td>
+            <td>${diagnosis.name}</td>
+            <td class="text-center"><strong>${diagnosis.count}</strong></td>
+            <td style="width: 40%;">
+                <div class="progress">
+                    <div class="progress-bar bg-warning" role="progressbar" style="width: ${percentage}%">
+                        ${percentage}%
+                    </div>
+                </div>
+            </td>
+        `;
+    });
+}
+
+// Export to PDF
+function exportToPDF() {
+    window.print();
+}
+
+// Export to Excel
+function exportToExcel() {
+    const topData = [];
+    const bottomData = [];
+    
+    document.querySelectorAll('#topTableBody tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 4) {
+            topData.push({
+                Rank: cells[0].innerText,
+                Diagnosis: cells[1].innerText,
+                Frequency: cells[2].innerText,
+                Percentage: cells[3].innerText.trim()
+            });
+        }
+    });
+    
+    document.querySelectorAll('#bottomTableBody tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 4) {
+            bottomData.push({
+                Rank: cells[0].innerText,
+                Diagnosis: cells[1].innerText,
+                Frequency: cells[2].innerText,
+                Percentage: cells[3].innerText.trim()
+            });
+        }
+    });
+    
+    let csv = "=== TOP 10 DIAGNOSES ===\n";
+    csv += "Rank,Diagnosis,Frequency,Percentage\n";
+    topData.forEach(row => {
+        csv += `"${row.Rank}","${row.Diagnosis}","${row.Frequency}","${row.Percentage}"\n`;
+    });
+    
+    csv += "\n=== BOTTOM 10 DIAGNOSES ===\n";
+    csv += "Rank,Diagnosis,Frequency,Percentage\n";
+    bottomData.forEach(row => {
+        csv += `"${row.Rank}","${row.Diagnosis}","${row.Frequency}","${row.Percentage}"\n`;
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', `diagnosis_analytics_${new Date().toISOString().slice(0,19)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+// Handle form submission
+const filterForm = document.getElementById('filterForm');
+if (filterForm) {
+    filterForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        refreshChartData();
+    });
+}
+</script>
+
+<style>
+    .progress {
+        height: 25px;
+        border-radius: 10px;
+    }
+    
+    .progress-bar {
+        line-height: 25px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .badge-pill {
+        font-size: 14px;
+        padding: 5px 10px;
+    }
+    
+    canvas {
+        max-height: 400px;
+        width: 100% !important;
+        min-height: 300px;
+    }
+    
+    table {
+        font-size: 14px;
+    }
+    
+    table td {
+        vertical-align: middle !important; font-size: 13px;
+    }
+    
+    @media print {
+        .btn, .card-header, .no-print, .dataTables_filter, .dataTables_length, .dataTables_paginate {
+            display: none !important;
+        }
+        .card {
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

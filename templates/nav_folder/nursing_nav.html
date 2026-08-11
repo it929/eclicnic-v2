@@ -1,0 +1,77 @@
+<div class="sidebar-heading">
+    {% if request.user.department.department == 'Nursing' %}<span>Nursing Interface</span>{% else %}<span class="text-warning font-weight-bold">💉 Nursing Interface</span>{% endif %}
+            </div>
+            {% if request.user.department.department == 'Nursing' %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+                    aria-expanded="true" aria-controls="collapseTwo">
+                    <i class="fas fa-fw fa-cog"></i>
+                    <span>Profile Settings</span>
+                </a>
+                <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                        <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                        <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+                    </div>
+                </div>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapsePatientQueue1"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-users"></i>
+                    <span>Patients Queue</span>
+                </a>
+                <div id="collapsePatientQueue1" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'waiting_list' %}">Patients Waiting List</a>
+                        <a class="collapse-item" href="{% url 'done_list' %}">Today's Completed List</a>
+                        <a class="collapse-item" href="{% url 'doctor_waiting_list_all' %}">Waiting List (Doctors)</a>
+                        <a class="collapse-item" href="{% url 'doctor_queues_all' %}">Hospital Waiting List (All)</a>
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'today_appointment' %}">
+                    <i class="fas fa-clipboard-list"></i>
+                    <span>Today's Appointments List</span></a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseWardManager"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-users"></i>
+                    <span>Wards Management</span>
+                </a>
+                <div id="collapseWardManager" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'ward-page' %}">Create & manage ward</a>
+                        <a class="collapse-item" href="{% url 'bed_page' %}">Create & Manage Bed</a>
+                        <a class="collapse-item" href="{% url 'admission_table' %}">Admissions Table</a>
+                    </div>
+                </div>
+            </li>
+            {% if patient.is_admitted %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseAdmitted"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-procedures"></i>
+                    <span class="text-warning font-weight-bold">In Patient: Admission</span>
+                </a>
+                <div id="collapseAdmitted" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                        <a class="collapse-item" href="{% url 'drug_chart' patient.id %}">Drugs Chart</a>
+                    </div>
+                </div>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'search_page' %}">
+                    <i class="fas fa-search"></i>
+                    <span>Search for Patients</span>
+                </a>
+            </li>

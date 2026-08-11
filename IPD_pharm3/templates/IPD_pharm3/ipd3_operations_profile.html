@@ -1,0 +1,96 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    input[type="text"],input[type="email"],input[type="number"],select{
+        width:100%; height: 40px; padding-left: 10px;
+        border:1px solid #ccc; margin-top: 10px;
+        border-radius: 5px;
+    }
+</style>
+  <!-- Content Row -->
+  <div class="container-fluid">
+
+    <!-- Page Heading -->
+        {% if patient.active == 1 %}
+            <h1 class="h3 mb-1 text-gray-800">Patient Profile <span class="text-success">(Activated)</span></h1>
+        {% else %}
+            <h1 class="h3 mb-1 text-gray-800">Patient Profile <span class="text-danger">(Deactivated)</span></h1>
+        {% endif %}
+
+    <!-- Content Row -->
+    <div class="row">
+
+        <div class="col-lg-6">
+            
+            {% if request.user.department.department in 'IPD Pharmacy 3, Admin, CMD' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Approve Prescribed Drugs</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">To IPD Pharmacy 3 - Store</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-warning" href="{% url 'ipd3_prescribe_drugs' patient.id %}" style="text-decoration: none;">Begin Dispensations &nbsp;<i class="fa fa-arrow-right"></i></a>
+                    
+                </div>
+            </div>
+             {% endif %}
+            <!-- Overflow Hidden -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <table>
+                        <tr><td>Patient's Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.surname}} {{patient.other_name}} {{patient.first_name}}</td></tr>
+                        <tr><td>Patient's Gender</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.gender}}</td></tr>
+                        <tr><td>Address</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.address}}</td></tr>
+                        <tr><td>Phone Number</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.phone_number}}</td></tr>
+                        <tr><td>Date of Birth</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.dob}}</td></tr>
+                        <tr><td>Hospital Number</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.hospital_number}}</td></tr>                  
+                        <tr><td>Parent's Email</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.email_address}}</td></tr>
+                    </table>
+                    <div id="accordion">
+                              <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
+                                Get more information:
+                              </a>
+                          <div id="collapseProfile" class="collapse" aria-labelledby="headingProfile" data-parent="#accordion">
+                                <table>
+                                    <tr><td>Patient's Category</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.category.category}}</td></tr>
+                                    <tr><td>Patient's Plan</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.plan.plan}}</td></tr>
+                                    <tr><td>Marital Status</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.patient_type|default:"-"}}</td></tr>
+                                    <tr><td>Insurance Policy Number</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.insurance_policy_number|default:"-"}}</td></tr>
+                                    <tr><td><h6 class="text-danger">Emergency Contact Information *:</h6></td></tr>
+                                    <tr><td>Full Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.full_name}}</td></tr>
+                                    <tr><td>Relationship to Patient</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.relationship_to_patient}}</td></tr>
+                                    <tr><td>Phone Numbers</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.phone_numbers}}</td></tr>
+                                    <tr><td><h6 class="text-danger">Account Creation Details *:</h6></td></tr>
+                                    <tr><td>Registered By</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: #256fad;">{{patient.created_by.fullname}}</td></tr>
+                                    <tr><td>Account Created</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.created_date|timesince}} ago</td></tr>
+                                    <tr><td>Date Created</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.created_date|date:"M d, Y"}}</td></tr>
+                                </table>
+                          </div>
+                      </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
+                </div>
+                <div class="card-body text-center" style="background: #f8f8f8;">
+                    <div style="padding-inline: 30px; padding-block: 30px; background: #fff;">
+                        <img src="{{patient.avatar.url}}" style=" border-radius: 5px; width: 100%; height: 300px;"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock content%}

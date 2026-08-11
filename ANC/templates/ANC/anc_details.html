@@ -1,0 +1,1152 @@
+{% extends 'admin.html' %}
+{% block content %}
+
+<style>
+    .div-grid {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+    }
+    .filter-bar {
+        background: #f8f9fc;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .filter-select, .filter-input, .filter-btn {
+        padding: 8px 12px;
+        border: 1px solid #d1d3e2;
+        border-radius: 4px;
+    }
+    .filter-btn {
+        background-color: #4e73df;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+    .filter-btn:hover {
+        background-color: #2e59d9;
+    }
+    .pagination {
+        margin-top: 15px;
+        display: flex;
+        gap: 5px;
+        justify-content: center;
+    }
+    .page-btn {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+        background: white;
+        cursor: pointer;
+    }
+    .page-btn.active {
+        background: #4e73df;
+        color: white;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 20px;
+    }
+    .no-data {
+        text-align: center;
+        padding: 20px;
+        color: #858796;
+    }
+</style>
+<style>
+
+
+     .form-group { 
+        margin-bottom: 15px; 
+    }
+    
+     .form-group label { 
+        display: block; 
+        margin-bottom: 5px; 
+        font-weight: bold;
+        font-size: 13px;
+    }
+    
+     .form-group input[type="text"],
+     .form-group input[type="date"],
+     .form-group input[type="number"],
+     .form-group select,
+     .form-group textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+     .form-group input[readonly] { 
+        background-color: #f0f0f0; 
+    }
+
+
+    /* Stage Color Captions */
+
+     .antenatal-form-section {
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+     .antenatal-form-section h3 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        color: #333;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 10px;
+    }
+    
+     .antenatal-form-section h4 {
+        margin: 15px 0 10px;
+        color: #555;
+        font-size: 16px;
+    }
+    
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 20px;
+    }
+    .detail-section { margin-bottom: 10px; padding: 15px; background-color: #f9f9f9; border-left: 5px solid #0056b3; }
+        .detail-item { margin-bottom: 10px; }
+        .detail-label { font-weight: bold; margin-right: 5px; color: #555; }
+        .detail-value { display: inline-block; }
+        .highlight { color: #007bff; font-weight: bold; }
+
+    /* error handling */
+    .is-invalid {
+        border-color: #dc3545 !important;
+    }
+    .field-error {
+        font-size: 12px;
+        margin-top: 4px;
+    }
+    /* Vital signs */
+     select{
+        border: 1px solid #d5cdcd;
+        color: #8e8b8b; padding: 2px; border-radius: 3px;
+    }
+    .a{
+        width: 33%; height: 400px; padding: 20px;
+    }
+    .b{
+        width: 33%; height: 400px; padding: 20px; margin: -400px 31%;
+    }
+    .c{
+        width: 33%; height: 400px; padding: 20px; margin: -100px 62%;
+    }
+    .d{
+        width: 95%; height: 100px; padding: 20px; margin-top: -180px;
+    }
+        select.form2{
+        width:28%;border: 1px solid #ccc; border-radius: 5px; text-align: center; height: 36px;
+    }
+    input.form2{
+        width:70%; height: 37px; border: 1px solid #ccc; border-radius: 5px; padding-left: 15px; color:#817f7f ;
+    }
+
+    /* for clinical records */
+    /* Clinical Records Modal Styles - Add to your existing styles */
+.clinical-modal .modal-dialog {
+    max-width: 95%;
+    width: 95%;
+}
+
+.clinical-modal .modal-content {
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.filter-select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-width: 200px;
+}
+
+.filter-input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.filter-btn {
+    padding: 8px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.filter-btn:hover {
+    background-color: #0056b3;
+}
+
+/* Summary Cards */
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.summary-card {
+    background: white;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: transform 0.2s;
+    border-left: 4px solid;
+}
+
+.summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.summary-card.total {
+    border-left-color: #6c757d;
+}
+.summary-card.appointments {
+    border-left-color: #007bff;
+}
+.summary-card.labs {
+    border-left-color: #ffc107;
+}
+.summary-card.medications {
+    border-left-color: #28a745;
+}
+.summary-card.vitals {
+    border-left-color: #17a2b8;
+}
+
+.card-title {
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.card-value {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* Record Sections */
+.records-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.record-section {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.section-header {
+    background: #f8f9fa;
+    padding: 12px 15px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.section-header h4 {
+    margin: 0;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.section-header .badge {
+    background: #007bff;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.toggle-icon {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.section-content {
+    padding: 15px;
+    background: white;
+}
+
+.sub-section {
+    margin-bottom: 20px;
+}
+
+.sub-section h5 {
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 14px;
+    padding-bottom: 5px;
+    border-bottom: 1px dashed #dee2e6;
+}
+
+/* Tables */
+.record-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.record-table th {
+    background: #f1f1f1;
+    padding: 8px;
+    text-align: left;
+    font-weight: 600;
+}
+
+.record-table td {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.record-table tr:hover {
+    background: #f9f9f9;
+}
+
+.week-badge {
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.no-records {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+#medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+#medical-module-wrapper .dropdown-menu {
+        display: block;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(15px);
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+    }
+</style>
+<div class="container-fluid">
+        <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+<div id="medical-module-wrapper">
+    <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+    {% if request.user.department.department != 'Nursing' %}
+        <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                </li>
+
+                {% if patient.category.category == 'ANC' %}
+                <li class="nav-item active">
+                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                </li>
+                {% endif %}
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        View Reports
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    {% if patient.is_admitted %}
+                    <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                    {% else %}
+                    <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                    {% endif %}
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown ">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        Prints
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
+                        <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link text-warning" href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
+                </li>
+                
+            </ul>
+        </div>
+        {% else %}
+        <div class="collapse navbar-collapse" id="navbarText">
+        <ul class="navbar-nav mr-auto">
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'vital_signs' patient.id %}">Collect Vital Signs</a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'background_health' patient.id %}">Background Health</a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="#" data-toggle="modal" data-target="#allergyUpdateModal">Update Allergies</a>
+            </li>
+            <li class="nav-item">
+                {% if patient.is_admitted %}
+                <a class="nav-link active" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                {% endif %}
+            </li>
+        </ul>
+        </div>
+        {% endif %}
+    </nav>
+</div>
+    <div class="card mb-4">
+        <div class="card-body div-grid">
+            <!-- Column 1: -->
+            <div class="table-responsive" style="width: 100%; border: 1.5px solid rgb(228, 222, 222);">
+                <div class="detail-section">
+                    <h3 class="text-info font-weight-bold">Your EDD is <span style="text-decoration: underline;" class="text-primary">{{ pregnancy_instance.calculate_edd|date:"F j, Y"|default:"N/A" }}</span></h3>
+                    <hr>
+                    <h4 style="font-family: cursive; text-decoration: underline;">Current Pregnancy Information</h4>
+                    <hr>
+                    <div class="detail-item"><span class="detail-label">Last Menstrual Period (LMP):</span> <span id="lmp-display">{{ pregnancy_instance.last_menstrual_period|date:"F j, Y" |default:"N/A"}}</span></div>
+                    <div class="detail-item"><span class="detail-label">Gestational Age (Current):</span> <span id="current-ga">{{ current_gestational_age_weeks|default:"N/A" }}</span> weeks</div>
+                    <div class="detail-item"><span class="detail-label">Expected Date of Delivery (EDD):</span> <span id="edd-display">{{ pregnancy_instance.calculate_edd|date:"F j, Y"|default:"N/A" }}</span></div>
+                    <div class="detail-item"><span class="detail-label">Number of Foetus:</span> <span id="number_of_foetus-display">{{ pregnancy_instance.number_of_foetus|default:"N/A" }} ({% if pregnancy_instance.number_of_foetus > 1 %}Babies{% else %}Baby{% endif %})</span></div>  
+                    <div class="detail-item"><span class="detail-label">Recorded by:</span> <span class="highlight">Dr. {{ pregnancy_instance.staff.fullname}}</span></div>
+                </div>
+                <a href="#" class="btn btn-secondary" data-toggle="modal" data-target="#vitalSignModal" style="text-decoration: none; margin: 0px 10px; float: right;">ANC Examinations</a>
+                <a href="#" class="btn btn-secondary" data-toggle="modal" data-target="#appointmentsModal" style="text-decoration: none; margin: 0px 10px; float: right;">Create Appointments <i class="fa fa-bell"></i></a>
+                <a href="#" class="text-primary font-weight-bold" data-toggle="modal" data-target="#clinicalRecordFilterModal" style="text-decoration: underline; margin: 20px 10px;"><em>View Antenal Clinical records</em></a>           
+            </div>
+            <!-- Column 2: -->
+            <div class="table-responsive">
+                <div style="padding: 5px; border: 1.5px solid rgb(228, 222, 222); border-radius: 4px;">
+                    <a href="#" data-toggle="modal" data-target="#ObstetricHistoryModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-danger" role="alert" style="padding-left: 10px;">
+                            Obstetric History
+                        </div>
+                    </a>
+                    
+                    <a href="#" data-toggle="modal" data-target="#CurrentPregnancyModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-warning" role="alert" style="padding-left: 10px;">
+                            Current Pregnancy 
+                        </div>
+                    </a>
+                    
+                    <a href="#" data-toggle="modal" data-target="#GeneralMedicalModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-success" role="alert" style="padding-left: 10px;">
+                            General Medical 
+                        </div>
+                    </a>
+                    
+                    <a href="#" data-toggle="modal" data-target="#TestsModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-secondary" role="alert" style="padding-left: 10px;">
+                            Tests
+                        </div>
+                    </a>
+                    
+                    <a href="#" data-toggle="modal" data-target="#TreatmentsModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-info" role="alert" style="padding-left: 10px;">
+                            Treatments
+                        </div>
+                    </a>
+                    
+                    <a href="#" data-toggle="modal" data-target="#InvestigationsModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-secondary" role="alert" style="padding-left: 10px;">
+                            Other Investigations 
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- ================= EMPTY MODAL CONTAINERS ================= -->
+    <!-- Obstetric History Modal -->
+    <div class="modal fade" id="ObstetricHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px; background-color: #e6f7ff; margin-top: -20px;">
+                <div class="modal-body" id="obstetric-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading obstetric history form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Pregnancy Modal -->
+    <div class="modal fade" id="CurrentPregnancyModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px; background-color: #fffbe6; margin-top: -20px;">
+                <div class="modal-body" id="current-pregnancy-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading current pregnancy form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- General Medical Modal -->
+    <div class="modal fade" id="GeneralMedicalModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px; background-color: #e6ffe6; margin-top: -20px;">
+                <div class="modal-body" id="general-medical-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading general medical form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tests Modal -->
+    <div class="modal fade" id="TestsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px; background-color: #ffe6f7; margin-top: -20px;">
+                <div class="modal-body" id="tests-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading tests form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Treatments Modal -->
+    <div class="modal fade" id="TreatmentsModal" tabindex="-1" role="dialog" aria-labelledby="masterModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-primary font-weight-bold" id="masterModalLabel">View Treatments</h5>
+                    <div>
+                        <button class="btn btn-info btn-sm mr-2" onclick="printModal('master')">
+                            <i class="fa fa-print"></i> Print
+                        </button>
+                        <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-body" id="treatments-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading treatments form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Investigations Modal -->
+    <div class="modal fade" id="InvestigationsModal" tabindex="-1" role="dialog" aria-labelledby="masterModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-primary font-weight-bold" id="masterModalLabel">View Other Investigations</h5>
+                    <div>
+                        <button class="btn btn-info btn-sm mr-2" onclick="printModal('master')">
+                            <i class="fa fa-print"></i> Print
+                        </button>
+                        <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-body" id="investigations-modal-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p>Loading investigations form...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SAVE INDICATOR -->
+    <div id="saveStatus" style="position:fixed; top:80px; right:20px; background:#28a745; color:white; padding:8px 14px; border-radius:6px; display:none;">
+        ✓ Saved
+    </div>
+
+    <!-- Appointment modal -->
+    <div class="modal fade" id="appointmentsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="margin-top: -20px;">
+                <div class="modal-header">
+                    <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> <i class="fas fa-bell"></i> Create Appointments </h5>
+
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <form method="post">
+                                {% csrf_token %}
+                                {{appoint.as_p}}
+                                <button type="submit" name="appoints" class="btn btn-info" style="margin-top: 10px;">Create Appointment <i class="fa fa-bell"></i></button>                       
+                            </form>
+
+                        </div>
+                    </div>
+            
+                </div>
+            </div>
+        </div>
+    
+    <!-- Vital signs modal -->
+    <div class="modal fade" id="vitalSignModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-list"></i> ANC Examinations </h5>
+                <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+            <div style="height:330px; width:100%; padding:10px 10px 10px; padding-bottom: 20px;">
+                        <form method="post">
+                            {% csrf_token %}
+                        <div class="a">
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Temperature (&deg;C):</span>
+                            <p>{{vital_signs_form.temperature}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Weight (kg):</span>
+                            <p>{{vital_signs_form.weight}}</p>
+                            <!-- and pulse to be added -->
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">BP (mmHg):</span>
+                            <p>{{vital_signs_form.bp}} </p> 
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Pulse Rate (BPM):</span>
+                            <p>{{vital_signs_form.pulse_rate}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">PVC (%):</span>
+                            <p>{{vital_signs_form.pvc}}</p>
+                        </div>
+                        <div class="b">
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Oedema:</span>
+                            <p>{{vital_signs_form.oedema}}</p> 
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Urine Protein:</span>
+                            <p>{{vital_signs_form.urine_protein}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Urine Sugar:</span>
+                            <p>{{vital_signs_form.urine_sugar}}</p> 
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Condition of Vagina/Vulva:</span>
+                            <p>{{vital_signs_form.condition_of_vagina}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Relationship of PP to Brim:</span>
+                            <p>{{vital_signs_form.relationship_of_pp_to_brim}}</p>
+                        </div>
+                        <div class="c">
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Foetal Heart:</span>
+                            <p>{{vital_signs_form.foetal_heart}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Foetal Heart rate (BPM):</span> 
+                            <p>{{vital_signs_form.foetal_heart_rate}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Foetal Presentation:</span>
+                            <p>{{vital_signs_form.foetal_presentation}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Foetal Movement:</span> 
+                            <p>{{vital_signs_form.foetal_movement}}</p>
+                            <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Position:</span> 
+                            <p>{{vital_signs_form.position}}</p>
+                        </div>
+                    </div>
+                    <div class="d" style="padding-inline: 30px; margin-top: 70px;">
+                            {{vital_signs_form.comment}} 
+                    </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" name="anc_vital_signs" class="btn btn-primary">Save Reports <i class="fa fa-save"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div> 
+            </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clinical records filtered by ANC Week -->
+     <div class="modal fade" id="clinicalRecordFilterModal" tabindex="-1" role="dialog" aria-labelledby="clinicalModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-primary font-weight-bold" id="clinicalModalLabel">
+                        View Clinical Record <span class="badge badge-danger" id="clinicalModalCount">{{ total_clinical_count }}</span>
+                    </h5>
+                    <div>
+                        <button class="btn btn-info btn-sm mr-2" onclick="printClinicalRecords()" id="printClinicalBtn">
+                            <i class="fa fa-print"></i> Print
+                        </button>
+                        <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <!-- Filter Bar -->
+                    
+                    
+                    <!-- Table Container -->
+                    <div id="clinicalTableContainer">
+                        <div class="loading-spinner">
+                            <i class="fa fa-spinner fa-spin"></i> Loading...
+                        </div>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <div id="clinicalPagination" class="pagination"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- ================= SCRIPTS ================= -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+    <script>
+    $(document).ready(function() {
+        const patientID = "{{ patient.id }}";
+
+        /* CSRF */
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie) {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        $.ajaxSetup({
+            headers: { "X-CSRFToken": getCookie('csrftoken') }
+        });
+
+        /* ================= LAZY LOAD MODALS ================= */
+        var loadedModals = {
+            obstetric: false,
+            current_pregnancy: false,
+            general_medical: false,
+            tests: false,
+            treatments: false,
+            investigations: false
+        };
+
+        function loadModalContent(modalType, targetElement) {
+            if (loadedModals[modalType]) return; // Already loaded
+            
+            $.ajax({
+                url: window.location.href,
+                type: 'GET',
+                data: { load_modal: modalType },
+                success: function(response) {
+                    $(targetElement).html(response);
+                    loadedModals[modalType] = true;
+                    
+                    // Reinitialize any date pickers or special inputs if needed
+                    if (modalType === 'current_pregnancy' && $('#id_last_menstrual_period').length) {
+                        initializePregnancyCalculator();
+                    }
+                },
+                error: function() {
+                    $(targetElement).html('<div class="alert alert-danger">Failed to load content. Please refresh and try again.</div>');
+                }
+            });
+        }
+
+        // Trigger loading when modal is opened
+        $('#ObstetricHistoryModal').on('show.bs.modal', function() {
+            loadModalContent('obstetric', '#obstetric-modal-content');
+        });
+
+        $('#CurrentPregnancyModal').on('show.bs.modal', function() {
+            loadModalContent('current_pregnancy', '#current-pregnancy-modal-content');
+        });
+
+        $('#GeneralMedicalModal').on('show.bs.modal', function() {
+            loadModalContent('general_medical', '#general-medical-modal-content');
+        });
+
+        $('#TestsModal').on('show.bs.modal', function() {
+            loadModalContent('tests', '#tests-modal-content');
+        });
+
+        $('#TreatmentsModal').on('show.bs.modal', function() {
+            loadModalContent('treatments', '#treatments-modal-content');
+        });
+
+        $('#InvestigationsModal').on('show.bs.modal', function() {
+            loadModalContent('investigations', '#investigations-modal-content');
+        });
+
+        /* ================= FORM SUBMISSION ================= */
+        // event delegation for dynamically loaded forms
+        /* ================= FORM SUBMISSION ================= */
+        $(document).on('submit', 'form[id="obstetricForm"], form[id="currentPregnancyForm"], form[id="generalMedicalForm"], form[id="testsForm"]', function(e) {
+            e.preventDefault();
+            
+            var $form = $(this);
+            var formType = $form.data('form-type');
+            var formData = $form.serialize();
+            
+            console.log('Submitting form:', formType);
+            
+            // Show loading state on submit button
+            var $submitBtn = $form.find('button[type="submit"]');
+            var originalText = $submitBtn.text();
+            $submitBtn.prop('disabled', true).text('Saving...');
+            
+            $.ajax({
+                url: window.location.href,
+                type: 'POST',
+                data: formData,
+                dataType: 'json',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'  // Important for is_ajax detection
+                },
+                success: function(response) {
+                    console.log('Success response:', response);
+                    
+                    if (response.success) {
+                        // Show success message
+                        showNotification(response.message || 'Saved successfully!', 'success');
+                        
+                        // Update any calculated fields for current pregnancy
+                        if (formType === 'current_pregnancy' && response.gestational_age_weeks) {
+                            $('#id_gestational_age_weeks').val(response.gestational_age_weeks);
+                        }
+                        if (formType === 'current_pregnancy' && response.expected_date_of_delivery) {
+                            $('#id_expected_date_of_delivery').val(response.expected_date_of_delivery);
+                        }
+                        
+                        // Close modal after successful save
+                        $form.closest('.modal').modal('hide');
+                        
+                        // Reload page to show updated data after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 1500);
+                    } else {
+                        // Show validation errors
+                        console.error('Form errors:', response.errors);
+                        showNotification('Error: Please check the form fields', 'error');
+                        
+                        // Optional: Display errors next to fields
+                        displayFormErrors($form, response.errors);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', xhr.responseText);
+                    console.error('Status:', status);
+                    console.error('Error:', error);
+                    
+                    // Try to parse error response
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        if (response.errors) {
+                            showNotification('Validation error: ' + JSON.stringify(response.errors), 'error');
+                        } else {
+                            showNotification('Error saving data. Please try again.', 'error');
+                        }
+                    } catch(e) {
+                        showNotification('Server error. Please try again.', 'error');
+                    }
+                },
+                complete: function() {
+                    $submitBtn.prop('disabled', false).text(originalText);
+                }
+            });
+        });
+
+        // Helper function to display form errors
+        function displayFormErrors($form, errors) {
+            // Remove any existing error messages
+            $form.find('.field-error').remove();
+            $form.find('.is-invalid').removeClass('is-invalid');
+            
+            // Add new error messages
+            $.each(errors, function(fieldName, fieldErrors) {
+                var $field = $form.find('[name="' + fieldName + '"]');
+                $field.addClass('is-invalid');
+                
+                var errorHtml = '<div class="field-error text-danger small mt-1">' + fieldErrors.join(', ') + '</div>';
+                $field.closest('.form-group').append(errorHtml);
+            });
+        }
+
+        /* ================= AUTO SAVE ================= */
+        $(document).on('change', '.autosave', function() {
+            let fieldName = $(this).attr("name");
+            let value = $(this).val();
+
+            $("#saveStatus")
+                .text("Saving...")
+                .css("background", "#ffc107")
+                .fadeIn(200);
+
+            $.ajax({
+                url: "/anc/autosave/" + patientID + "/",
+                type: "POST",
+                data: {
+                    field: fieldName,
+                    value: value
+                },
+                success: function(resp) {
+                    $("#saveStatus")
+                        .text("✓ Saved " + resp.time)
+                        .css("background", "#28a745");
+                    setTimeout(() => {
+                        $("#saveStatus").fadeOut();
+                    }, 1200);
+                },
+                error: function() {
+                    $("#saveStatus")
+                        .text("Save failed")
+                        .css("background", "#dc3545");
+                }
+            });
+        });
+
+        /* ================= PREGNANCY CALCULATOR ================= */
+        function initializePregnancyCalculator() {
+            const lmpField = document.getElementById("id_last_menstrual_period");
+            const gaField = document.getElementById("id_gestational_age_weeks");
+            const eddField = document.getElementById("id_expected_date_of_delivery");
+
+            if (!lmpField) return;
+
+            function calculatePregnancyDates() {
+                if (!lmpField.value) return;
+
+                const lmp = new Date(lmpField.value);
+                const today = new Date();
+
+                // Gestational Age
+                const diffTime = today - lmp;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                const weeks = Math.floor(diffDays / 7);
+
+                if (gaField) {
+                    gaField.value = weeks;
+                }
+
+                // Expected Delivery Date
+                const edd = new Date(lmp);
+                edd.setDate(edd.getDate() + 280);
+
+                if (eddField) {
+                    eddField.value = edd.toISOString().split('T')[0];
+                }
+            }
+
+            lmpField.addEventListener("change", calculatePregnancyDates);
+            calculatePregnancyDates();
+        }
+
+        // Initialize if elements exist on page load
+        if ($('#id_last_menstrual_period').length) {
+            initializePregnancyCalculator();
+        }
+
+        /* ================= NOTIFICATION ================= */
+        function showNotification(message, type) {
+            var $notification = $('<div>', {
+                class: 'notification',
+                text: message,
+                css: {
+                    position: 'fixed',
+                    top: '20px',
+                    right: '20px',
+                    padding: '10px 20px',
+                    backgroundColor: type === 'success' ? '#d4edda' : '#f8d7da',
+                    color: type === 'success' ? '#155724' : '#721c24',
+                    border: '1px solid ' + (type === 'success' ? '#c3e6cb' : '#f5c6cb'),
+                    borderRadius: '4px',
+                    zIndex: 9999,
+                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                }
+            });
+            
+            $('body').append($notification);
+            
+            setTimeout(function() {
+                $notification.fadeOut(300, function() { $(this).remove(); });
+            }, 3000);
+        }
+
+
+        /* ================= CLINICAL RECORDS MODAL ================= */
+        var clinicalRecordsLoaded = false;
+
+        // Function to load clinical records by week
+        window.loadClinicalRecords = function(week) {
+            console.log('Loading clinical records for week:', week);
+            
+            $('#clinicalTableContainer').html('<div class="text-center p-5"><i class="fa fa-spinner fa-spin fa-3x text-primary"></i><p class="mt-2">Loading records...</p></div>');
+            
+            $.ajax({
+                url: '/anc/clinical-records/{{ patient.id }}/',
+                type: 'GET',
+                data: {
+                    week: week
+                },
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                success: function(response) {
+                    console.log('Clinical records loaded successfully');
+                    $('#clinicalTableContainer').html(response);
+                    clinicalRecordsLoaded = true;
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', error);
+                    $('#clinicalTableContainer').html('<div class="alert alert-danger">Failed to load clinical records. Please try again.</div>');
+                }
+            });
+        };
+
+// Load clinical records when modal is opened - but don't load data, just show filter
+$('#clinicalRecordFilterModal').on('show.bs.modal', function() {
+    console.log('Clinical records modal opened');
+    
+    // reload the filter options when modal opens
+    if (!clinicalRecordsLoaded) {
+        // Load just the filter (empty data)
+        $('#clinicalTableContainer').html('<div class="text-center p-5"><i class="fa fa-spinner fa-spin fa-3x text-primary"></i><p class="mt-2">Loading filter options...</p></div>');
+        
+        $.ajax({
+            url: '/anc/clinical-records/{{ patient.id }}/',
+            type: 'GET',
+            data: {
+                week: ''  // Empty week = just load filter, no data
+            },
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            success: function(response) {
+                $('#clinicalTableContainer').html(response);
+                clinicalRecordsLoaded = true;
+            },
+            error: function() {
+                $('#clinicalTableContainer').html('<div class="alert alert-danger">Failed to load. Please try again.</div>');
+            }
+        });
+    }
+});
+
+    });
+
+    // Live gestational age update
+    document.addEventListener('DOMContentLoaded', function() {
+        var lmpDateStr = "{{ pregnancy_instance.last_menstrual_period|date:'Y-m-d' }}";
+        var lmp = new Date(lmpDateStr);
+        var currentGADisplay = document.getElementById('current-ga');
+        
+        if (lmpDateStr && currentGADisplay) {
+            function updateGestationalAge() {
+                var today = new Date();
+                lmp.setHours(12, 0, 0, 0);
+                today.setHours(12, 0, 0, 0);
+                var diffTime = today.getTime() - lmp.getTime();
+                var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                var gestationalWeeks = Math.floor(diffDays / 7);
+                currentGADisplay.textContent = gestationalWeeks >= 0 ? gestationalWeeks : 'N/A';
+            }
+            updateGestationalAge();
+            
+            // Update every day
+            var now = new Date();
+            var midnight = new Date(now);
+            midnight.setDate(now.getDate() + 1);
+            midnight.setHours(0, 0, 0, 0);
+            var msUntilMidnight = midnight.getTime() - now.getTime() + 1000;
+            
+            setTimeout(function() {
+                updateGestationalAge();
+                setInterval(updateGestationalAge, 24 * 60 * 60 * 1000);
+            }, msUntilMidnight);
+        }
+    });
+    </script>
+{% endblock content %}

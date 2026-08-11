@@ -1,0 +1,52 @@
+{% extends "admin.html" %}
+{% load custom_tags %}
+{% block content %}
+<div class="container mt-4">
+    {% include 'Billings/Deposit_Refund/navigation-bills.html' %}
+    <p></p>
+    <div class="row align-items-center mb-4">
+        <div class="col">
+            <h2>Refund History <span class="text-danger font-weight-bold" style="font-size: 16px;">(₦ {{total_refunds | currency}})</span></h2>
+        </div>
+        <div class="col text-right">
+            <a href="{% url 'create_deposit_refund' patient.id %}" class="btn btn-primary">+ New Entry</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="thead-light">
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Destination</th>
+                        <th>Staff Member</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for refund in refunds %}
+                    <tr>
+                        <td>{{ refund.created_date|date:"d M Y, H:i" }}</td>
+                        <td><strong class="text-warning">₦{{ refund.amount | currency}}</strong></td>
+                        <td><span class="badge badge-pill badge-light border">{{ refund.payment_type }}</span></td>
+                        <td>My {{refund.payment_to}} accoumt</td>
+                        <td>{{ refund.staff.fullname }}</td>
+                        <td class="text-center">
+                            <a href="{% url 'refund_detail' patient.id refund.id %}" class="btn btn-sm btn-info">Edit</a>
+                            <a href="{% url 'delete_refund' patient.id refund.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-5">No refunds recorded for this patient.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

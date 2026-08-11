@@ -1,0 +1,125 @@
+{% extends "admin.html" %}
+
+{% block content %}
+
+{% if page == 'import-history' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41);" >History of Importations</h1>
+      <p></p>
+
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Date</th><th>Moment</th><th>Uploaded By</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in history_imports %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>{{ product.price }}</td>
+            <td style="color: brown">{{ product.created_date | date:"M d, Y"  }}</td>
+            <td style="color: brown">{{ product.created_date | timesince  }} ago</td>
+            <td  class="text-primary">{{product.staff.fullname}}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% elif page == 'export-history' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41);" >History of Exportations</h1>
+      <p></p>
+
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Date</th><th>Moment</th><th>Destinations</th><th>Uploaded By</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in history_exports %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>{{ product.price }}</td>
+            <td style="color: brown">{{ product.created_date | date:"M d, Y"  }}</td>
+            <td style="color: brown">{{ product.created_date | timesince  }} ago</td>
+            {% if product.destination == 'ipd_pharm' %}
+                <td  class="text-info">IPD Pharmacy 1</td>
+            {% elif product.destination == 'ipd2_pharm' %}
+                <td  class="text-info">IPD Pharmacy 2</td>
+            {% elif product.destination == 'ipd3_pharm' %}
+                <td  class="text-info">IPD Pharmacy 3</td>
+            {% elif product.destination == 'opd_pharm' %}
+                <td  class="text-primary">OPD Pharmacy 1</td>
+            {% elif product.destination == 'opd2_pharm' %}
+                <td  class="text-primary">OPD Pharmacy 2</td>
+            {% else %}
+                <td  class="text-secondary">Others</td>
+            {% endif %}
+            <td  class="text-primary">{{product.staff.fullname}}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% elif page == 'request-history' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41);" >All-time Requests History</h1>
+      <p></p>
+
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Date</th><th>Status</th><th>Department</th><th>Staff Signature</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in history_requests %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>{{ product.price }}</td>
+            <td style="color: brown; width: 12%;">{{ product.created_date | date:"M d, Y"  }}</td>
+            {% if product.status == 0 %}
+                <td style=" width: 12%;"><span class="text-secondary">No Action </i></span></td>
+            {% elif product.status == 1 %}
+                <td style=" width: 12%;"><span class="text-success">Approved </i></span></td>
+            {% elif product.status == 2 %}
+                <td style=" width: 12%;"><span class="text-danger">Declined </span></td>
+            {% endif %}
+
+            {% if product.source == 'ipd_pharm' %}
+                <td  class="text-info">IPD Pharmacy 1</td>
+            {% elif product.source == 'ipd2_pharm' %}
+                <td  class="text-info">IPD Pharmacy 2</td>
+            {% elif product.source == 'ipd3_pharm' %}
+                <td  class="text-info">IPD Pharmacy 3</td>
+            {% elif product.source == 'opd_pharm' %}
+                <td  class="text-primary">OPD Pharmacy 1</td>
+            {% elif product.source == 'opd2_pharm' %}
+                <td  class="text-primary">OPD Pharmacy 2</td>
+            {% else %}
+                <td  class="text-secondary">Others</td>
+            {% endif %}
+
+            {% if product.staff2 %}
+                <td  class="text-primary">{{product.staff2}}</td>
+            {% else %}
+                <td  class="text-primary">No action taken</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock content %}

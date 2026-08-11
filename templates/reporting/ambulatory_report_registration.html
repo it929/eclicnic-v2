@@ -1,0 +1,119 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+
+<style>
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        /* padding-bottom: -10px; */
+        gap: 10px;
+        font-size: 14px;
+    }
+</style>
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800 font-weight-bold">
+        <i class="fa fa-user-plus"></i> &nbsp;Ambulatory Patient Registration
+    </h1>
+    <hr>
+    <div>
+        <form method="GET" class="">
+            <div class="form-grid">
+                <div>
+                    <div>
+                        <label>Date From</label>
+                        <input type="date" name="date_from" class="form-control" required value="{{ request.GET.date_from }}">
+                    </div>
+                    <div>
+                        <label>Date To</label>
+                        <input type="date" name="date_to" class="form-control" value="{{ request.GET.date_to }}">
+                    </div>
+                    <div>
+                        <label>Sponsor</label>
+                        <select name="sponsor" class="form-control">
+                            <option value="">All Sponsors</option>
+                            {% for sponsor in sponsors %}
+                            <option value="{{ sponsor.id }}" {% if request.GET.sponsor == sponsor.id|stringformat:"s" %}selected{% endif %}>
+                                {{ sponsor.plan }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Patient Type</label>
+                        <select name="patient_type" class="form-control">
+                            <option value="">All Types</option>
+                            {% for type in patient_types %}
+                            <option value="{{ type.id }}" {% if request.GET.patient_type == type.id|stringformat:"s" %}selected{% endif %}>
+                                {{ type.category }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <div>
+                        <label>Registrar</label>
+                        <select name="registrar" class="form-control">
+                            <option value="">All Registrars</option>
+                            {% for user in registrars %}
+                            <option value="{{ user.id }}" {% if request.GET.registrar == user.id|stringformat:"s" %}selected{% endif %}>
+                                {{ user.fullname }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Orientation</label>
+                        <select name="orientation" class="form-control">
+                            <option value="Landscape">Landscape</option>
+                            <option value="Portrait">Portrait</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Destination</label>
+                        <select name="destination" class="form-control">
+                            <option value="MS Excel">MS Excel</option>
+                            <option value="PDF">PDF</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" name="generate" value="1" class="btn btn-primary" style="margin-top:30px"><i class="fa fa-download"></i> Generate Report</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% if messages %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    {% for message in messages %}
+        Swal.fire({
+            icon: '{{ message.tags }}', // 'success', 'error', 'warning', 'info'
+            title: '{% if message.tags == "success" %}Success!{% elif message.tags == "error" %}Oops...{% endif %}',
+            text: '{{ message }}',
+            timer: 3000,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+        });
+    {% endfor %}
+});
+</script>
+{% endif %}
+
+<!-- For download success case -->
+{% if request.session.show_success_after_download %}
+<script>
+Swal.fire({
+    icon: 'success',
+    title: 'Download Started',
+    text: 'Your Excel report is downloading...',
+    timer: 3000,
+    toast: true,
+    position: 'top-end'
+});
+</script>
+{% endif %}
+{% endblock %}

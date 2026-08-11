@@ -1,0 +1,460 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    table{
+        font-size: 13px;
+    }
+    #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+            display: block;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #medical-module-wrapper .dropdown-menu {
+            display: block;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(15px);
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+        }
+</style>
+<div class="container-fluid">
+     <div id="medical-module-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+            <div class="collapse navbar-collapse" id="navbarText">
+                <ul class="navbar-nav mr-auto">
+                    <li class="nav-item {% if page == 'doctor_complete_all' %}active{% endif %} ">
+                        <a class="nav-link" href="{% url 'doctor_completes_all' %}" style="text-decoration: underline;">Doctors Queue </a>
+                    </li>
+                    <li class="nav-item {% if page == 'nurse_complete_all' %}active{% endif %}">
+                        <a class="nav-link" href="{% url 'nurse_completes_all' %}" style="text-decoration: underline;">Nurse Queue <span class="sr-only">(current)</span></a>
+                    </li>
+
+                    <li class="nav-item {% if page == 'lab_complete_all' %}active{% endif %}">
+                        <a class="nav-link" href="{% url 'lab_completes_all' %}" style="text-decoration: underline;">Lab Requests </a>
+                    </li>
+                    <li class="nav-item {% if page == 'lab_result_complete_all' %}active{% endif %}">
+                        <a class="nav-link" href="{% url 'lab_result_completes_all' %}" style="text-decoration: underline;">Lab Results </a>
+                    </li>
+                    <li class="nav-item {% if page == 'scan_complete_all' %}active{% endif %}">
+                        <a class="nav-link" href="{% url 'scan_completes_all' %}" style="text-decoration: underline;">Scan Requests </a>
+                    </li>
+                    <li class="nav-item {% if page == 'scan_result_complete_all' %}active{% endif %}">
+                        <a class="nav-link" href="{% url 'scan_result_completes_all' %}" style="text-decoration: underline;">Scan Results </a>
+                    </li>
+                    <li class="nav-item dropdown hover-dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Pharmacy Queue
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                            <a class="dropdown-item text-info" href="{% url 'drug_requests_ipd1_completes_all' %}">IPD Pharmacy 1 </a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-info" href="{% url 'drug_requests_ipd2_completes_all' %}">IPD Pharmacy 2 </a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-info" href="{% url 'drug_requests_ipd3_completes_all' %}">IPD Pharmacy 3 </a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-primary" href="{% url 'drug_requests_opd1_completes_all' %}">OPD Pharmacy 1 </a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-primary" href="{% url 'drug_requests_opd2_completes_all' %}">OPD Pharmacy 2 </a>
+                        </div>
+                    </li>
+
+                </ul>
+            </div>
+        </nav>
+    </div>
+    {% if page == 'nurse_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp;Nurses completed list <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints queue to nursing -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Sent By</th>
+                        <th>Completed By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in nurse_complete %}
+                    <tr>
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }}</a></td>
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.plan.plan|default:"-" }}</a></td>
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.attendant.fullname }}</a></td> 
+                        <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">Nur. {{ patient.completed_by }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif page == 'doctor_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp;Doctors completed list <span id="total-count" class="badge badge-secondary">{{doctor_counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints queue to nursing -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Destinations</th>
+                        <th>Time</th>
+                        <th>Complted By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in doctor_complete %}
+                    <tr>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.purpose|default:"-" }}</a></td>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.completed_by }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!-- Lab queues -->
+        {% elif page == 'lab_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Lab test completed list <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints queue to Laboratory -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in lab_complete %}
+                    <tr>
+                        <td><a href="{% url 'test_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'test_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'test_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'test_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'test_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'test_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!-- Scan queues -->
+        {% elif page == 'scan_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Scan completed list <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints queue to radiology -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in scan_complete %}
+                    <tr>
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'scan_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'lab_result_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Lab Results marked as completed <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints lab results -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Sent By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in lab_result_complete %}
+                    <tr>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;"> {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'scan_result_complete_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Scan Results marked as completed <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints scan results -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Sent By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in scan_result_complete %}
+                    <tr>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;"> {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'drug_requests_ipd1_completes_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Drugs Dispensed By IPD Pharmacy 1 <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints drug requests -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Medications</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in ipd1_drug_complete %}
+                    <tr>
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
+                        <td><a href="{% url 'ipd1_dispense_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'drug_requests_ipd2_completes_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Drugs Dispensed By IPD Pharmacy 2 <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints drug requests -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Medications</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in ipd2_drug_complete %}
+                    <tr>
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
+                        <td><a href="{% url 'ipd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'drug_requests_ipd3_completes_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Drugs Dispensed By IPD Pharmacy 3 <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints drug requests -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Medications</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in ipd3_drug_complete %}
+                    <tr>
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
+                        <td><a href="{% url 'ipd3_dispense_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'drug_requests_opd_completes_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Drugs Dispensed By OPD Pharmacy 1 <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints drug requests -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Medications</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in opd_drug_complete %}
+                    <tr>
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
+                        <td><a href="{% url 'opd_dispense_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'drug_requests_opd2_completes_all' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Drugs Dispensed By OPD Pharmacy 2 <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints drug requests -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Medications</th>
+                        <th>Requested By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in opd2_drug_complete %}
+                    <tr>
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
+                        <td><a href="{% url 'opd2_dispense_history' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

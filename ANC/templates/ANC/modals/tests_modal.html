@@ -1,0 +1,64 @@
+<div id="tests" class="antenatal-form-section color-tests">
+                    <h3>Tests <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{tests_instance.staff.fullname}}</span></h3>
+                    <form id="testsForm" method="post" data-form-type="tests">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="tests">
+                        
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.vdrl.id_for_label }}">VDRL:</label>
+                                    {{ tests_form.vdrl }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hiv.id_for_label }}">HIV:</label>
+                                    {{ tests_form.hiv }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.blood_group.id_for_label }}">Blood Group:</label>
+                                    {{ tests_form.blood_group }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.genotype.id_for_label }}">Genotype:</label>
+                                    {{ tests_form.genotype }}
+                                </div>
+                            </div>
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hepatitis_b.id_for_label }}">Hepatitis B:</label>
+                                    {{ tests_form.hepatitis_b }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hepatitis_c.id_for_label }}">Hepatitis C:</label>
+                                    {{ tests_form.hepatitis_c }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.rhesus_factor.id_for_label }}">Rhesus Factor:</label>
+                                    {{ tests_form.rhesus_factor }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hb.id_for_label }}">Hb:</label>
+                                    {{ tests_form.hb }}
+                                </div>
+                            </div>
+                            
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.urine_protein.id_for_label }}">Urine Protein:</label>
+                                    {{ tests_form.urine_protein }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.urine_glucose.id_for_label }}">Urine Glucose:</label>
+                                    {{ tests_form.urine_glucose }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.pregnancy_test.id_for_label }}">Pregnancy Test:</label>
+                                    {{ tests_form.pregnancy_test }}
+                                </div>
+                                <div class="btn-group" style="margin-top: 22px;">
+                                    <button type="submit" class="btn btn-primary">Change Record</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>

@@ -1,0 +1,250 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    input[type="text"],input[type="email"],input[type="file"],input[type="number"],select{
+        width:100%; height: 40px; padding-left: 10px;
+        border:1px solid #ccc; 
+        border-radius: 5px;
+    }
+    
+    input[type="file"]{
+        display: none;
+    }
+</style> 
+<div class="container-fluid">
+
+    <!-- Page Heading -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">Front Desk</h1>
+    </div>
+
+    <div class="row">
+
+        <!--  Private Patients -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <a href="#"  style="text-decoration: none;">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                Private Patients</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{private}}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ANC Patients Card -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <a href="#"  style="text-decoration: none;">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                ANC Patients</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{anc}}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- HMO Patients -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <a href="#"  style="text-decoration: none;">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">HMO Patients
+                            </div>
+                            <a href="#" data-toggle="modal" data-target="#borrowedModal" style="text-decoration: none;">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col-auto">
+                                    <div class="h5 mb-0 mr-3 font-weight-bold text-gray-800">{{hmo}}</div>
+                                </div>
+                                <div class="col">
+                                    <div class="progress progress-sm mr-2">
+                                        
+                                    </div>
+                                </div>
+                            </div>
+                            </a>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </a>
+                </div>
+            </div>
+        </div>
+
+        <!--  Retainership Patients -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <a href="#"  style="text-decoration: none;">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                Retainership Patients</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{retainership}}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-6">
+
+            <!-- Add Records Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    Add Records
+                </div>
+                <div class="card-body">
+                    <a href="{% url 'upload_plans' %}" class="btn btn-primary" style="text-decoration: none;">
+                        <i class="fas fa-plus"></i> Patient Plans <i class="fas fa-user"></i>
+                    </a>
+                    <a href="#" data-toggle="modal" data-target="#priceUpdateModal" class="btn btn-info" style="text-decoration:none; float: right;">
+                        <i class="fas fa-plus"></i> Registration fee <i class="fas fa-user"></i>
+                    </a>
+                </div>
+            </div>
+            
+
+            <!-- Basic Information-->
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary"> <a href="{% url 'today_appointment' %}" style="text-decoration: none;">Today's Appointments:  &nbsp;<span class="badge badge-pill badge-danger">{{appointment_counts}}</span></a></h6>
+                </div>
+                <div class="card-body">
+                    <a href="{% url 'admission_table' %}" style="text-decoration: none;">
+                        <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            Total Numbers of Inpatients: &nbsp;<span class="badge badge-pill badge-danger">{{inpatients}}</span>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </a>
+                    <a href="{% url 'birthday_list' %}" style="text-decoration: none;">
+                        <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            Today's Birthday Celebrants: &nbsp;<span class="badge badge-pill badge-danger">{{birthday_counts}}</span>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="col-lg-6">
+
+            <!-- File management card -->
+            <div class="card shadow mb-4">
+                <!-- Card Header - Dropdown -->
+                <div
+                    class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">Import/Export Records to Excel</h6>
+                </div>
+                <!-- Card Body -->
+                <div class="card-body">
+                    <a href="{% url 'export_patients' %}" class="btn btn-success" ><i class="fas fa-download"></i> Download Records </a>
+                    <a href="{% url 'patient_list' %}" class="btn btn-warning" style="float: right;"><i class="fas fa-upload"></i> Upload Records </a>
+                </div>
+            </div>
+
+
+            <div class="card shadow mb-4">
+
+                <a href="#collapseCardExample" class="d-block card-header py-3" data-toggle="collapse"
+                    role="button" aria-expanded="true" aria-controls="collapseCardExample">
+                    <h6 class="m-0 font-weight-bold text-primary">Total Number of Patients</h6>
+                </a>
+
+                <div class="collapse show" id="collapseCardExample">
+                    <div class="card-body">
+                        <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            Total Numbers of Inactive patients: &nbsp;<span class="badge badge-pill badge-danger">{{deactivated}}</span>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            Total Numbers of Active patients: &nbsp;<span class="badge badge-pill badge-danger">{{active}}</span>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="priceUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">Patient's registration fee</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <form method="POST">
+                        {% csrf_token %}
+                        <input type="number" required placeholder="Update Registration Fee" name="reg_fee" class="form-control">                  
+                </div>
+            <div class="modal-footer">
+                <a name="" class="btn btn-info" href="#" data-toggle="modal" data-target="#priceUpdatePinModal">Save Change <i class="fa fa-save"></i></a> <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+        </div>
+        </div> 
+    </div>
+</div>
+<div class="modal fade" id="priceUpdatePinModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" name="regfee" class="btn btn-warning">Update Price <i class="fa fa-adjust"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+            </form>
+        </div>
+        </div> 
+    </div>
+
+<!-- {{ redirect_to_login_immediately }} -->
+
+ 
+{% endblock content %}

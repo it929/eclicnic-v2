@@ -1,0 +1,585 @@
+{% extends 'admin.html' %}
+{% load static %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<style>
+    input[type="text"],input[type="email"],input[type="number"],select{
+        width:100%; height: 40px; padding-left: 10px;
+        border:1px solid #ccc; margin-top: 10px;
+        border-radius: 5px;
+    }
+    .hidden{
+        display: none;
+    }
+</style>
+  <!-- Content Row -->
+  <div class="container-fluid">
+
+    <!-- Page Heading -->
+        {% if patient.active == 1 %}
+            <h1 class="h3 mb-1 text-gray-800">Patient Profile <span class="text-success">(Activated)</span></h1>
+        {% else %}
+            <h1 class="h3 mb-1 text-gray-800">Patient Profile <span class="text-danger">(Deactivated)</span></h1>
+        {% endif %}
+
+    <!-- Content Row -->
+    <div class="row">
+
+        <div class="col-lg-6">
+             <!-- Progress Small for Nurses Only -->
+            {% if request.user.department.department == 'Nursing' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Proceed to your recordings</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Background Health History and Vital Signs</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-warning" href="{% url 'background_health' patient.id %}" style="text-decoration: none;">Background Health History</a>
+                    <a class="btn btn-primary" href="{% url 'vital_signs' patient.id %}" style="text-decoration: none;">Get Vital Signs</a>                    
+                    
+                </div>
+            </div>
+            <!-- End of Progress Small for Nurses Only -->
+
+            <!-- Progress Small for Laboratory Only -->
+            {% elif request.user.department.department == 'Laboratory' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Proceed to your recordings</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Get history of past investigations for this patient</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-warning" href="{% url 'lab_investigation' patient.id %}" style="text-decoration: none;">Lab Investigations</a>
+                    
+                </div>
+            </div>
+            <!-- End of Progress Small for Laboratory Only -->
+
+            <!-- Progress Small for Radiology Only -->
+            {% elif request.user.department.department == 'Radiology' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Proceed to your recordings</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Get history of past investigations for this patient</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-success" href="{% url 'scan_investigation' patient.id %}" style="text-decoration: none;">Scan Investigations</a>
+                    
+                </div>
+            </div>
+            <!-- End of Progress Small for Radiology Only -->
+
+            <!-- Progress Small for Billings Only -->
+            {% elif request.user.department.department == 'Billings' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Manage financial transactions</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Get history of past financial transactions for this patient</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-success" href="{% url 'get_receipt' patient.id %}" style="text-decoration: none;">financial Records</a>
+                    
+                </div>
+            </div>
+            <!-- End of Progress Small for Billings Only -->
+
+            <!-- Progress Small for Doctors Only -->
+            {% elif request.user.department.department == 'Clinical' %}
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Proceed to Consultation Room</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Start your Consultation Engagement</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    {% if patient.category.category == 'ANC' %}
+                    <a class="btn btn-warning" href="{% url 'get_anc' patient.id %}" style="text-decoration: none;">Begin Encounter &nbsp;<i class="fa fa-arrow-right"></i></a>
+                    {% else %}
+                    <a class="btn btn-warning" href="{% url 'doctor_consultation' patient.id %}" style="text-decoration: none;">Begin Encounter &nbsp;<i class="fa fa-arrow-right"></i></a>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- End of Progress Small for Doctors Only -->
+            {% else %}
+            <div class="card mb-4"> 
+                <div class="card-header py-3">
+                    {% if request.user.department.department in 'Admin, CMD' %}
+                    <h6 class="m-0">
+                        <a href="{% url 'doctor_consultation' patient.id %}"  class="text-success">Medical Reports</a><br>
+                        <a href="{% url 'lab_investigation' patient.id %}"  class="text-warning">Lab Investigations</a> <br>
+                        <a href="{% url 'scan_investigation' patient.id %}"  class="text-info">Scan Reports</a><br>
+                        <a href="{% url 'get_receipt' patient.id %}" class="text-primary">financial Reports</a> <br>
+                    </h6>
+                    {% else %}
+                    <h6 class="m-0 font-weight-bold text-primary">Manage Patient profile</h6>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <div class="mb-1 small">Upload profile picture</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <a class="btn btn-primary" href="#" data-toggle="modal" data-target="#profileUploadModal" style="text-decoration: none;">Upload Picture <i class="fa fa-upload"></i></a>
+                    <button class="btn btn-info webcam-btn">
+                         Use Webcam <i class="fa fa-camera"></i>
+                    </button>
+                    <a class="btn btn-warning" href="{% url 'edit_patient_profile' patient.id %}" style="text-decoration: none;">Edit Profile <i class="fa fa-edit"></i></a>
+                </div>
+            </div>
+            {% endif %}
+            <!-- Overflow Hidden -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <table>
+                        <tr><td>Patient's Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.surname}} {{patient.other_name}} {{patient.first_name}}</td></tr>
+                        <tr><td>Patient's Gender</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.gender}}</td></tr>
+                        <tr><td>Address</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.address}}</td></tr>
+                        <tr><td>Phone Number</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.phone_number}}</td></tr>
+                        <tr><td>Date of Birth</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.dob}}</td></tr>
+                        <tr><td>Hospital Number</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.hospital_number}}</td></tr>                  
+                        <tr><td>Parent's Email</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.email_address}}</td></tr>
+                    </table>
+                    <div id="accordion">
+                              <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
+                                Get more information:
+                              </a>
+                          <div id="collapseProfile" class="collapse" aria-labelledby="headingProfile" data-parent="#accordion">
+                                <table>
+                                    <tr><td>Patient's Category</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.category.category}}</td></tr>
+                                    <tr><td>Patient's Plan</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.plan.plan}}</td></tr>
+                                    <tr><td>Marital Status</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.patient_type|default:"-"}}</td></tr>
+                                    <tr><td>Insurance Policy Number</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.insurance_policy_number|default:"-"}}</td></tr>
+                                    <tr><td><h6 class="text-danger">Emergency Contact Information *:</h6></td></tr>
+                                    <tr><td>Full Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.full_name}}</td></tr>
+                                    <tr><td>Relationship to Patient</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.relationship_to_patient}}</td></tr>
+                                    <tr><td>Phone Numbers</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.phone_numbers}}</td></tr>
+                                    <tr><td><h6 class="text-danger">Account Creation Details *:</h6></td></tr>
+                                    <tr><td>Registered By</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: #256fad;">{{patient.created_by.fullname}}</td></tr>
+                                    <tr><td>Account Created</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{patient.created_date|timesince}} ago</td></tr>
+                                    <tr><td>Date Created</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{patient.created_date|date:"M d, Y"}}</td></tr>
+                                </table>
+                          </div>
+                      </div>
+                </div>
+            </div>
+
+            <!-- Progress Small -->
+            {% if request.user.department.department in 'Front Desk, Admin, CMD' %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="mb-1 small">Patient's Deactivation process</div>
+                    
+                    <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                        <div class="progress-bar" role="progressbar" style="width: 85%"
+                            aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    {% if patient.active == 1 %}
+                    <a class="btn btn-warning" href="#" data-toggle="modal" data-target="#deactivateModal" style="text-decoration: none;">Deactivate Profile <i class="fa fa-user-times"></i></a>
+                    {% else %}
+                    <a class="btn btn-success" href="#" data-toggle="modal" data-target="#deactivateModal" style="text-decoration: none;">Activate <i class="fa fa-check"></i></a>
+                    {% endif %}
+
+                    
+                </div>
+            </div>
+            {% endif %}
+            <!-- Dropdown No Arrow -->
+        </div>
+
+        <div class="col-lg-6">
+            <!-- Roitation Utilities -->
+            <div class="card">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
+                </div>
+                <div class="card-body text-center" style="background: #f8f8f8;">
+                    <div style="padding-inline: 30px; padding-block: 30px; background: #fff;">
+                        <img src="{{patient.avatar.url}}" style=" border-radius: 5px; width: 100%; height: 300px;"/>
+                    </div>
+                </div>
+            </div>
+            <!-- Progress Small -->
+        </div>
+    </div>
+</div>
+
+  
+  
+<!-- ---modals--- -->
+<div class="modal fade" id="profileUploadModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+        <div class="modal-header">
+            {{form}}
+        </div>
+        <div class="modal-footer">
+             <input type="text" value="0" style="display: none;" name="valu"/>   
+            <button type="submit" name="upload" class="btn btn-success">Upload <i class="fa fa-upload"></i></button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+        </div> 
+        </form>
+        </div>
+    </div>
+</div>
+<!-- Appointments modal -->
+<div class="modal fade" id="appointmentModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+           <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Schedule Appointment</span> 
+           <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+               <span aria-hidden="true">×</span>
+           </button>
+        </div>
+        <div style="padding-inline:20px; margin-top: 5px; padding-bottom: 25px;">
+            <form method="post" id="waitingListForm">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label for="id_purpose">Purpose:</label>
+                    {{ queue_form.purpose }}
+                </div>
+                
+                <div class="form-group">
+                    <label for="id_visit_type">Visit Type:</label>
+                    {{ queue_form.visit_type }}
+                </div>
+                
+                <div class="form-group" style="display: none;">
+                    {{ queue_form.price }}
+                </div>
+                
+                <div class="form-group">
+                    <label>Select Criticality:</label>
+                    <select name="criticality" required class="form-control">
+                        <option value="critic">-- Criticality --</option>
+                        <option value="1">Emergency</option>
+                        <option value="2">Review</option>
+                        <option value="0">General Request</option>
+                    </select>
+                </div>
+                
+                <!-- Exception Bill Checkbox -->
+                <div class="form-group">
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" 
+                               class="custom-control-input" 
+                               id="consultationExceptionBill" 
+                               name="exception_bill"
+                               value="1">
+                        <label class="custom-control-label" for="consultationExceptionBill">
+                            <span class="text-danger font-weight-bold">Exception Bill</span> 
+                            <small class="text-muted">(Check if this consultation should NOT be billed)</small>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <input type="text" value="0" style="display: none;" name="valu"/>
+                    <button type="submit" name="queue" class="btn btn-success" id="submitConsultationBtn">
+                        <i class="fa fa-plus"></i> Create Appointment
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No, Thanks!</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</div>
+  <!-- Deactivate and Activate modal -->
+  {% if patient.active == 1 %}
+  <div class="modal fade" id="deactivateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog" role="document">
+      <div class="modal-content">
+          <div class="modal-header">
+              <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to deactivate this patient?</h6>
+          </div>
+          <div>
+            <div style="padding-inline: 30px; padding-block: 20px;">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+            </div>
+          <div class="modal-footer">
+              <input type="text" value="0" style="display: none;" name="valu"/>   
+              <button type="submit" name="deactivate" class="btn btn-warning">Deactivate</button>
+              <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+          </div>
+        </form>
+      </div>
+    </div>
+</div>
+</div>
+{% else %}
+  <div class="modal fade" id="deactivateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog" role="document">
+      <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to activate this patient?</h6>
+          </div>
+          <div style="padding-inline: 30px; padding-block: 20px;">
+            <form method="post">
+                {% csrf_token %}
+                <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+          </div>
+          <div class="modal-footer">
+              <input type="text" value="0" style="display: none;" name="valu"/>   
+              <button type="submit" name="deactivate" class="btn btn-success">Activate</button>
+              <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+          </div>
+        </form>
+      </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Webcam Modal -->
+<!-- Display the captured image if it exists -->
+{% if patient.webcam_image %}
+<div class="mt-3">
+    <img src="{{ patient.webcam_image.url }}" class="img-thumbnail" width="200">
+</div>
+{% endif %}
+<div class="modal fade" id="webcamModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Take Patient Photo</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body text-center">
+                <video id="webcam" width="100%" autoplay></video>
+                <canvas id="webcamCanvas" style="display:none;"></canvas>
+                <div id="imagePreview" class="mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="captureBtn" class="btn btn-primary">
+                    <i class="fa fa-camera"></i> Capture
+                </button>
+                <button id="retakeBtn" class="btn btn-warning">
+                    <i class="fa fa-refresh"></i> Retake
+                </button>
+                <button id="saveBtn" class="btn btn-success">
+                    <i class="fa fa-save"></i> Save Photo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+    // When purpose changes, fetch the price
+    $('#id_purpose').change(function() {
+        var purpose = $(this).val();
+        if (purpose) {
+            $.get('/get-price/', {purpose: purpose}, function(data) {
+                $('#id_price').val(data.price);
+            });
+        } else {
+            $('#id_price').val('0');
+        }
+    });
+    
+    $('#consultationExceptionBill').change(function() {
+        const checkbox = $(this);
+        const purpose = $('#id_purpose').val() || 'Consultation';
+        
+        if (checkbox.is(':checked')) {
+            // Show confirmation when checked
+            Swal.fire({
+                title: 'Exception Bill',
+                text: `This "${purpose}" consultation will NOT be billed. Are you sure?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, mark as exception',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    checkbox.prop('checked', true);
+                    checkbox.closest('.form-group').addClass('has-warning');
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'Exception Marked',
+                        text: `Consultation will not be billed.`,
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                } else {
+                    checkbox.prop('checked', false);
+                    checkbox.closest('.form-group').removeClass('has-warning');
+                }
+            });
+        } else {
+            checkbox.closest('.form-group').removeClass('has-warning');
+        }
+    });
+    
+    // CSS for warning state
+    const style = document.createElement('style');
+    style.textContent = `
+        .has-warning .custom-control-label {
+            color: #856404;
+        }
+        .has-warning .custom-control-input:checked ~ .custom-control-label::before {
+            background-color: #ffc107;
+            border-color: #ffc107;
+        }
+    `;
+    document.head.appendChild(style);
+});
+</script>
+<script>
+    $(document).ready(function() {
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('webcamCanvas');
+        const ctx = canvas.getContext('2d');
+        let stream = null;
+        const patientId = {{ patient.id }}; 
+        const preview = document.getElementById('imagePreview');
+    
+        // Webcam button click handler
+        $('.webcam-btn').click(function() {
+            $('#webcamModal').modal('show');
+            startWebcam();
+        });
+    
+        function startWebcam() {
+            // Clear previous preview if exists
+            preview.innerHTML = '';
+            
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(function(s) {
+                    stream = s;
+                    video.srcObject = stream;
+                    $('#captureBtn').show();
+                    $('#retakeBtn').hide();
+                    $('#saveBtn').hide();
+                    video.style.display = 'block';
+                })
+                .catch(function(err) {
+                    console.error("Error accessing webcam:", err);
+                    alert("Could not access webcam. Please ensure you've granted camera permissions.");
+                });
+        }
+    
+        // Capture button
+        $('#captureBtn').click(function() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Show preview
+            const imageData = canvas.toDataURL('image/png');
+            preview.innerHTML = `<img src="${imageData}" class="img-fluid">`;
+            
+            // Stop webcam and show options
+            stream.getTracks().forEach(track => track.stop());
+            video.style.display = 'none';
+            $('#captureBtn').hide();
+            $('#retakeBtn').show();
+            $('#saveBtn').show();
+        });
+    
+        // Retake button
+        $('#retakeBtn').click(function() {
+            startWebcam();
+        });
+    
+        // Save button
+    $('#saveBtn').click(function() {
+    const imageData = canvas.toDataURL('image/png').split(',')[1];
+    
+    $.ajax({
+        url: `/patient/${patientId}/capture-webcam/`,
+        method: 'POST',
+        data: {
+            image_data: imageData,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        },
+        success: function(response) {
+            if(response.status === 'success') {
+                // Show temporary success message
+                showTempMessage('success', response.message);
+                
+                // Close modal and reload after short delay
+                setTimeout(function() {
+                    $('#webcamModal').modal('hide');
+                    location.reload(); // This will show the Django message
+                }, 1500);
+            } else {
+                showTempMessage('error', response.message || 'Error saving image');
+            }
+        },
+        error: function(xhr) {
+            const response = xhr.responseJSON || {};
+            showTempMessage('error', response.message || 'Server error occurred');
+        }
+    });
+});
+
+// Helper function to show temporary messages
+function showTempMessage(type, text) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const $alert = $(`
+        <div class="alert ${alertClass} alert-dismissible fade show" 
+             style="position: fixed; top: 20px; right: 20px; z-index: 9999;">
+            ${text}
+            <button type="button" class="close" data-dismiss="alert">
+                <span>&times;</span>
+            </button>
+        </div>
+    `);
+    
+    $('body').append($alert);
+    setTimeout(() => $alert.alert('close'), 3000);
+}
+    
+        // Cleanup when modal closes
+        $('#webcamModal').on('hidden.bs.modal', function() {
+            if(stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+    });
+    </script>
+    
+{% endblock content%}

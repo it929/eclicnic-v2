@@ -1,0 +1,104 @@
+
+{% extends "admin.html" %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fas fa-fw fa-cog"></i> &nbsp;Manage Imports </h1>
+      <p></p>
+
+<h5 class="text-primary" style="margin-left: 50px;">Your Previously Imported Products <span style="color: brown; font-family: cursive;">(24 Hours)</span></h5>
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Imported Time</th><th>Action</th><th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in product_imports %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>{{ product.price }}</td>
+            <td style="color: brown;">{{ product.created_date | timesince }} ago</td>
+            <td style=" width: 12%;">
+                <button class="btn btn-sm btn-warning edit-product">Modify <i class="fa fa-edit"></i></button>
+            </td>
+
+            <td style=" width: 12%;">
+                <button class="btn btn-sm btn-danger delete-product">Delete <i class="fa fa-trash"></i></button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+<script>
+$(document).on('click', '.delete-product', function () {
+    const row = $(this).closest('tr');
+    const productId = row.data('id');
+
+    if (confirm('Are you sure you want to delete this product entry?')) {
+        $.ajax({
+            url: '/delete-imported-goods/' + productId + '/',
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            success: function () {
+                row.remove();
+                Swal.fire({
+                icon: 'success',
+                title: 'Removed!',
+                confirmButtonText: 'Okay',
+                text: `Product removed from the list!`,
+                // timer: 2000,
+                // showConfirmButton: true
+                // }).then(() => {
+                //     location.reload();
+                });
+            },
+            error: function () {
+                alert('Error deleting product.');
+            }
+        });
+    }
+});
+</script>
+<script>
+  $(document).on('click', '.edit-product', function () {
+    const row = $(this).closest('tr');
+    const productId = row.data('id');
+    const currentQty = row.find("td:eq(2)").text();
+
+    Swal.fire({
+        title: 'Edit Quantity',
+        input: 'number',
+        inputValue: currentQty,
+        inputAttributes: { min: 1 },
+        showCancelButton: true,
+        confirmButtonText: 'Update',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.ajax({
+                url: '/edit-imported-goods/' + productId + '/',
+                method: 'POST',
+                data: {
+                    quantity: result.value,
+                    csrfmiddlewaretoken: '{{ csrf_token }}'
+                },
+                success: function (response) {
+                    row.find("td:eq(2)").text(response.new_quantity);
+                    Swal.fire('Updated!', 'Quantity has been updated successfully.', 'success');
+                },
+                error: function (xhr) {
+                    Swal.fire('Error', xhr.responseJSON.error, 'error');
+                }
+            });
+        }
+    });
+});
+
+</script>
+{% endblock %}
+

@@ -1,0 +1,306 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    select{
+        border: 1px solid #d5cdcd;
+        color: #8e8b8b; padding: 2px; border-radius: 3px;
+    }
+    .a{
+        width: 30%; height: 320px; padding: 20px; 
+    }
+    .b{
+        width: 30%; height: 320px; padding: 20px; margin-left: 31%; position: relative; top: -320px;
+    }
+    .c{
+        width: 30%; height: 320px; padding: 20px; margin: -640px 62%;
+    }
+    .d{
+        width: 93%; height: 100px; padding: 20px; margin-top: 0px;
+    }
+    select.form2{
+        width:28%;border: 1px solid #ccc; border-radius: 5px; text-align: center; height: 36px;
+    }
+    input.form2{
+        width:70%; height: 37px; border: 1px solid #ccc; border-radius: 5px; padding-left: 15px; color:#817f7f ;
+    }
+    input.form2::placeholder{
+        color:#817f7f
+    }
+    .a p{
+        margin-top: -3px;
+    }
+    .b p{
+        margin-top: -3px;
+    }
+    .c p{
+        margin-top: -3px;
+    }
+</style>
+
+<div class="container-fluid">
+            <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+    <div class="collapse navbar-collapse" id="navbarText">
+      <ul class="navbar-nav mr-auto">
+        <li class="nav-item active">
+          <a class="nav-link" href="{% url 'vital_signs' patient.id %}">Collect Vital Signs</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'modify_vital_signs' patient.id %}">Modify Vital Signs</a>
+        </li>
+         <li class="nav-item">
+          <a class="nav-link" href="{% url 'background_health' patient.id %}">Background Health</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-toggle="modal" data-target="#allergyUpdateModal">Update Allergies</a>
+        </li>
+        <li class="nav-item">
+            {% if patient.is_admitted %}
+            <a class="nav-link" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+            {% endif %}
+        </li>
+      </ul>
+    </div>
+  </nav>
+  <br>
+    <!-- vital signs -->
+    <div id="accordion">
+        <div class="message text-left alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold; ">
+            <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
+                Collect Vital Signs
+            </a>
+            <a href="#" data-toggle="modal" class="text-danger" data-target="#allergyViewModal" style="padding-block: 5px; font-family: cursive; margin-left: 20px;">
+                View Allergies
+            </a>
+        
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+        <div id="collapseProfile" class="collapse" aria-labelledby="headingProfile" data-parent="#accordion">
+            <div class="card shadow mb-4" style="padding-bottom: 20px;">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary"> Collect Patient's Vital Signs </h6>
+                </div>
+
+                <div style="height:330px; width:100%; padding:10px 10px 10px; padding-bottom: 20px;">
+                    <form method="post">
+                        {% csrf_token %}
+                    <div class="a">
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Height (cm/m):</span>
+                        <p>{{vital_signs_form.height}}
+                            <select class="form2" name="unit" >
+                                <option value="cm">(cm)</option>
+                                <option value="m">meter</option>
+                            </select>
+                        </p> 
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Weight (kg):</span>
+                        <p>{{vital_signs_form.weight}}</p>
+                        <!-- and pulse to be added -->
+                         <span class="text-secondary" style="font-size: 12px; font-family:cursive;">BP (mmHg):</span>
+                        <p>{{vital_signs_form.bp}} </p> 
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Pulse (BPM):</span>
+                        <p>{{vital_signs_form.pulse}}</p>
+                    </div>
+                    <div class="b">
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Temperature (&deg;C):</span>
+                        <p>{{vital_signs_form.temperature}}</p> 
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Respiratory rate (RPM):</span>
+                        <p>{{vital_signs_form.respiratory_rate}}</p>
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Urine Protein (mg/dl):</span>
+                        <p>{{vital_signs_form.urine_protein}}</p> 
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">SP 02 (%):</span>
+                        <p>{{vital_signs_form.sp_02}}</p>
+                    </div>
+                    <div class="c">
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Blood glucose (mg/dl):</span>
+                        <p>{{vital_signs_form.blood_glucose}}</p>
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Urine PH :</span> 
+                        <p>{{vital_signs_form.urine_ph}}</p>
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Oxygen volume (L/min):</span>
+                        <p>{{vital_signs_form.oxygen_volume}}</p>
+                        <span class="text-secondary" style="font-size: 12px; font-family:cursive;">Urine Glucose (mg/dl):</span> 
+                        <p>{{vital_signs_form.urine_glucose}}</p>
+                    </div>
+                </div>
+                <div class="d" style="padding-inline: 30px; margin-top: -5px;">
+                        {{vital_signs_form.comment}} 
+                </div>
+                <div style="padding-left: 10px; margin-top: 5px;">
+                    <a class="btn btn-primary" href="#" data-toggle="modal" data-target="#vitalSignsModal" style="text-decoration: none; margin-top: 0px; margin-left: 20px;">Save/Send to Doctor <i class="fa fa-arrow-right"></i></a>
+                    <a class="btn btn-secondary" href="{% url 'operations_profile' patient.id %}" style="text-decoration: none; margin-top: 0px; margin-left: 10px;"><i class="fa fa-arrow-left"></i> Back to Profile</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="vitalSignsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" name="save_vitals" class="btn btn-warning">Save/Send to Doctors <i class="fa fa-arrow-right"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+            </form>
+        </div>
+        </div> 
+    </div>
+</div>
+<div class="modal fade" id="allergyUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">Update patient's allergies</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <form method="POST">
+                        {% csrf_token %}
+                        {{ alergy_form.as_p }}                    
+                </div>
+            <div class="modal-footer">
+                <a name="allergy" class="btn btn-info" href="#" data-toggle="modal" data-target="#allergyPinUpdateModal">Save Reports <i class="fa fa-arrow-right"></i></a>                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+        </div>
+        </div> 
+    </div>
+</div>
+<div class="modal fade" id="allergyPinUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" name="allergy" class="btn btn-warning">Save Reports <i class="fa fa-arrow-right"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+            </form>
+        </div>
+        </div> 
+    </div>
+</div>
+<div class="modal fade" id="allergyViewModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+    <div class="modal-content" >
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel"><i class="fa fa-user"></i> Patient's allergies</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                <div style="padding-bottom: 30px;">
+                    <div class="message text-center alert alert-danger alert-dismissible fade show" role="alert" style="font-weight: bold; width: 92%; margin-left: 3%;">
+                        {% if patient.allergies %}
+                        <span class="badge badge-pill badge-danger">Allergies:</span>&nbsp; {{ patient.allergies }}
+                        {% else %}
+                        <span class="badge badge-pill badge-danger">Allergies:</span>&nbsp; No allergies recorded for this patient
+                        {% endif %}
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- Background health history -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Patient's Background Health History </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                    <table cellpadding="4">
+                        <!-- first row -->
+                        <tr>
+                            <td>Hypertension:</td><td>&nbsp;<strong>{{patient_health_hist.hypertension}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Asthma:</td><td>&nbsp;<strong>{{patient_health_hist.asthma}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Diabetics:</td><td>&nbsp;<strong>{{patient_health_hist.diabetics}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Epilepsy:</td><td>&nbsp;<strong>{{patient_health_hist.epilepsy}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Tuberculosis:</td><td>&nbsp;<strong>{{patient_health_hist.tuberculosis}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            
+                        </tr>
+                        <!-- second row -->
+                        
+                        <tr style="margin-top: 20px;">
+                            <td>Sickle Cell:</td><td>&nbsp;<strong>{{patient_health_hist.sickle_cell}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Stroke:</td><td>&nbsp;<strong>{{patient_health_hist.stroke}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Eye Problem:</td><td>&nbsp;<strong>{{patient_health_hist.eye_problem}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Kidney Problem:</td><td>&nbsp;<strong>{{patient_health_hist.kidney_problem}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Cancer:</td><td>&nbsp;<strong>{{patient_health_hist.cancer}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <!-- third row -->
+                        
+                        <tr>
+                            <td>Mental Illness:</td><td>&nbsp;<strong>{{patient_health_hist.mental_illness}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Liver Problem:</td><td>&nbsp;<strong>{{patient_health_hist.liver_problem}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Allergies:</td><td>&nbsp;<strong>{{patient_health_hist.allergies}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Latex:</td><td>&nbsp;<strong>{{patient_health_hist.latex}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Drugs:</td><td>&nbsp;<strong>{{patient_health_hist.drugs}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+
+                        <tr>
+                            <td>Surgical Operation:</td><td>&nbsp;<strong>{{patient_health_hist.surgical_operation}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                            <td>Blood Transfution:</td><td>&nbsp;<strong>{{patient_health_hist.blood_transfution}}</strong></td>
+                            <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+                        </tr>
+                    </table>
+                </div>
+        </div>
+    </div>
+    <div class="message text-left alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold; ">
+        <a href="#" style="padding-block: 5px;" >
+            Last Modified by : Nurse {{patient_health_hist.staff.fullname}}
+          </a>
+        &nbsp; &nbsp;<a class="text-warning" href="{% url 'doctor_consultation' patient.id %}" style="text-decoration: none;"><i class="fa fa-edit"></i> Modify</a>
+
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    </div>
+</div>
+{% endblock content %}

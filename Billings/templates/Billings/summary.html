@@ -1,0 +1,228 @@
+{% extends 'admin.html' %}
+{% load static %}
+{% load custom_tags %}
+
+{% block content %}
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+
+    <!-- Navbar -->
+    <div id="billing-module-wrapper" style="margin-top: -15px;">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+        <div class="collapse navbar-collapse" id="navbarText">
+        <ul class="navbar-nav mr-auto">
+            
+            <li class="nav-item dropdown hover-dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                Invoices
+            </a>
+            <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+            </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+                    Receipts
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+                    <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+                </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown actives">
+                <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                    Transactions
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                    <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                </div>
+            </li>
+
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+                Deposits & Refunds
+            </a>
+            </li>
+        </ul>
+        </div>
+    </nav>
+</div>
+
+    <div class="card">
+        <div class="card-body">
+            <!-- Patient Info -->
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <div class="patient-info p-3 bg-light rounded">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <form method="GET" action="{% url 'get_summary' patient.id %}" id="ignoreDateForm">
+                                    <div class="form-group">
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="checkbox" name="ignore_date" id="ignoreDate" {% if ignore_date == 'on' %}checked{% endif %}>
+                                            <label class="form-check-label" for="ignoreDate">Ignore date</label>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" name="filter_type" value="{{ filter_type|default:'range' }}">
+                                    <input type="hidden" name="date_from" value="{{ date_from }}">
+                                    <input type="hidden" name="date_to" value="{{ date_to }}">
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Filter Section -->
+            <div class="filter-section mb-4 p-3 border rounded">
+                <form method="GET" action="{% url 'get_summary' patient.id %}" id="filterForm">
+                    <div class="row">
+                            <div class="input-group" style="width: 40%; margin-left: 10px;">
+                                <span class="input-group-text">from</span>
+                                <input type="date" name="date_from" id="date_from" class="form-control" value="{{ date_from }}">
+                                <span class="input-group-text">to</span>
+                                <input type="date" name="date_to" id="date_to" class="form-control" value="{{ date_to }}">
+                            </div>
+                            <div style="margin-left: 10%;"></div>
+                            <button type="submit" name="filter_type" value="range" class="btn btn-primary" onclick="return validateDates()">
+                                <i class="fas fa-filter"></i> Filter
+                            </button>
+                            <button type="submit" name="filter_type" value="all" class="btn btn-info">
+                                <i class="fas fa-list"></i> All Records
+                            </button>
+                            <a href="{% url 'export_summary_excel' patient.id %}?date_from={{ date_from }}&date_to={{ date_to }}&ignore_date={{ ignore_date }}&filter_type={{ filter_type }}" class="btn btn-success">
+                                <i class="fas fa-file-excel"></i> Excel
+                            </a>
+                            <a href="{% url 'get_summary' patient.id %}" class="btn btn-secondary">
+                                <i class="fas fa-undo"></i> Reset
+                            </a>
+                    </div>
+                    <input type="hidden" name="ignore_date" id="hidden_ignore_date" value="{{ ignore_date }}">
+                </form>
+            </div>
+            
+            <!-- Summary Table -->
+            {% if filter_applied %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped" id="summaryTable">
+                    <thead class="thead-dark">
+                        <tr>
+                            <th class="text-right">Cash Bills</th>
+                            <th class="text-right">Exception Bills</th>
+                            <th class="text-right">Claim Bills</th>
+                            <th class="text-right">Total Invoice</th>
+                            <th class="text-right">Payments</th>
+                            <th class="text-right">Virtual Deposit</th> 
+                            <th class="text-right">Refunds</th>
+                            <th class="text-right">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-right">{{ cash_bills|currency }}</td>
+                            <td class="text-right">{{ exception_bills|currency }}</td>
+                            <td class="text-right">{{ claim_bills|currency }}</td>
+                            <td class="text-right">{{ total_invoice|currency }}</td>
+                            <td class="text-right">{{ payments_transfers|currency }}</td>
+                            <td class="text-right">{{ deposit|currency }}</td>  <!-- ADDED -->
+                            <td class="text-right">{{ transfers_refunds|currency }}</td>
+                            <td class="text-right {% if balance < 0 %}text-danger{% endif %}">{{ balance|currency }}</td>
+                        </tr>
+                    </tbody>
+                    <tfoot class="table-dark">
+                        <tr>
+                            <td class="text-right"><strong>{{ cash_bills|currency }}</strong></td>
+                            <td class="text-right"><strong>{{ exception_bills|currency }}</strong></td>
+                            <td class="text-right"><strong>{{ claim_bills|currency }}</strong></td>
+                            <td class="text-right"><strong>{{ total_invoice|currency }}</strong></td>
+                            <td class="text-right"><strong>{{ payments_transfers|currency }}</strong></td>
+                            <td class="text-right"><strong>{{ deposit|currency }}</strong></td>  <!-- ADDED -->
+                            <td class="text-right"><strong>{{ transfers_refunds|currency }}</strong></td>
+                            <td class="text-right {% if balance < 0 %}text-danger{% endif %}"><strong>{{ balance|currency }}</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            
+            {% else %}
+            <div class="alert alert-info mt-4">
+                <i class="fas fa-info-circle"></i> 
+                <strong>No filter applied.</strong><br>
+                Please click "Apply Filter" to view transactions for a specific date range, or click "All Records" to view all transactions.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function validateDates() {
+    const dateFrom = document.getElementById('date_from').value;
+    const dateTo = document.getElementById('date_to').value;
+    
+    if (!dateFrom || !dateTo) {
+        alert('Please select both From and To dates');
+        return false;
+    }
+    return true;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle ignore date checkbox change
+    const ignoreDateCheckbox = document.getElementById('ignoreDate');
+    if (ignoreDateCheckbox) {
+        ignoreDateCheckbox.addEventListener('change', function() {
+            document.getElementById('ignoreDateForm').submit();
+        });
+    }
+});
+</script>
+
+<style>
+.patient-info {
+    border-left: 4px solid #007bff;
+}
+.patient-info .text-primary {
+    font-weight: 500;
+}
+.table th, .table td {
+    vertical-align: middle;
+    padding: 12px 8px;
+}
+.table thead th {
+    background-color: #343a40;
+    color: white;
+    text-align: center;
+}
+.table tbody td:first-child {
+    font-weight: 500;
+}
+.table tfoot td {
+    font-weight: bold;
+}
+th,td{
+    font-size: 12px;
+}
+.text-danger {
+    color: #dc3545 !important;
+}
+.btn {
+    margin-right: 5px;
+}
+</style>
+{% endblock %}

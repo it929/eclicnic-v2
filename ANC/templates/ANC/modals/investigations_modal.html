@@ -1,0 +1,96 @@
+            <form>
+                <div class="card mb-4" id="investigations">
+                    <div class="card-header bg-light">
+                    <b>Investigations</b>
+                    </div>
+
+                    <div class="card-body row">
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Syphilis test done?</label>
+                    <select name="syphilis_test_done" class="form-control autosave">
+                        <option value="No" {% if anc.syphilis_test_done == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.syphilis_test_done == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Syphilis positve?</label>
+                    <select name="syphilis_positive" class="form-control autosave">
+                        <option value="No" {% if anc.syphilis_positive == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.syphilis_positive == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Syphilis Treated?</label>
+                    <select name="syphilis_treated" class="form-control autosave">
+                        <option value="No" {% if anc.syphilis_treated == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.syphilis_treated == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis B test done?</label>
+                    <select name="hepatitis_b_test_done" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_b_test_done == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_b_test_done == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis B test positive?</label>
+                    <select name="hepatitis_b_positive" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_b_positive == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_b_positive == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis B referred for treatment?</label>
+                    <select name="hepatitis_b_referred" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_b_referred == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_b_referred == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis C test done?</label>
+                    <select name="hepatitis_c_test_done" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_c_test_done == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_c_test_done == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis C test positive?</label>
+                    <select name="hepatitis_c_positive" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_c_positive == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_c_positive == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Hepatitis C referred for treatment?</label>
+                    <select name="hepatitis_c_referred" class="form-control autosave">
+                        <option value="No" {% if anc.hepatitis_c_referred == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.hepatitis_c_referred == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Patient had severe anaemia?</label>
+                    <select name="severe_anaemia" class="form-control autosave">
+                        <option value="No" {% if anc.severe_anaemia == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.severe_anaemia == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                    <label>ANC Patient had proteinuria?</label>
+                    <select name="proteinuria" class="form-control autosave">
+                        <option value="No" {% if anc.proteinuria == "No" %}selected{% endif %}>No</option>
+                        <option value="Yes" {% if anc.proteinuria == "Yes" %}selected{% endif %}>Yes</option>
+                    </select>
+                    </div>
+
+                    </div>
+                </div>  
+            </form>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ambulatory Patient Registration Report</title>
+    <style>
+        @page {
+            size: A4 {% if orientation == 'Landscape' %}landscape{% else %}portrait{% endif %};
+            margin: 1cm;
+            @frame footer {
+                -pdf-frame-content: footerContent;
+                bottom: 0.5cm;
+                margin-left: 1cm;
+                margin-right: 1cm;
+                height: 1cm;
+            }
+        }
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 9px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 16px;
+            color: #366092;
+            margin-bottom: 5px;
+        }
+        .report-meta {
+            text-align: center;
+            font-size: 10px;
+            margin-bottom: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            word-wrap: break-word;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 4px 2px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #366092;
+            color: #ffffff;
+            font-weight: bold;
+            text-align: center;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .text-center { text-align: center; }
+        .col-sn { width: 3%; }
+        .col-upi { width: 6%; }
+        .col-hospno { width: 6%; }
+        .col-title { width: 4%; }
+        .col-surname { width: 7%; }
+        .col-fname { width: 7%; }
+        .col-mname { width: 7%; }
+        .col-fullname { width: 9%; }
+        .col-phone { width: 7%; }
+        .col-email { width: 9%; }
+        .col-address { width: 10%; }
+        .col-sponsor { width: 6%; }
+        .col-type { width: 6%; }
+        .col-gender { width: 5%; }
+        .col-dob { width: 6%; }
+        .col-marital { width: 5%; }
+        .col-nok { width: 7%; }
+        .col-nokrel { width: 6%; }
+        .col-nokphone { width: 7%; }
+        .col-regby { width: 7%; }
+        .col-regat { width: 7%; }
+    </style>
+</head>
+<body>
+    <h1>ISALU HOSPITALS</h1>
+    <div class="report-meta">
+        <strong>Ambulatory Patient Registration Report</strong><br>
+        Generated on: {{ generated_date|date:"Y-m-d H:i" }}
+    </div>
+
+    <table repeat="1">
+        <thead>
+            <tr>
+                <th class="col-sn">S/N</th>
+                <th class="col-upi">UPI</th>
+                <th class="col-hospno">Hospital No</th>
+                <th class="col-title">Title</th>
+                <th class="col-surname">Surname</th>
+                <th class="col-fname">First Name</th>
+                <th class="col-mname">Middle Name</th>
+                <th class="col-fullname">Full Name</th>
+                <th class="col-phone">Phone</th>
+                <th class="col-email">Email</th>
+                <th class="col-address">Address</th>
+                <th class="col-sponsor">Sponsor</th>
+                <th class="col-type">Patient Type</th>
+                <th class="col-gender">Gender</th>
+                <th class="col-dob">DOB</th>
+                <th class="col-marital">Marital Status</th>
+                <th class="col-nok">Next of Kin</th>
+                <th class="col-nokrel">NOK Relationship</th>
+                <th class="col-nokphone">NOK Phone</th>
+                <th class="col-regby">Registered By</th>
+                <th class="col-regat">Registered At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for patient in patients %}
+            <tr>
+                <td class="text-center">{{ forloop.counter }}</td>
+                <td>{{ patient.insurance_policy_number|default:"" }}</td>
+                <td>{{ patient.hospital_number|default:"" }}</td>
+                <td class="text-center">
+                    {% if patient.gender == 'Male' %}Mr.
+                    {% elif patient.gender == 'Female' and patient.patient_type == 'Married' %}Mrs
+                    {% else %}Miss{% endif %}
+                </td>
+                <td>{{ patient.surname }}</td>
+                <td>{{ patient.first_name }}</td>
+                <td>{{ patient.other_name|default:"" }}</td>
+                <td>{{ patient.get_full_name }}</td>
+                <td>{{ patient.phone_number }}</td>
+                <td>{{ patient.email_address|default:"" }}</td>
+                <td>{{ patient.address|default:""|truncatechars:40 }}</td>
+                <td>{{ patient.plan.plan|default:"" }}</td>
+                <td>{{ patient.category.category|default:"" }}</td>
+                <td class="text-center">{{ patient.gender }}</td>
+                <td class="text-center">{{ patient.dob|date:"Y-m-d"|default:"" }}</td>
+                <td class="text-center">{{ patient.patient_type|default:"" }}</td>
+                <td>{{ patient.full_name|default:"" }}</td>
+                <td>{{ patient.relationship_to_patient|default:"" }}</td>
+                <td>{{ patient.phone_numbers|default:"" }}</td>
+                <td>{{ patient.created_by.fullname|default:"" }}</td>
+                <td class="text-center">{{ patient.created_date|date:"Y-m-d H:i"|default:"" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="21" class="text-center">No records found</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div id="footerContent">
+        <pdf:pagenumber /> of <pdf:pagecount />
+    </div>
+</body>
+</html>

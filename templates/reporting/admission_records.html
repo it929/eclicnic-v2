@@ -1,0 +1,695 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+
+{% block content %}
+
+<style>
+    .filter-section {
+        background: white;
+        padding: 25px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        align-items: flex-end;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .filter-group label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 13px;
+        width: 100%;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+        outline: none;
+        border-color: #1E88E5;
+    }
+    
+    .btn-generate {
+        background: #1E88E5;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 13px;
+        transition: background 0.3s;
+        width: 100%;
+    }
+    
+    .btn-generate:hover {
+        background: #1565C0;
+    }
+    
+    .search-wrapper {
+        position: relative;
+        width: 100%;
+    }
+    
+    .search-wrapper input {
+        width: 100%;
+    }
+    
+    .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .search-results.show {
+        display: block;
+    }
+    
+    .search-result-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.2s;
+    }
+    
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+    
+    .search-result-item:hover {
+        background: #f0f2f5;
+    }
+    
+    .search-result-item .patient-name {
+        font-weight: 600;
+        color: #333;
+    }
+    
+    .search-result-item .patient-id {
+        font-size: 11px;
+        color: #888;
+        margin-left: 10px;
+    }
+    
+    .search-result-item .highlight {
+        background: #ffeb3b;
+        padding: 0 2px;
+    }
+    
+    .selected-patient-info {
+        display: none;
+        margin-top: 5px;
+        padding: 6px 10px;
+        background: #e8f5e9;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #2e7d32;
+        border: 1px solid #c8e6c9;
+    }
+    
+    .selected-patient-info.show {
+        display: block;
+    }
+    
+    .selected-patient-info .remove-patient {
+        cursor: pointer;
+        color: #dc3545;
+        margin-left: 10px;
+        font-weight: bold;
+        float: right;
+    }
+    
+    .selected-patient-info .remove-patient:hover {
+        text-decoration: underline;
+    }
+    
+    .orientation-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .orientation-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .orientation-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .destination-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .destination-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .destination-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .info-box {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #1E88E5;
+        margin-bottom: 20px;
+    }
+    
+    .info-box h5 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    
+    .info-box ul {
+        margin: 0;
+        padding-left: 20px;
+        color: #666;
+        font-size: 13px;
+    }
+    
+    .info-box ul li {
+        margin-bottom: 3px;
+    }
+    
+    .admission-badge {
+        background: #1E88E5;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+    
+    .small-box {
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 15px;
+        color: white;
+        text-align: center;
+    }
+    
+    .small-box .inner h3 {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 0;
+    }
+    
+    .small-box .inner p {
+        margin: 3px 0 0 0;
+        font-size: 12px;
+        opacity: 0.9;
+    }
+    
+    .bg-primary { background: #1E88E5; }
+    .bg-info { background: #17a2b8; }
+    .bg-success { background: #28a745; }
+    .bg-warning { background: #ffc107; color: #333; }
+    
+    .loading-spinner {
+        display: none;
+        padding: 10px;
+        text-align: center;
+        color: #666;
+    }
+    
+    .loading-spinner.show {
+        display: block;
+    }
+    
+    .filter-section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1E88E5;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #1E88E5;
+        padding-bottom: 8px;
+    }
+    
+    @media print {
+        .filter-section {
+            display: none;
+        }
+    }
+</style>
+
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800 font-weight-bold" style="color: #1E88E5;">
+        <i class="fa fa-hospital"></i> &nbsp;Admission Records Report
+    </h1>
+    
+    <div class="info-box">
+        <h5><i class="fa fa-info-circle"></i> Report Information</h5>
+        <ul>
+            <li><strong>Format:</strong> Microsoft Excel (.xlsx) with proper formatting</li>
+            <li><strong>Purpose:</strong> Track all patient admission records with complete timeline</li>
+            <li><strong>Includes:</strong> Patient details, admission, bed allocation, discharge, and bill clearance</li>
+            <li><strong>File naming:</strong> ISALU_HOSPITALS_admission_records_{date_range}.xlsx</li>
+            <li><strong>Status indicator:</strong> <span class="admission-badge">🏥 Admission</span> records are highlighted in blue</li>
+        </ul>
+    </div>
+    
+    <div class="filter-section">
+        <form method="GET" action="{{ request.path }}" target="_blank" id="admissionForm">
+            <input type="hidden" name="export" value="true">
+            <input type="hidden" name="patient_id" id="patient_id_hidden" value="{{ patient_id }}">
+            <input type="hidden" name="patient_search" id="patient_search_hidden" value="{{ patient_search }}">
+            
+            <div class="filter-section-title">Filter Options</div>
+            
+            <div class="filter-grid">
+                <!-- Admitted By -->
+                <div class="filter-group">
+                    <label>Admitted By</label>
+                    <select name="admitted_by">
+                        <option value="All" {% if admitted_by == 'All' %}selected{% endif %}>All</option>
+                        {% for doc in admitted_by_list %}
+                            <option value="{{ doc.id }}" {% if admitted_by == doc.id|stringformat:"s" %}selected{% endif %}>
+                                {{ doc.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Admission Date From -->
+                <div class="filter-group">
+                    <label>Admission Date From</label>
+                    <input type="date" name="admission_date_from" value="{{ admission_date_from }}">
+                </div>
+                
+                <!-- Admission Date To -->
+                <div class="filter-group">
+                    <label>Admission Date To</label>
+                    <input type="date" name="admission_date_to" value="{{ admission_date_to }}">
+                </div>
+            </div>
+            
+            <div class="filter-grid" style="margin-top: 10px;">
+                <!-- Bed Allocated By -->
+                <div class="filter-group">
+                    <label>Bed Allocated By</label>
+                    <select name="bed_allocated_by">
+                        <option value="All" {% if bed_allocated_by == 'All' %}selected{% endif %}>All</option>
+                        {% for nurse in bed_allocated_by_list %}
+                            <option value="{{ nurse.id }}" {% if bed_allocated_by == nurse.id %}selected{% endif %}>
+                                {{ nurse.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Discharged By -->
+                <div class="filter-group">
+                    <label>Discharged By</label>
+                    <select name="discharged_by">
+                        <option value="All" {% if discharged_by == 'All' %}selected{% endif %}>All</option>
+                        {% for doc in discharged_by_list %}
+                            <option value="{{ doc.id }}" {% if discharged_by == doc.id %}selected{% endif %}>
+                                {{ doc.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Discharge Date From -->
+                <div class="filter-group">
+                    <label>Discharge Date From</label>
+                    <input type="date" name="discharge_date_from" value="{{ discharge_date_from }}">
+                </div>
+                
+                <!-- Discharge Date To -->
+                <div class="filter-group">
+                    <label>Discharge Date To</label>
+                    <input type="date" name="discharge_date_to" value="{{ discharge_date_to }}">
+                </div>
+            </div>
+            
+            <div class="filter-grid" style="margin-top: 10px;">
+                <!-- Bill Cleared By -->
+                <div class="filter-group">
+                    <label>Bill Cleared By</label>
+                    <select name="bill_cleared_by">
+                        <option value="All" {% if bill_cleared_by == 'All' %}selected{% endif %}>All</option>
+                        {% for officer in bill_cleared_by_list %}
+                            <option value="{{ officer.id }}" {% if bill_cleared_by == officer.id %}selected{% endif %}>
+                                {{ officer.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Cleared Date From -->
+                <div class="filter-group">
+                    <label>Cleared Date From</label>
+                    <input type="date" name="cleared_date_from" value="{{ cleared_date_from }}">
+                </div>
+                
+                <!-- Cleared Date To -->
+                <div class="filter-group">
+                    <label>Cleared Date To</label>
+                    <input type="date" name="cleared_date_to" value="{{ cleared_date_to }}">
+                </div>
+                
+                <!-- Ward Name -->
+                <div class="filter-group">
+                    <label>Ward Name</label>
+                    <select name="ward_name">
+                        <option value="All" {% if ward_name == 'All' %}selected{% endif %}>All Wards</option>
+                        {% for ward in wards %}
+                            <option value="{{ ward }}" {% if ward_name == ward %}selected{% endif %}>{{ ward }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="filter-grid" style="margin-top: 10px;">
+                <!-- Sponsor -->
+                <div class="filter-group">
+                    <label>Sponsor</label>
+                    <select name="sponsor">
+                        <option value="All" {% if sponsor == 'All' %}selected{% endif %}>All Sponsors</option>
+                        {% for s in sponsors %}
+                            <option value="{{ s }}" {% if sponsor == s %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Patient Type -->
+                <div class="filter-group">
+                    <label>Patient Type</label>
+                    <select name="patient_type">
+                        <option value="All" {% if patient_type == 'All' %}selected{% endif %}>All Types</option>
+                        {% for pt in patient_types %}
+                            <option value="{{ pt }}" {% if patient_type == pt %}selected{% endif %}>{{ pt }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Patient Search -->
+                <div class="filter-group">
+                    <label>Patient Search</label>
+                    <div class="search-wrapper" data-api-url="{% url 'patient_search_api_report' %}">
+                        <input type="text" id="patient_search_input" 
+                               placeholder="Search by name or hospital ID..." 
+                               value=""
+                               autocomplete="off">
+                        <div id="selected_patient_info" class="selected-patient-info {% if patient_search %}show{% endif %}">
+                            <span id="selected_patient_name">
+                                {% if patient_search %}{{ patient_search }}{% endif %}
+                            </span>
+                            <span class="remove-patient" onclick="clearPatientSelection()">✕ Remove</span>
+                        </div>
+                        <div id="search_results" class="search-results">
+                            <div class="loading-spinner" id="loading_spinner">
+                                <i class="fa fa-spinner fa-spin"></i> Searching...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Orientation</label>
+                        <div class="orientation-group">
+                            <label>
+                                <input type="radio" name="orientation" value="Landscape" 
+                                       {% if orientation == 'Landscape' or not orientation %}checked{% endif %}>
+                                Landscape
+                            </label>
+                            <label>
+                                <input type="radio" name="orientation" value="Portrait" 
+                                       {% if orientation == 'Portrait' %}checked{% endif %}>
+                                Portrait
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Destination</label>
+                        <div class="destination-group">
+                            <label>
+                                <input type="radio" name="destination" value="excel" checked>
+                                MS Excel
+                            </label>
+                            <label>
+                                <input type="radio" name="destination" value="pdf">
+                                PDF
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn-generate">
+                            <i class="fa fa-hospital"></i> Generate Report
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+</div>
+
+<script>
+    // Patient Search Autocomplete
+    const searchInput = document.getElementById('patient_search_input');
+    const searchResults = document.getElementById('search_results');
+    const loadingSpinner = document.getElementById('loading_spinner');
+    const hiddenPatientSearch = document.getElementById('patient_search_hidden');
+    const hiddenPatientId = document.getElementById('patient_id_hidden');
+    const selectedPatientInfo = document.getElementById('selected_patient_info');
+    const selectedPatientName = document.getElementById('selected_patient_name');
+    const searchWrapper = document.querySelector('.search-wrapper');
+    const admissionForm = document.getElementById('admissionForm');
+    let searchTimeout;
+    let selectedPatient = null;
+    
+    // If there's an existing patient search value, show it
+    {% if patient_search %}
+        const existingSearch = "{{ patient_search|escapejs }}";
+        const existingId = "{{ patient_id|escapejs }}";
+        if (existingSearch) {
+            selectedPatientInfo.classList.add('show');
+            selectedPatientName.textContent = existingSearch;
+            if (existingId) {
+                hiddenPatientId.value = existingId;
+            }
+            hiddenPatientSearch.value = existingSearch;
+        }
+    {% endif %}
+    
+    function highlightText(text, query) {
+        if (!query || !text) return text;
+        try {
+            const regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        } catch (e) {
+            return text;
+        }
+    }
+    
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        const query = this.value.trim();
+        
+        if (selectedPatient) {
+            clearPatientSelection();
+        }
+        
+        hiddenPatientSearch.value = query;
+        
+        if (query.length < 2) {
+            searchResults.classList.remove('show');
+            return;
+        }
+        
+        loadingSpinner.classList.add('show');
+        searchResults.classList.add('show');
+        searchResults.innerHTML = '';
+        searchResults.appendChild(loadingSpinner);
+        
+        searchTimeout = setTimeout(function() {
+            fetchPatients(query);
+        }, 400);
+    });
+    
+    function fetchPatients(query) {
+        const apiUrl = searchWrapper.dataset.apiUrl;
+        const url = apiUrl + '?q=' + encodeURIComponent(query);
+        
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                loadingSpinner.classList.remove('show');
+                searchResults.innerHTML = '';
+                
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(patient => {
+                        const div = document.createElement('div');
+                        div.className = 'search-result-item';
+                        
+                        let displayName = patient.full_name || `${patient.surname} ${patient.first_name}`.trim() || 'Unknown Patient';
+                        let highlightedName = highlightText(displayName, query);
+                        let highlightedId = highlightText(patient.hospital_number || '', query);
+                        
+                        div.innerHTML = `
+                            <div class="patient-name">${highlightedName}</div>
+                            <div>
+                                <span class="patient-id">${highlightedId || 'No ID'}</span>
+                            </div>
+                        `;
+                        
+                        div.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            selectPatient(patient);
+                        });
+                        
+                        searchResults.appendChild(div);
+                    });
+                } else {
+                    searchResults.innerHTML = `
+                        <div class="search-result-item" style="color: #888; text-align: center; padding: 15px;">
+                            <i class="fa fa-search"></i> No patients found for "${query}"
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                loadingSpinner.classList.remove('show');
+                searchResults.innerHTML = `
+                    <div class="search-result-item" style="color: #dc3545; text-align: center; padding: 15px;">
+                        <i class="fa fa-exclamation-circle"></i> Error searching: ${error.message}
+                    </div>
+                `;
+            });
+    }
+    
+    function selectPatient(patient) {
+        const displayName = patient.full_name || `${patient.surname} ${patient.first_name}`.trim() || 'Unknown Patient';
+        const hospitalId = patient.hospital_number || '';
+        const fullDisplay = displayName + (hospitalId ? ` (${hospitalId})` : '');
+        
+        selectedPatient = patient;
+        hiddenPatientSearch.value = displayName;
+        hiddenPatientId.value = patient.id;
+        searchInput.value = '';
+        searchResults.classList.remove('show');
+        selectedPatientInfo.classList.add('show');
+        selectedPatientName.textContent = fullDisplay;
+    }
+    
+    function clearPatientSelection() {
+        selectedPatient = null;
+        hiddenPatientSearch.value = '';
+        hiddenPatientId.value = '';
+        selectedPatientInfo.classList.remove('show');
+        searchInput.value = '';
+        searchInput.focus();
+    }
+    
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.search-wrapper')) {
+            searchResults.classList.remove('show');
+        }
+    });
+    
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const firstResult = searchResults.querySelector('.search-result-item:not(.loading-spinner)');
+            if (firstResult && !firstResult.textContent.includes('No patients found')) {
+                firstResult.click();
+            } else {
+                hiddenPatientSearch.value = this.value.trim();
+                admissionForm.submit();
+            }
+        }
+    });
+    
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            searchResults.classList.remove('show');
+        }
+    });
+    
+    admissionForm.addEventListener('submit', function(e) {
+        if (selectedPatient) {
+            hiddenPatientId.value = selectedPatient.id;
+            hiddenPatientSearch.value = selectedPatient.full_name || 
+                `${selectedPatient.surname} ${selectedPatient.first_name}`.trim();
+        }
+        
+        const searchText = searchInput.value.trim();
+        if (searchText && !selectedPatient) {
+            hiddenPatientSearch.value = searchText;
+            hiddenPatientId.value = '';
+        }
+        
+        if (!searchText && !selectedPatient) {
+            hiddenPatientSearch.value = '';
+            hiddenPatientId.value = '';
+        }
+    });
+</script>
+
+{% endblock %}

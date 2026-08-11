@@ -1,0 +1,34 @@
+    <div class="sidebar-heading">
+        Report Window
+    </div>
+    {% if request.user.department.department == 'Reporting' %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyAdmin"
+            aria-expanded="true" aria-controls="collapseMyAdmin">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseMyAdmin" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyReports"
+            aria-expanded="true" aria-controls="collapseMyReports">
+            <i class="fas fa-chart-line"></i>
+            <span>Report Menu</span>
+        </a>
+        <div id="collapseMyReports" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'ambulatory_report' %}">Patients Regsitration</a>
+                <a class="collapse-item" href="{% url 'ambulatory_visit_report' %}">Visit report</a>
+                <a class="collapse-item" href="{% url 'billing_invoice_listing' %}">Billing Invoice Listing</a>
+                <a class="collapse-item" href="{% url 'transaction_book_report' %}">Complete Transaction Book</a>
+            </div>
+        </div>
+    </li>

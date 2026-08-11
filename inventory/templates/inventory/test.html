@@ -1,0 +1,79 @@
+<div> 
+    <select class="form-control" id="timePeriodSelect" name="stock_in">
+        <option value="days">Last 24 Hours</option>
+        <option value="weeks">Last 7 Days</option>
+        <option value="months">Last 30 Days</option>
+    </select>
+</div>
+
+<h5 class="modal-title text-primary font-weight-bold" style="margin-left: 30px;" id="exampleModalLabel">
+    In Stock: <span class="text-success" id="inAssetValue">&#8358; {{in_asset}}</span>
+</h5>
+
+<div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+    <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Created</th>
+                <th>Date and Time</th>
+            </tr>
+        </thead>
+        <tbody id="transactionsTableBody">
+            {% for prod in in_stock %}
+                <tr>
+                    <td><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none;">{{prod.product_names}}</a></td>
+                    <td><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none;">&#8358; {{prod.price }}</a></td>
+                    <td style="width: 8%;"><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none;">{{prod.quantity}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; color: brown;">{{prod.created_date | timesince}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none;">{{prod.created_date}}</a></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#timePeriodSelect').change(function() {
+        const timePeriod = $(this).val();
+        
+        $.ajax({
+            url: "{% url 'stock' %}",
+            type: "GET",
+            data: {
+                'time_period': timePeriod
+            },
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            success: function(response) {
+                // Update the in-asset value
+                $('#inAssetValue').html('&#8358; ' + response.in_asset);
+                
+                // Update the table
+                let tableBody = $('#transactionsTableBody');
+                tableBody.empty();
+                
+                response.transactions.forEach(function(transaction) {
+                    tableBody.append(`
+                        <tr>
+                            <td><a href="/update_stock/${transaction.id}" style="text-decoration: none;">${transaction.product_names}</a></td>
+                            <td><a href="/update_stock/${transaction.id}" style="text-decoration: none;">&#8358; ${transaction.price}</a></td>
+                            <td style="width: 8%;"><a href="/update_stock/${transaction.id}" style="text-decoration: none;">${transaction.quantity}</a></td>
+                            <td style="width: 25%;"><a href="/update_stock/${transaction.id}" style="text-decoration: none; color: brown;">${transaction.timesince}</a></td>
+                            <td style="width: 25%;"><a href="/update_stock/${transaction.id}" style="text-decoration: none;">${transaction.created_date}</a></td>
+                        </tr>
+                    `);
+                });
+            },
+            error: function(xhr, status, error) {
+                console.error("Error fetching data:", error);
+            }
+        });
+    });
+});
+</script>

@@ -1,0 +1,294 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+
+{% block content %}
+
+<style>
+    .filter-section {
+        background: white;
+        padding: 25px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        align-items: flex-end;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .filter-group label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        width: 100%;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+        outline: none;
+        border-color: #DC3545;
+    }
+    
+    .btn-generate {
+        background: #DC3545;
+        color: white;
+        border: none;
+        padding: 10px 30px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: background 0.3s;
+        width: 100%;
+    }
+    
+    .btn-generate:hover {
+        background: #C82333;
+    }
+    
+    .orientation-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .orientation-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .orientation-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .destination-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .destination-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .destination-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .info-box {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #DC3545;
+        margin-bottom: 20px;
+    }
+    
+    .info-box h5 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    
+    .info-box ul {
+        margin: 0;
+        padding-left: 20px;
+        color: #666;
+    }
+    
+    .info-box ul li {
+        margin-bottom: 5px;
+    }
+    
+    .deactivated-badge {
+        background: #DC3545;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .small-box {
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+        color: white;
+        text-align: center;
+    }
+    
+    .small-box .inner h3 {
+        font-size: 28px;
+        font-weight: bold;
+        margin: 0;
+    }
+    
+    .small-box .inner p {
+        margin: 5px 0 0 0;
+        font-size: 14px;
+        opacity: 0.9;
+    }
+    
+    .bg-danger { background: #DC3545; }
+    .bg-info { background: #17a2b8; }
+    .bg-success { background: #28a745; }
+    .bg-warning { background: #ffc107; color: #333; }
+    
+    @media print {
+        .filter-section {
+            display: none;
+        }
+    }
+</style>
+
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800 font-weight-bold" style="color: #DC3545;">
+        <i class="fa fa-user-slash"></i> &nbsp;Deactivated Patients Report
+    </h1>
+    
+    <div class="info-box">
+        <h5><i class="fa fa-info-circle"></i> Report Information</h5>
+        <ul>
+            <li><strong>Format:</strong> Microsoft Excel (.xlsx) with proper formatting</li>
+            <li><strong>Purpose:</strong> Track all patients with deactivated accounts</li>
+            <li><strong>Includes:</strong> Patient demographics, account creation details, and deactivation information</li>
+            <li><strong>Status indicator:</strong> <span class="deactivated-badge">🚫 Deactivated</span> rows are highlighted in red</li>
+        </ul>
+    </div>
+    
+    <div class="filter-section">
+        <form method="GET" action="{{ request.path }}" target="_blank" id="deactivatedForm">
+            <input type="hidden" name="export" value="true">
+            
+            <div class="filter-grid">
+                <div class="filter-group">
+                    <label>Deactivated Date From</label>
+                    <input type="date" name="deactivated_date_from" value="{{ deactivated_date_from }}">
+                </div>
+                
+                <div class="filter-group">
+                    <label>Deactivated Date To</label>
+                    <input type="date" name="deactivated_date_to" value="{{ deactivated_date_to }}">
+                </div>
+                
+                <div class="filter-group">
+                    <label>Deactivated By</label>
+                    <select name="deactivated_by">
+                        <option value="All" {% if deactivated_by == 'All' %}selected{% endif %}>All</option>
+                        {% for user in deactivated_by_list %}
+                            <option value="{{ user.id }}" {% if deactivated_by == user.id %}selected{% endif %}>
+                                {{ user.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Orientation</label>
+                        <div class="orientation-group">
+                            <label>
+                                <input type="radio" name="orientation" value="Landscape" 
+                                       {% if orientation == 'Landscape' or not orientation %}checked{% endif %}>
+                                Landscape
+                            </label>
+                            <label>
+                                <input type="radio" name="orientation" value="Portrait" 
+                                       {% if orientation == 'Portrait' %}checked{% endif %}>
+                                Portrait
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Destination</label>
+                        <div class="destination-group">
+                            <label>
+                                <input type="radio" name="destination" value="excel" checked>
+                                MS Excel
+                            </label>
+                            <label>
+                                <input type="radio" name="destination" value="pdf">
+                                PDF
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn-generate">
+                            <i class="fa fa-user-slash"></i> Generate Report
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Auto-submit when date range is complete
+    let dateTimeout;
+    const deactivatedForm = document.getElementById('deactivatedForm');
+    
+    function handleDateChange() {
+        clearTimeout(dateTimeout);
+        dateTimeout = setTimeout(() => {
+            const fromDate = document.querySelector('input[name="deactivated_date_from"]').value;
+            const toDate = document.querySelector('input[name="deactivated_date_to"]').value;
+            if (fromDate && toDate) {
+                // Optionally auto-submit
+                // deactivatedForm.submit();
+            }
+        }, 500);
+    }
+    
+    document.querySelector('input[name="deactivated_date_from"]').addEventListener('change', handleDateChange);
+    document.querySelector('input[name="deactivated_date_to"]').addEventListener('change', handleDateChange);
+    
+    // Auto-submit on select change
+    document.querySelector('select[name="deactivated_by"]').addEventListener('change', function() {
+        // Optionally auto-submit
+        // deactivatedForm.submit();
+    });
+</script>
+
+{% endblock %}

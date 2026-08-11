@@ -1,0 +1,200 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+<style>
+    .tb{
+        font-size:12px
+    }
+</style>
+<div class="container" style="padding-inline: 0px;">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-money"></i> &nbsp; {% if page == 'awaiting-bills-all' %}Awaiting Bills (Older than 24 Hours){% elif page == 'completed-bills-all' %}Completed Transactions (Older than 24 Hours){% elif page == 'transaction-table-all' %}Transactions Table (Older than 24 Hours){% elif page == 'partially_paid-bills-all' %}Partially Cleared (Older than 24 Hours){% endif %}  </h1>
+    <div class="card-body">
+        {% if page == 'awaiting-bills-all' %}
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for transact in awaiting_bills %}
+                    {% if transact.patient.is_admitted %}
+                    <tr class="bg bg-warning">
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">In Patient</a></td>
+                    </tr>
+                    {% else %}
+                    <tr class="bg bg-info">
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">Out Patient</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'partially_paid-bills-all' %}
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for transact in partially_paid_bills %}
+                    {% if transact.patient.is_admitted %}
+                    <tr class="bg bg-warning">
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">In Patient</a></td>
+                    </tr>
+                    {% else %}
+                    <tr class="bg bg-info">
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_billings' transact.patient.id %}" style="text-decoration: none; color:#fff ">Out Patient</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'completed-bills-all' %}
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Reg N0</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Gender</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for transact in completed_bills %}
+                    {% if transact.patient.is_admitted %}
+                    <tr class="bg bg-warning">
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">In Patient</a></td>
+                    </tr>
+                    {% else %}
+                    <tr class="bg bg-info">
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.hospital_number }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.category.category }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.plan.plan }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">{{transact.patient.gender }}</a></td>
+                        <td><a href="{% url 'get_receipt' transact.patient.id %}" style="text-decoration: none; color:#fff ">Out Patient</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'transaction-table-all' %}
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped tb" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Patient </th>
+                        <th>Invoice ID</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Receipt ID</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Billing Officer</th>
+                    </tr>
+                </thead>
+
+                <tbody> 
+                    
+                {% for transact in transaction_tables %}
+                    <tr>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary">{{transact.patient.surname}} {{transact.patient.first_name}} {{transact.patient.other_name}} ({{transact.patient.hospital_number }})</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary"></a>{{transact.invoice_ids |default:"-" }}</td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-primary">{{transact.invoice_raised | currency |default:"-" }}</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary">{{transact.updated_date | date:"M d, Y" |default:"-"}}</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary">{{transact.receipt_ids |default:"-" }}</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-info">{{transact.receipt_given | currency |default:"-"}}</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary">{{transact.receipt_given_date | date:"M d, Y" |default:"-" }}</a></td>
+                        <td><a href="{% url 'get_invoice' transact.patient.id %}" style="text-decoration: none; " class="text-secondary">{{transact.staff.fullname | default:"-" }}</a></td>
+                    </tr>
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+  
+</div>
+{% endblock content %}

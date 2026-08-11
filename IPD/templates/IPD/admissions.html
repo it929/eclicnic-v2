@@ -1,0 +1,889 @@
+{% extends 'admin.html' %}
+{% block content %}
+
+<style>
+    .div-grid {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+    }
+    .filter-bar {
+        background: #f8f9fc;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .filter-select, .filter-input, .filter-btn {
+        padding: 8px 12px;
+        border: 1px solid #d1d3e2;
+        border-radius: 4px;
+    }
+    .filter-btn {
+        background-color: #4e73df;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+    .filter-btn:hover {
+        background-color: #2e59d9;
+    }
+    .pagination {
+        margin-top: 15px;
+        display: flex;
+        gap: 5px;
+        justify-content: center;
+    }
+    .page-btn {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+        background: white;
+        cursor: pointer;
+    }
+    .page-btn.active {
+        background: #4e73df;
+        color: white;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 20px;
+    }
+    .no-data {
+        text-align: center;
+        padding: 20px;
+        color: #858796;
+    }
+</style>
+
+<div class="container-fluid">
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <span class="btn btn-danger" style="padding-block: 2px;">{{ counts }}</span> 
+                &nbsp;<i class="fa fa-users"></i> &nbsp;Patients Admitted (Awaiting Bed Space)
+            </h6>
+            <button class="btn btn-success btn-sm" onclick="printAllRecords()">
+                <i class="fa fa-print"></i> Print Complete Report
+            </button>
+        </div>
+        <div class="card-body div-grid">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr> 
+                            <th>Patient</th>
+                            <th>Hospital No</th>
+                            <th>Admitted By</th>
+                            <th>Period</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for admits in pre_admission %}
+                        <tr>
+                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">{{ admits.patient.surname }} {{ admits.patient.other_name }} {{ admits.patient.first_name }}</a></td>
+                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="color: brown; text-decoration: none;">{{ admits.patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">Dr. {{ admits.doctor_admitted.fullname }}</a></td>
+                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">{{ admits.doctor_admit_date |timesince }} ago</a></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No record found for admitted patients</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-responsive">
+                <div style="padding: 5px; border: 1.5px solid rgb(208, 206, 206); border-radius: 4px;">
+                    <a href="#" data-toggle="modal" data-target="#currentAdmissionModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-danger" role="alert" style="padding-left: 10px;">
+                            Current Admission <span class="badge badge-light" id="currentCount">{{ admitted_counts }}</span>
+                        </div>
+                    </a>
+                    <hr>
+                    <a href="#" data-toggle="modal" data-target="#markedForDischargeModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-warning" role="alert" style="padding-left: 10px;">
+                            Marked for Discharge <span class="badge badge-light" id="markedCount">{{ marked_for_discharge_counts }}</span>
+                        </div>
+                    </a>
+                    <hr>
+                    <a href="#" data-toggle="modal" data-target="#dischargedModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-success" role="alert" style="padding-left: 10px;">
+                            Discharged Patients <span class="badge badge-light" id="dischargedCount">{{ discharge_counts }}</span>
+                        </div>
+                    </a>
+                    <hr>
+                    <a href="#" data-toggle="modal" data-target="#masterSheetModal" style="text-decoration: none;">
+                        <div class="message text-left alert alert-secondary" role="alert" style="padding-left: 10px;">
+                            View Mastersheet <span class="badge badge-light" id="masterCount">{{ total_admissions_count }}</span>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Current Admission Modal -->
+<div class="modal fade" id="currentAdmissionModal" tabindex="-1" role="dialog" aria-labelledby="currentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="currentModalLabel">
+                    Patients currently on admission <span class="badge badge-danger" id="currentModalCount">{{ admitted_counts }}</span>
+                </h5>
+                <div>
+                    <button class="btn btn-info btn-sm mr-2" onclick="printModal('current')">
+                        <i class="fa fa-print"></i> Print
+                    </button>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Filter Bar -->
+                <div class="filter-bar">
+                    <select id="currentFilter" class="filter-select">
+                        <option value="all">All Records</option>
+                        <option value="date">Specific Date</option>
+                        <option value="date-range">Date Range</option>
+                    </select>
+                    <input type="date" id="currentDate" class="filter-input" style="display: none;">
+                    <input type="date" id="currentStartDate" class="filter-input" style="display: none;" placeholder="Start Date">
+                    <input type="date" id="currentEndDate" class="filter-input" style="display: none;" placeholder="End Date">
+                    <button class="filter-btn" onclick="loadCurrentAdmissions(1)">Apply Filter</button>
+                </div>
+                
+                <!-- Table Container -->
+                <div id="currentTableContainer">
+                    <div class="loading-spinner">
+                        <i class="fa fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+                
+                <!-- Pagination -->
+                <div id="currentPagination" class="pagination"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Marked for Discharge Modal -->
+<div class="modal fade" id="markedForDischargeModal" tabindex="-1" role="dialog" aria-labelledby="markedModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="markedModalLabel">
+                    Patients marked for Discharge <span class="badge badge-danger" id="markedModalCount">{{ marked_for_discharge_counts }}</span>
+                </h5>
+                <div>
+                    <button class="btn btn-info btn-sm mr-2" onclick="printModal('marked')">
+                        <i class="fa fa-print"></i> Print
+                    </button>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Filter Bar -->
+                <div class="filter-bar">
+                    <select id="markedFilter" class="filter-select">
+                        <option value="all">All Records</option>
+                        <option value="date">Specific Date</option>
+                        <option value="date-range">Date Range</option>
+                    </select>
+                    <input type="date" id="markedDate" class="filter-input" style="display: none;">
+                    <input type="date" id="markedStartDate" class="filter-input" style="display: none;">
+                    <input type="date" id="markedEndDate" class="filter-input" style="display: none;">
+                    <button class="filter-btn" onclick="loadMarkedPatients(1)">Apply Filter</button>
+                </div>
+                
+                <div id="markedTableContainer">
+                    <div class="loading-spinner">
+                        <i class="fa fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+                <div id="markedPagination" class="pagination"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Discharged Patients Modal -->
+<div class="modal fade" id="dischargedModal" tabindex="-1" role="dialog" aria-labelledby="dischargedModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="dischargedModalLabel">
+                    Discharged Patients <span class="badge badge-danger" id="dischargedModalCount">{{ discharge_counts }}</span>
+                </h5>
+                <div>
+                    <button class="btn btn-info btn-sm mr-2" onclick="printModal('discharged')">
+                        <i class="fa fa-print"></i> Print
+                    </button>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Filter Bar -->
+                <div class="filter-bar">
+                    <select id="dischargedFilter" class="filter-select">
+                        <option value="all">All Records</option>
+                        <option value="date">Specific Date</option>
+                        <option value="date-range">Date Range</option>
+                    </select>
+                    <input type="date" id="dischargedDate" class="filter-input" style="display: none;">
+                    <input type="date" id="dischargedStartDate" class="filter-input" style="display: none;">
+                    <input type="date" id="dischargedEndDate" class="filter-input" style="display: none;">
+                    <button class="filter-btn" onclick="loadDischargedPatients(1)">Apply Filter</button>
+                </div>
+                
+                <div id="dischargedTableContainer">
+                    <div class="loading-spinner">
+                        <i class="fa fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+                <div id="dischargedPagination" class="pagination"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Beginning of Mastersheet modal -->
+<div class="modal fade" id="masterSheetModal" tabindex="-1" role="dialog" aria-labelledby="masterModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content" style="width: 110%; position: relative; right: 60px;">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="masterModalLabel">
+                    View Mastersheet <span class="badge badge-danger" id="masterModalCount">{{ total_admissions_count }}</span>
+                </h5>
+                <div>
+                    <button class="btn btn-info btn-sm mr-2" onclick="printModal('master')">
+                        <i class="fa fa-print"></i> Print
+                    </button>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Filter Bar -->
+                <div class="filter-bar">
+                    <select id="masterFilter" class="filter-select">
+                        <option value="all">All Records</option>
+                        <option value="date">Specific Date</option>
+                        <option value="date-range">Date Range</option>
+                    </select>
+                    <input type="date" id="masterDate" class="filter-input" style="display: none;">
+                    <input type="date" id="masterStartDate" class="filter-input" style="display: none;" placeholder="Start Date">
+                    <input type="date" id="masterEndDate" class="filter-input" style="display: none;" placeholder="End Date">
+                    <button class="filter-btn" onclick="loadMastersheet(1)">Apply Filter</button>
+                </div>
+                
+                <!-- Table Container -->
+                <div id="masterTableContainer">
+                    <div class="loading-spinner">
+                        <i class="fa fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+                
+                <!-- Pagination -->
+                <div id="masterPagination" class="pagination"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of MasterSheet modal -->
+
+<script>
+// Toggle filter inputs based on selection
+document.getElementById('currentFilter').addEventListener('change', function() {
+    toggleFilterInputs('current');
+});
+document.getElementById('markedFilter').addEventListener('change', function() {
+    toggleFilterInputs('marked');
+});
+document.getElementById('dischargedFilter').addEventListener('change', function() {
+    toggleFilterInputs('discharged');
+});
+document.getElementById('masterFilter').addEventListener('change', function() {
+    toggleFilterInputs('master');
+});
+
+function toggleFilterInputs(prefix) {
+    const filter = document.getElementById(prefix + 'Filter').value;
+    document.getElementById(prefix + 'Date').style.display = filter === 'date' ? 'inline-block' : 'none';
+    document.getElementById(prefix + 'StartDate').style.display = filter === 'date-range' ? 'inline-block' : 'none';
+    document.getElementById(prefix + 'EndDate').style.display = filter === 'date-range' ? 'inline-block' : 'none';
+}
+
+// Load data when modal opens
+$('#currentAdmissionModal').on('show.bs.modal', function() {
+    loadCurrentAdmissions(1);
+});
+$('#markedForDischargeModal').on('show.bs.modal', function() {
+    loadMarkedPatients(1);
+});
+$('#dischargedModal').on('show.bs.modal', function() {
+    loadDischargedPatients(1);
+});
+$('#masterSheetModal').on('show.bs.modal', function() {
+    loadMastersheet(1);
+});
+
+function loadCurrentAdmissions(page) {
+    const filter = document.getElementById('currentFilter').value;
+    let url = `/admissions/ajax/?type=current&filter=${filter}&page=${page}`;
+    
+    if (filter === 'date') {
+        const date = document.getElementById('currentDate').value;
+        if (date) url += `&date=${date}`;
+    } else if (filter === 'date-range') {
+        const start = document.getElementById('currentStartDate').value;
+        const end = document.getElementById('currentEndDate').value;
+        if (start && end) {
+            url += `&start_date=${start}&end_date=${end}`;
+        }
+    }
+    
+    fetchData(url, 'current');
+}
+
+function loadMarkedPatients(page) {
+    const filter = document.getElementById('markedFilter').value;
+    let url = `/admissions/ajax/?type=marked&filter=${filter}&page=${page}`;
+    
+    if (filter === 'date') {
+        const date = document.getElementById('markedDate').value;
+        if (date) url += `&date=${date}`;
+    } else if (filter === 'date-range') {
+        const start = document.getElementById('markedStartDate').value;
+        const end = document.getElementById('markedEndDate').value;
+        if (start && end) {
+            url += `&start_date=${start}&end_date=${end}`;
+        }
+    }
+    
+    fetchData(url, 'marked');
+}
+
+function loadDischargedPatients(page) {
+    const filter = document.getElementById('dischargedFilter').value;
+    let url = `/admissions/ajax/?type=discharged&filter=${filter}&page=${page}`;
+    
+    if (filter === 'date') {
+        const date = document.getElementById('dischargedDate').value;
+        if (date) url += `&date=${date}`;
+    } else if (filter === 'date-range') {
+        const start = document.getElementById('dischargedStartDate').value;
+        const end = document.getElementById('dischargedEndDate').value;
+        if (start && end) {
+            url += `&start_date=${start}&end_date=${end}`;
+        }
+    }
+    
+    fetchData(url, 'discharged');
+}
+
+function loadMastersheet(page) {
+    const filter = document.getElementById('masterFilter').value;
+    let url = `/admissions/ajax/?type=mastersheet&filter=${filter}&page=${page}`;
+    
+    if (filter === 'date') {
+        const date = document.getElementById('masterDate').value;
+        if (date) url += `&date=${date}`;
+    } else if (filter === 'date-range') {
+        const start = document.getElementById('masterStartDate').value;
+        const end = document.getElementById('masterEndDate').value;
+        if (start && end) {
+            url += `&start_date=${start}&end_date=${end}`;
+        }
+    }
+    
+    fetchData(url, 'master');
+}
+
+function fetchData(url, type) {
+    const container = document.getElementById(type + 'TableContainer');
+    container.innerHTML = '<div class="loading-spinner"><i class="fa fa-spinner fa-spin"></i> Loading...</div>';
+    
+    console.log(`Fetching ${type} data from:`, url);
+    
+    fetch(url)
+        .then(response => {
+            console.log(`${type} response status:`, response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log(`${type} data received:`, data);
+            console.log(`${type} total_count:`, data.total_count);
+            console.log(`${type} total_pages:`, data.total_pages);
+            console.log(`${type} current page:`, data.page);
+            console.log(`${type} has_next:`, data.has_next);
+            console.log(`${type} data array length:`, data.data?.length);
+            
+            if (data.error) {
+                container.innerHTML = `<div class="no-data">Error: ${data.error}</div>`;
+                return;
+            }
+            
+            if (type === 'current') {
+                renderCurrentTable(data);
+            } else if (type === 'marked') {
+                renderMarkedTable(data);
+            } else if (type === 'discharged') {
+                renderDischargedTable(data);
+            } else if (type === 'master') {
+                renderMasterTable(data);
+            }
+            renderPagination(data, type);
+        })
+        .catch(error => {
+            console.error(`${type} fetch error details:`, error);
+            container.innerHTML = `<div class="no-data">Error: ${error.message}</div>`;
+        });
+}
+
+function renderPagination(data, type) {
+    console.log(`Rendering pagination for ${type}:`, {
+        page: data.page,
+        total_pages: data.total_pages,
+        has_next: data.has_next,
+        has_previous: data.has_previous
+    });
+    
+    let html = '';
+    
+    // Map type to the correct function name
+    let functionMap = {
+        'current': 'loadCurrentAdmissions',
+        'marked': 'loadMarkedPatients',
+        'discharged': 'loadDischargedPatients',
+        'master': 'loadMastersheet'
+    };
+    
+    let functionName = functionMap[type];
+    
+    if (data.has_previous) {
+        html += `<button class="page-btn" onclick="${functionName}(${data.page - 1})">Previous</button>`;
+    }
+    
+    // Show page numbers
+    for (let i = 1; i <= data.total_pages; i++) {
+        if (i === data.page) {
+            html += `<button class="page-btn active">${i}</button>`;
+        } else if (i <= 3 || i > data.total_pages - 3 || Math.abs(i - data.page) <= 2) {
+            html += `<button class="page-btn" onclick="${functionName}(${i})">${i}</button>`;
+        } else if (i === 4 && data.page > 4) {
+            html += `<span class="page-btn">...</span>`;
+        } else if (i === data.total_pages - 3 && data.page < data.total_pages - 3) {
+            html += `<span class="page-btn">...</span>`;
+        }
+    }
+    
+    if (data.has_next) {
+        html += `<button class="page-btn" onclick="${functionName}(${data.page + 1})">Next</button>`;
+    }
+    
+    console.log(`Generated pagination HTML for ${type}:`, html);
+    document.getElementById(type + 'Pagination').innerHTML = html;
+}
+
+function renderCurrentTable(data) {
+    let html = '<table class="table table-bordered"><thead><tr>' +
+        '<th>Patient</th>' +
+        '<th>Hospital No</th>' +
+        '<th>Admitted By</th>' +
+        '<th>Period</th>' +
+        '<th>Ward</th>' +
+        '<th>Bed</th>' +
+        '</thead><tbody>';
+    
+    if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+            html += `<tr>
+                <td><a href="/allocate-bed/${item.patient_id}/" style="text-decoration: none;">${item.patient_name}</a>
+                <td><a href="/allocate-bed/${item.patient_id}/" style="color: brown; text-decoration: none;">${item.hospital_number}</a>
+                <td><a href="/allocate-bed/${item.patient_id}/" style="text-decoration: none;">${item.admitted_by}</a>
+                <td><a href="/allocate-bed/${item.patient_id}/" style="text-decoration: none;">${item.time_ago} ago</a>
+                <td>${item.ward}
+                <td>${item.bed}
+            </tr>`;
+        });
+    } else {
+        html += '<tr><td colspan="6" class="text-center">No records found</td></tr>';
+    }
+    
+    html += '</tbody></table>';
+    document.getElementById('currentTableContainer').innerHTML = html;
+    document.getElementById('currentModalCount').textContent = data.total_count;
+}
+
+function renderMarkedTable(data) {
+    let html = '<table class="table table-bordered"><thead><tr><th>Patient</th><th>Hospital No</th><th>Marked By</th><th>Period</th></tr></thead><tbody>';
+    
+    if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+            html += `<tr>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.patient_name}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="color: brown; text-decoration: none;">${item.hospital_number}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.marked_by}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.time_ago} ago</a></td>
+            </tr>`;
+        });
+    } else {
+        html += '<tr><td colspan="4" class="text-center">No records found</td></tr>';
+    }
+    
+    html += '</tbody></table>';
+    document.getElementById('markedTableContainer').innerHTML = html;
+    document.getElementById('markedModalCount').textContent = data.total_count;
+}
+
+function renderDischargedTable(data) {
+    let html = '<table class="table table-bordered"><thead><tr><th>Patient</th><th>Hospital No</th><th>Discharged By</th><th>Period</th></tr></thead><tbody>';
+    
+    if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+            html += `<tr>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.patient_name}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="color: brown; text-decoration: none;">${item.hospital_number}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.discharged_by}</a></td>
+                <td><a href="/patient-profile/${item.patient_id}/" style="text-decoration: none;">${item.time_ago}</a></td>
+            </tr>`;
+        });
+    } else {
+        html += '<tr><td colspan="4" class="text-center">No records found</td></tr>';
+    }
+    
+    html += '</tbody></table>';
+    document.getElementById('dischargedTableContainer').innerHTML = html;
+    document.getElementById('dischargedModalCount').textContent = data.total_count;
+}
+
+function renderMasterTable(data) {
+    let html = '<table class="table table-bordered" style="font-size:11px"><thead><tr>' +
+        '<th>Patient</th><th>Card No</th><th>Admitted By</th><th>Date</th>' +
+        '<th>Bed Allocated By</th><th>Date</th><th>Discharged By</th><th>Date</th>' +
+        '<th>Bill Cleared By</th><th>Date</th><th>Ward</th><th>Bed</th>' +
+        '</tr></thead><tbody>';
+    
+    if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+            html += `<tr>
+                <td class="text-primary"><a style="text-decoration:none" href="/patient-profile/${item.patient_id}/">${item.patient_name}</a></td>
+                <td style="color:brown"><a style="text-decoration:none" href="/patient-profile/${item.patient_id}/">${item.hospital_number}</a></td>
+                <td><a style="text-decoration:none" class="text-warning" href="/patient-profile/${item.patient_id}/">${item.doctor_admitted}</a></td>
+                <td><a style="text-decoration:none" class="text-warning" href="/patient-profile/${item.patient_id}/">${item.doctor_admit_date ? new Date(item.doctor_admit_date).toLocaleDateString() : '-'}</a></td>
+                <td><a style="text-decoration:none" class="text-info" href="/patient-profile/${item.patient_id}/">${item.nurse_admitted}</a></td>
+                <td><a style="text-decoration:none" class="text-info" href="/patient-profile/${item.patient_id}/">${item.nurse_admit_date ? new Date(item.nurse_admit_date).toLocaleDateString() : '-'}</a></td>
+                <td><a style="text-decoration:none" class="text-success" href="/patient-profile/${item.patient_id}/">${item.doctor_discharged}</a></td>
+                <td><a style="text-decoration:none" class="text-success" href="/patient-profile/${item.patient_id}/">${item.doctor_discharge_date ? new Date(item.doctor_discharge_date).toLocaleDateString() : '-'}</a></td>
+                <td><a style="text-decoration:none" class="text-dark" href="/patient-profile/${item.patient_id}/">${item.bill_discharged}</a></td>
+                <td><a style="text-decoration:none" class="text-dark" href="/patient-profile/${item.patient_id}/">${item.bill_discharge_date ? new Date(item.bill_discharge_date).toLocaleDateString() : '-'}</a></td>
+                <td><a style="text-decoration:none" href="/patient-profile/${item.patient_id}/">${item.ward}</a></td>
+                <td><a style="text-decoration:none" href="/patient-profile/${item.patient_id}/">${item.bed}</a></td>
+            </tr>`;
+        });
+    } else {
+        html += '<tr><td colspan="12" class="text-center">No records found</td></tr>';
+    }
+    
+    html += '</tbody></table>';
+    document.getElementById('masterTableContainer').innerHTML = html;
+}
+
+
+function capitalize(str) {
+    if (str === 'master') return 'Master';
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+</script>
+<script>
+// Print filtered modals
+function printModal(type) {
+    // Get the modal content
+    const modalContent = document.querySelector(`#${getModalId(type)} .modal-content`).cloneNode(true);
+    
+    // Create a print container
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Print ${getModalTitle(type)}</title>
+            <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+            <style>
+                body {
+                    padding: 20px;
+                    font-family: Arial, sans-serif;
+                }
+                .print-header {
+                    text-align: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #333;
+                }
+                .print-header h2 {
+                    color: #333;
+                    margin-bottom: 5px;
+                }
+                .print-header p {
+                    color: #666;
+                    margin: 0;
+                }
+                .print-date {
+                    text-align: right;
+                    margin-bottom: 20px;
+                    color: #666;
+                }
+                .filter-info {
+                    background: #f8f9fa;
+                    padding: 10px;
+                    margin-bottom: 20px;
+                    border-left: 4px solid #4e73df;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 20px;
+                }
+                th {
+                    background: #4e73df;
+                    color: white;
+                    padding: 12px;
+                    text-align: left;
+                }
+                td {
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                }
+                tr:nth-child(even) {
+                    background: #f8f9fc;
+                }
+                .badge {
+                    display: inline-block;
+                    padding: 3px 7px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    border-radius: 10px;
+                }
+                .badge-danger {
+                    background: #e74a3b;
+                    color: white;
+                }
+                @media print {
+                    .no-print {
+                        display: none;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <h2>CLINIC365 - ${getModalTitle(type)}</h2>
+                <p>Generated on: ${new Date().toLocaleString()}</p>
+            </div>
+            <div class="print-date">
+                <p>Report Date: ${new Date().toLocaleDateString()}</p>
+            </div>
+    `);
+    
+    // Add filter information if any filter is applied
+    const filterSelect = document.getElementById(`${type}Filter`);
+    if (filterSelect && filterSelect.value !== 'all') {
+        const filterType = filterSelect.options[filterSelect.selectedIndex].text;
+        let filterValue = '';
+        
+        if (filterSelect.value === 'date') {
+            const dateInput = document.getElementById(`${type}Date`);
+            filterValue = dateInput.value ? new Date(dateInput.value).toLocaleDateString() : 'Not selected';
+        } else if (filterSelect.value === 'date-range') {
+            const startDate = document.getElementById(`${type}StartDate`).value;
+            const endDate = document.getElementById(`${type}EndDate`).value;
+            filterValue = `${startDate ? new Date(startDate).toLocaleDateString() : '?'} to ${endDate ? new Date(endDate).toLocaleDateString() : '?'}`;
+        }
+        
+        printWindow.document.write(`
+            <div class="filter-info">
+                <strong>Filter Applied:</strong> ${filterType} - ${filterValue}
+            </div>
+        `);
+    }
+    
+    // Get the table content
+    const tableContainer = document.getElementById(`${type}TableContainer`);
+    const table = tableContainer.querySelector('table');
+    
+    if (table) {
+        printWindow.document.write(table.outerHTML);
+    } else {
+        printWindow.document.write('<p class="text-center">No data to display</p>');
+    }
+    
+    // Add summary
+    const totalCount = document.getElementById(`${type}ModalCount`).textContent;
+    printWindow.document.write(`
+        <div style="margin-top: 20px; text-align: right;">
+            <p><strong>Total Records:</strong> ${totalCount}</p>
+        </div>
+    `);
+    
+    printWindow.document.write(`
+        </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function getModalId(type) {
+    const map = {
+        'current': 'currentAdmissionModal',
+        'marked': 'markedForDischargeModal',
+        'discharged': 'dischargedModal',
+        'master': 'masterSheetModal'
+    };
+    return map[type] || '';
+}
+
+function getModalTitle(type) {
+    const map = {
+        'current': 'Current Admissions',
+        'marked': 'Marked for Discharge',
+        'discharged': 'Discharged Patients',
+        'master': 'Mastersheet'
+    };
+    return map[type] || '';
+}
+</script>
+<script>
+    // print all records
+    function printAllRecords() {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Complete Admission Report</title>
+            <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+            <style>
+                body { padding: 20px; }
+                .print-header { text-align: center; margin-bottom: 30px; }
+                .section { margin-bottom: 40px; }
+                .section-title { background: #4e73df; color: white; padding: 10px; margin: 20px 0 10px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                th { background: #f8f9fc; padding: 8px; border: 1px solid #ddd; }
+                td { padding: 8px; border: 1px solid #ddd; }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <h1>CLINIC365 - Complete Admission Report</h1>
+                <p>Generated on: ${new Date().toLocaleString()}</p>
+                <hr>
+            </div>
+    `);
+    
+    // Function to fetch and print each section
+    const sections = ['current', 'marked', 'discharged', 'master'];
+    let promises = sections.map(type => {
+        return fetch(`/admissions/ajax/?type=${type}&filter=all&page=1`)
+            .then(response => response.json())
+            .then(data => {
+                printWindow.document.write(`<div class="section"><h2 class="section-title">${getModalTitle(type)}</h2>`);
+                
+                if (type === 'master') {
+                    printWindow.document.write(generateMasterTable(data));
+                } else {
+                    printWindow.document.write(generateSimpleTable(data, type));
+                }
+                
+                printWindow.document.write(`<p><strong>Total: ${data.total_count}</strong></p></div>`);
+            });
+    });
+    
+    Promise.all(promises).then(() => {
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.print();
+    });
+}
+
+function generateSimpleTable(data, type) {
+    let html = '<table><thead><tr><th>Patient</th><th>Hospital No</th><th>';
+    
+    if (type === 'current') {
+        html += 'Admitted By';
+    } else if (type === 'marked') {
+        html += 'Marked By';
+    } else if (type === 'discharged') {
+        html += 'Discharged By';
+    }
+    
+    html += '</th><th>Period</th>';
+    
+    // Add Ward and Bed columns for current admissions
+    if (type === 'current') {
+        html += '<th>Ward</th><th>Bed</th>';
+    }
+    
+    html += '</tr></thead><tbody>';
+    
+    data.data.forEach(item => {
+        html += `<tr>
+            <td>${item.patient_name}</td>
+            <td>${item.hospital_number}</td>
+            <td>${type === 'current' ? item.admitted_by : (type === 'marked' ? item.marked_by : item.discharged_by)}</td>
+            <td>${item.time_ago}</td>`;
+        
+        // Add Ward and Bed data for current admissions
+        if (type === 'current') {
+            html += `<td>${item.ward || '-'}</td>
+                     <td>${item.bed || '-'}</td>`;
+        }
+        
+        html += `</tr>`;
+    });
+    
+    html += '</tbody></table>';
+    return html;
+}
+function generateMasterTable(data) {
+    let html = '<table><thead><tr><th>Patient</th><th>Card No</th><th>Admitted By</th><th>Date</th><th>Bed Allocated By</th><th>Date</th><th>Discharged By</th><th>Date</th><th>Bill Cleared By</th><th>Date</th><th>Ward</th><th>Bed</th></tr></thead><tbody>';
+    
+    data.data.forEach(item => {
+        html += `<tr>
+            <td>${item.patient_name}</td>
+            <td>${item.hospital_number}</td>
+            <td>${item.doctor_admitted}</td>
+            <td>${item.doctor_admit_date ? new Date(item.doctor_admit_date).toLocaleDateString() : '-'}</td>
+            <td>${item.nurse_admitted}</td>
+            <td>${item.nurse_admit_date ? new Date(item.nurse_admit_date).toLocaleDateString() : '-'}</td>
+            <td>${item.doctor_discharged}</td>
+            <td>${item.doctor_discharge_date ? new Date(item.doctor_discharge_date).toLocaleDateString() : '-'}</td>
+            <td>${item.bill_discharged}</td>
+            <td>${item.bill_discharge_date ? new Date(item.bill_discharge_date).toLocaleDateString() : '-'}</td>
+            <td>${item.ward}</td>
+            <td>${item.bed}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    return html;
+}
+</script>
+{% endblock content %}

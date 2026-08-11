@@ -1,0 +1,121 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-upload" ></i> &nbsp;Upload Patient Plans </h1>
+      <p></p>
+    
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="close" data-dismiss="alert">&times;</button>
+        </div>
+        {% endfor %}
+    {% endif %}
+    
+    <div class="card">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    {{ form.excel_file.label_tag }}
+                    {{ form.excel_file }}
+                    <small class="form-text text-muted">{{ form.excel_file.help_text }}</small>
+                    {% for error in form.excel_file.errors %}
+                        <div class="alert alert-danger">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                
+                <div class="form-group form-check">
+                    {{ form.overwrite }}
+                    {{ form.overwrite.label_tag }}
+                    <small class="form-text text-muted">{{ form.overwrite.help_text }}</small>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" name="upload_plan"><i class="fa fa-upload"></i> Upload</button>
+                <a href="{% url 'download_plan_template' %}" class="btn btn-secondary ml-2"><i class="fa fa-download"></i> Download Template</a>
+            </form>
+        </div>
+    </div>
+    
+    {% if errors %}
+    <div class="mt-4">
+        <h4>Errors:</h4>
+        <div class="alert alert-warning">
+            <ul class="mb-0">
+                {% for error in errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="mt-4">
+        <h4>Instructions:</h4>
+        <ol>
+            <li>Excel file must contain these columns in order: <strong>Plan Name, Code, Category</strong></li>
+            <li>Category can be either the ID or exact name from database</li>
+            <li>Blank rows will be skipped automatically</li>
+            <li>Check "Overwrite" to update existing plans with matching names and categories</li>
+        </ol>
+        
+        <h5>Sample Data Format:</h5>
+        <table class="table table-bordered">
+            <thead class="thead-light">
+                <tr>
+                    <th>Plan Name</th>
+                    <th>Code</th>
+                    <th>Category (ID or Name)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Single</td>
+                    <td>SN</td>
+                    <td>1 or "Private"</td>
+                </tr>
+                <tr>
+                    <td>Hygia</td>
+                    <td>HY</td>
+                    <td>2 or "HMO"</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+
+
+<!-- front desk -- patient modal (add patient plan) -->
+<div class="modal fade" id="addPatientPlanModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-plus"></i> Add Patients Plan</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form method="POST">
+                {% csrf_token %}
+                {{ add_plan_form.as_p }}
+                <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>
+
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" type="submit" name="add_plan" class="btn btn-primary"><i class="fa fa-plus"></i> Add Plan</button>
+        </div>
+            </form>
+    </div>
+</div>
+</div>
+</div>
+
+{% endblock content %}

@@ -1,0 +1,2460 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% load static %}
+{% block title %}Administer Drugs - {{ patient.surname }}{% endblock %}
+
+{% block content %}
+<style>
+    #search-results {
+    position: absolute;
+    z-index: 1000;
+    width: 100%;
+    max-height: 300px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+#results-list {
+    margin-bottom: 0;
+}
+
+.product-item {
+    cursor: pointer;
+}
+
+.product-item:hover {
+    background-color: #f5f5f5;
+}
+
+#drug-items-table {
+    margin-top: 20px;
+}
+#drug-items-table td {
+    font-size: 15px;
+}
+#drug-items-table th {
+    font-size: 13px;
+}
+#drug-items-table input {
+    width:50px
+}
+
+
+.stock-warning {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.stock-ok {
+    color: #28a745;
+}
+
+input.item-quantity:invalid {
+    border-color: #dc3545;
+    background-color: #fff5f5;
+}
+
+.ui-autocomplete {
+    z-index: 2000 !important;
+    background: white;
+    border-radius: 0.25rem;
+    border: 1px solid #ccc;
+    max-height: 250px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.ui-menu-item-wrapper.ui-state-active {
+    background-color: #007bff;
+    color: white;
+}
+th{
+    /* font-family: cursive; */
+}
+
+.item-start-date {
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.item-start-date.is-invalid {
+    border-color: #dc3545;
+    background-color: #f8d7da;
+}
+.remove-item{
+    background: none; border: none;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    padding: 2px;
+}
+.prescribed_report th, td{
+    font-size: 13px;
+}
+
+#medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    #medical-module-wrapper .dropdown-menu {
+        display: block;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(15px);
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+    }
+
+    .lab-exception-checkbox, .scan-exception-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    }
+    .lab-exception-checkbox:checked, .scan-exception-checkbox:checked {
+        accent-color: #dc3545;
+    }
+    .table-warning {
+    background-color: rgba(255, 193, 7, 0.2) !important;
+    }
+    .table-warning td {
+        border-color: #ffc107 !important;
+    }
+</style>
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+{% if request.user.department.department != 'Nursing' %}
+<div id="medical-module-wrapper">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
+        <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                </li>
+
+                {% if patient.category.category == 'ANC' %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                </li>
+                {% endif %}
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                </li>
+
+                <li class="nav-item active">
+                    <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
+                </li>
+                
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        View Reports
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    {% if patient.is_admitted %}
+                    <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                    {% else %}
+                    <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                    {% endif %}
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        Prints
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
+                        <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link text-warning" href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
+                </li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+  {% endif %}
+  <div class="row mt-4">
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-success"> Lab & Drug Requests</h6>
+                </div>
+                <div class="card-body">
+                    <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
+
+                       <a href="#"data-toggle="modal" data-target="#administerDrugModal" class="text-success" style="text-decoration: none;"> Request Medications for : &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                        <a href="#"data-toggle="modal" data-target="#labTestModal" class="text-success"  style="text-decoration: none;">Request Lab Examination for: &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-warning"> Scan & Other Requests</h6>
+                </div>
+                <div class="collapse show" id="collapseCardExample">
+                    <div class="card-body">
+                        <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                           <a href="#"data-toggle="modal" data-target="#radioScanModal" class="text-warning"  style="text-decoration: none;">Request Scan/Imaging for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            <a href="#"data-toggle="modal" data-target="#otherServicesModal" class="text-warning"  style="text-decoration: none; font-weight: bold;">Request other Services for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+        </div>
+  </div>
+  <div class="message text-center alert alert-secondary alert-dismissible fade show" role="alert" style="font-weight: bold; width: 100%;">
+        <a href="#"data-toggle="modal" data-target="#modifyRecordModal" class="text-secondary"  style="text-decoration: none; font-weight: bold;">View and Modify new Record for: &nbsp;<span class="badge badge-pill badge-secondary">{{patient.surname}}  {{patient.first_name}}</span></a>
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+  </div>
+  <div class="row mt-4">
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-success"> Drug Requests II (No charges)</h6>
+                </div>
+                <div class="card-body">
+                    <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
+
+                       <a href="#"data-toggle="modal"  data-target="#writePrescriptionModal" class="text-success" style="text-decoration: none;"> Write prescription for : &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-warning"> List of other service requested</h6>
+                </div>
+                <div class="collapse show" id="collapseCardExample">
+                    <div class="card-body">
+                        <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
+                            <a href="#"data-toggle="modal" data-target="#servicesResultsModal" class="text-warning"  style="text-decoration: none; font-weight: bold;">Requested other Services for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
+                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+<!-- Beginning of Drug Administration Modal -->
+<div class="modal fade" id="administerDrugModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 240%; position: relative; right: 310px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> 
+                Search item <i class="fa fa-search"></i> 
+            </h5>            
+            <!-- Store selector -->
+            <div class="store-selector" style="margin-left: 20px;">
+                <select class="form-control form-control-sm" id="store-select" style="width: 180px;">
+                    <option value="">--Select Pharmacy--</option>
+                    <option value="ipd_pharm1">IPD Pharmacy 1</option>
+                    <option value="ipd_pharm2">IPD Pharmacy 2</option>
+                    <option value="ipd_pharm3">IPD Pharmacy 3</option>
+                    <option value="opd_pharm1">OPD Pharmacy 1</option>
+                    <option value="opd_pharm2">OPD Pharmacy 2</option>
+                </select>
+            </div>
+            <a href="#" data-toggle="modal" class="text-danger" data-target="#allergyViewModal" style="padding-block: 5px; font-family: cursive; margin-left: 20px;">
+                View Allergies
+            </a>
+            <!-- message display -->
+            <div id="message-alert" style="display: none; width: 45%; margin-left: 20px; height: 20px; margin-top: -7px;" aria-live="polite">
+                <div class="alert font-weight-bold" role="alert" id="alert-message"></div>
+            </div>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <!-- Beginning of Drug Administration -->
+         <div class="row" style="padding: 20px;">
+            <div class="col-md-12">
+                <div class="form-group">
+                    <input type="text" class="form-control" id="product-search" placeholder="Search for drugs...">
+                    <input type="hidden" id="patient-id" value="{{ patient.id }}">
+                    <small class="text-muted" id="current-store-info">Selected: IPD Pharmacy 1</small>
+                </div>
+                <div id="search-results" style="display: none; width: 98%;">
+                    <ul class="list-group" id="results-list"></ul>
+                </div>
+            </div>
+        </div>
+    
+    <div class="row" style="padding: 20px; margin-top: -40px;">
+        <div class="col-md-12">
+            <table class="table" id="drug-items-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>UoM</th>
+                        <th>Store</th>  
+                        <th>Route</th>
+                        <th>Freq.</th>
+                        <th>Dose</th>
+                        <th>Duration</th>
+                        <!-- <th>Stock</th> -->
+                         <th>Start Date</th>
+                        <th>Qty.</th>
+                        <th>Notes for Pharmacy</th>
+                        <!-- <th>rate</th> -->
+                        <!-- <th>total</th> -->
+                        <!-- <th>Rate (₦)</th> -->
+                         <!-- <td class="item-rate">${item.rate}</td> -->
+                        <th style="text-align: center; width: 10px;"><i class="fa fa-info"></i></th> 
+                        <th style="text-align: center; width: 30px">Del</th>
+                    </tr>
+                </thead>
+                <tbody id="drug-items-body">
+                    <!-- Items will be added here dynamically -->
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="6" class="text-right"><strong>Total:</strong></td>
+                        <td id="grand-total"> 0.00</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <div style="margin-top: -20px;">
+                <button class="btn btn-primary" id="process-casting">Process Costing</button>
+                <button class="btn btn-secondary" id="clear-session">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <!-- End of Drug Administration -->
+    </div>
+    </div>
+</div>
+<!-- End of Drug Administration Modal -->
+
+
+<!-- Beginning of Lab Test Request Modal -->
+<div class="modal fade" id="labTestModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Lab Request for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                 <div style="border: 1px solid #ccc; padding: 10px;">
+                        <h6 style="font-family: cursive; text-decoration: underline;">Samples: (if applicable)</h6>
+                        <input type="checkbox" name="sample" value="Blood"> Blood &nbsp;&nbsp; 
+                        <input type="checkbox" name="sample" value="Urine"> Urine &nbsp;&nbsp;
+                        <input type="checkbox" name="sample" value="Swab"> Swab &nbsp;&nbsp; 
+                        <input type="checkbox" name="sample" value="Faeces"> Faeces &nbsp;&nbsp;
+                        <input type="checkbox" name="sample" value="Tissue"> Tissue &nbsp;&nbsp; 
+                        <input type="checkbox" name="sample" value="Sputum"> Sputum &nbsp;&nbsp;
+                        <input type="checkbox" name="sample" value="CSF"> CSF &nbsp;&nbsp; 
+                        <input type="checkbox" name="sample" value="Semen"> Semen &nbsp;&nbsp; 
+                        <input type="checkbox" name="sample" value="Surgical Drain Fluid"> Surgical Drain Fluid
+                        <br>
+                        <input type="text" id="other-samples" placeholder="Others: Specify" class="form-control" style="width: 50%; margin-top: 5px;"/>
+                     </div>
+                     <div style="border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
+                        <h6 style="font-family: cursive; text-decoration: underline;">Urgent/Emergency?:</h6>
+                        <select class="form-control" id="emergency-select" style="width: 50%;">
+                            <option value="N/A">N/A</option>
+                            <option value="Emergency">Emergency</option>
+                            <option value="Very Urgent">Very Urgent</option>
+                            <option value="General Request">General Request</option>
+                        </select>
+                        <h6 style="font-family: cursive; text-decoration: underline; margin-top: 5px;">Comments: (Optional)</h6>
+                        <textarea class="form-control" id="comment-text">Comments...</textarea>
+                     </div>
+                    <table id="drug-table" class="table">
+                        <thead>
+                            <tr>
+                                <th>Test (Investigation)</th>
+                                <th>Rate (₦)</th>
+                                <th style="text-align: center;">Exception Bill</th>
+                                <th>Add</th>
+                                <th>Remove</th>
+                            </tr>
+                        </thead>
+                        <tbody id="test-body">
+                            <tr>
+                                <td>
+                                    <input list="test-options" class="form-control test-name" placeholder="first 3 letters">
+                                    <datalist id="test-options"></datalist>
+                                </td> 
+                                <td><input type="text" class="form-control rate" readonly></td>
+                                <td style="text-align: center;">
+                                    <input type="checkbox" class="lab-exception-checkbox" 
+                                        title="Check if this test should NOT be billed">
+                                </td>
+                                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button type="button" id="submitTests" class="btn btn-primary">Send Requests <i class="fa fa-arrow-right"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Beginning of Radio Scan Request Modal -->
+ <div class="modal fade" id="radioScanModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Scan Request for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                    
+                     <div style="border: 1px solid #ccc; padding: 10px;">
+                        <div style="width: 49%;">
+                            <h6 style="font-family: cursive; text-decoration: underline;">Mobility:</h6><br>
+                            <select class="form-control" id="mobility">
+                                <option value="N/A">N/A</option>
+                                <option value="Ambulatory">Ambulatory</option>
+                                <option value="Wheel Chair">Wheel Chair</option>
+                                <option value="Stretcher">Stretcher</option>
+                                <option value="Portable">Portable</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-left: 51%; width: 49%; margin-top: -65px;">
+                            <h6 style="font-family: cursive; text-decoration: underline;">Urgent/Emergency?:</h6>
+                            <select class="form-control" id="emergency-select">
+                                <option value="N/A">N/A</option>
+                                <option value="Emergency">Emergency</option>
+                                <option value="Very Urgent">Very Urgent</option>
+                                <option value="General Request">General Request</option>
+                            </select>
+                        </div>
+                     </div>
+                     <div style="border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
+                        
+                        <h6 style="font-family: cursive; text-decoration: underline; margin-top: 5px;">Comments: (Diagnosis)</h6>
+                        <textarea class="form-control" id="comment-text">Comments...</textarea>
+                     </div>
+                    <table id="drug-table" class="table">
+                        <thead>
+                            <tr>
+                                <th>Scan</th>
+                                <th>Rate (₦)</th>
+                                <th style="text-align: center;">Exception Bill</th>
+                                <th>Add</th>
+                                <th>Remove</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-body">
+                            <tr>
+                                <td>
+                                    <input list="scan-options" class="form-control scan-name">
+                                    <datalist id="scan-options"></datalist>
+                                </td> 
+                                <td><input type="text" class="form-control rate" readonly></td>
+                                <td style="text-align: center;">
+                                    <input type="checkbox" class="scan-exception-checkbox" 
+                                        title="Check if this scan should NOT be billed">
+                                </td>
+                                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <button type="button" id="submitScans" class="btn btn-primary">Send Requests <i class="fa fa-arrow-right"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Beginning of adjustment Modal -->
+<div class="modal fade" id="modifyRecordModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 220%; position: relative; right: 230px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel" > Modify Records (within 24 hours) </h5>
+
+
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+
+        <!-- Modifying of Drug Administration -->
+    
+            <div class="row mt-1">
+                <div class="col-md-12">
+                    <div class="table-responsive prescribed_report" style="padding-block: 10px; padding-inline: 30px;">
+                        <table class="table" id="requestedDrugs">
+                            <thead>
+                                <tr>
+                                    <th>Store</th>
+                                    <th>Item</th>
+                                    <th>UoM</th>
+                                    <th>Route</th>
+                                    <th>Freq.</th>
+                                    <th>Dose</th>
+                                    <th>Duration</th>
+                                    <th>Rate</th>
+                                    <th>Request Time</th>
+                                    <th>Del</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for product in requested_drugs %}
+                                    <tr data-id="{{ product.id }}" data-store-id="{{ product.store_id }}" class="{% if product.completed == 3 %}table-warning{% endif %}">
+                                        <td>
+                                            <span class="badge badge-{{ product.store_color|default:'secondary' }}">
+                                                {{ product.store_name }}
+                                            </span>
+                                        </td>
+                                        <td>{{ product.item }}</td>
+                                        <td>{{ product.quantity }} {{ product.UoM }}</td>
+                                        <td>{{ product.route }}</td>
+                                        <td>{{ product.frequency }}</td>
+                                        <td>{{ product.dose }}</td>
+                                        <td>{{ product.duration }}</td>
+                                        <td>&#8358; {{ product.rate|floatformat:2 }}</td>
+                                        <td style="color: brown;">{{ product.created_date|timesince }} ago</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-danger delete-product" 
+                                                    data-product-id="{{ product.id }}"
+                                                    data-store-id="{{ product.store_id }}"
+                                                    data-product-name="{{ product.item }}">
+                                                 <i class="fa fa-trash my-custom-icon"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted">
+                                            No requested drugs found
+                                        </td>
+                                    </tr>
+                                    {% endfor %}                                
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-0" style="padding: 20px; margin-top: -80px;">
+                <div class="col-lg-6">
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-secondary"> Laboratory Tests</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table prescribed_report" id="requestedTests">
+                                    <thead>
+                                        <tr>
+                                            <th>Test</th><th>Period</th><th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for product in requested_tests %}
+                                        <tr data-id="{{ product.id }}" class="{% if product.exception_bill %}table-warning{% endif %}">
+                                            <td>{{ product.item }}</td>
+                                            <td style="color: brown;">{{ product.created_date | timesince }} ago</td>
+                                            <td>
+                                                <i class="fa fa-times text-danger delete-test" style="cursor: pointer; margin-left: 20px;"></i>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-6">
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-secondary"> Radiology Scans</h6>
+                        </div>
+                        <div class="collapse show" id="collapseCardExample">
+                            <div class="card-body">
+                               <div class="table-responsive">
+                                <table class="table prescribed_report" id="requestedTests">
+                                    <thead>
+                                        <tr>
+                                            <th>Scans</th><th>Period</th><th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for product in requested_scans %}
+                                        <tr data-id="{{ product.id }}" class="{% if product.exception_bill %}table-warning{% endif %}">
+                                            <td>{{ product.item }}</td>
+                                            <td style="color: brown;">{{ product.created_date | timesince }} ago</td>
+                                            <td>
+                                                <i class="fa fa-times text-danger delete-scan" style="cursor: pointer; margin-left: 20px;"></i>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            </div> 
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Product modification Modal -->
+
+<!-- Beginning of request for other services modals-->
+<div class="modal fade" id="otherServicesModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 220%; position: relative; right: 230px;">
+        <div class="modal-header">
+           <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Request Other Service</span> 
+           <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+               <span aria-hidden="true">×</span>
+           </button>
+        </div>
+        <form method="POST" id="serviceForm">
+            {% csrf_token %}
+            <div style="padding-inline:20px; margin-top: 5px; padding-bottom: 25px;">
+                <div class="row">
+                    <!-- Add Service Form -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Add Other Service</h5>
+                            </div>
+                            <div class="card-body">
+                                {% if error %}
+                                    <div class="alert alert-danger">{{ error }}</div>
+                                {% endif %}
+                                
+                                <div class="form-group">
+                                    <label for="purpose">Select Service:</label>
+                                    <select name="purpose" id="purpose" class="form-control" required>
+                                        <option value="">-- Select a service --</option>
+                                        {% for visit_purpose in visit_purposes %}
+                                            <option value="{{ visit_purpose.id }}" data-price="{{ visit_purpose.price }}">
+                                                {{ visit_purpose.purpose }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="price">Price (₦):</label>
+                                    <div class="input-group">
+                                        <div class="input-group-prepend">
+                                            <span class="input-group-text">₦</span>
+                                        </div>
+                                        <input type="number" 
+                                            name="price" 
+                                            id="price" 
+                                            class="form-control" 
+                                            readonly
+                                            required>
+                                    </div>
+                                    <small class="form-text text-muted">Price is automatically populated based on service selection</small>
+                                </div>
+                                
+                                <!-- Exception Bill Checkbox -->
+                                <div class="form-group">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" 
+                                               class="custom-control-input" 
+                                               id="serviceExceptionBill" 
+                                               name="exception_bill" 
+                                               value="1">
+                                        <label class="custom-control-label" for="serviceExceptionBill">
+                                            <span class="text-danger font-weight-bold">Exception Bill</span> 
+                                            <small class="text-muted">(Check if this service should NOT be billed)</small>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Existing Services List -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="fas fa-list"></i> Services History</h5>
+                            </div>
+                            <div class="card-body">
+                                {% if other_services %}
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>Service</th>
+                                                    <th>Price</th>
+                                                    <th>Status</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for service in other_services %}
+                                                    <tr class="{% if service.exception_bill %}table-warning{% endif %}">
+                                                        <td>{{ service.purpose }}</td>
+                                                        <td>₦{{ service.price }}</td>
+                                                        <td>
+                                                            {% if service.exception_bill %}
+                                                                <span class="badge badge-warning">Not Billable</span>
+                                                            {% else %}
+                                                                <span class="badge badge-success">Billable</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td>
+                                                            <form method="POST" 
+                                                                action="{% url 'delete_other_service' service.id %}" 
+                                                                class="d-inline"
+                                                                onsubmit="return confirm('Are you sure you want to delete this service?');">
+                                                                {% csrf_token %}
+                                                                <button type="submit" class="btn btn-sm btn-danger">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-info">
+                                        No services added yet.
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" name="service" class="btn btn-success" id="submitServiceBtn">
+                    <i class="fas fa-save"></i> Add Service
+                </button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+</div>
+<!-- End of request for other services -->
+
+<!-- Beginning of results for requested other services -->
+<div class="modal fade" id="servicesResultsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Requested Services for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+            <div class="table-responsive mt-4">
+                <table class="table table-bordered table-striped" id="dataTable" style="font-size: 13px;">
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Provider</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for service in other_service %}
+                        <tr>
+                            <td>{{ service.purpose }}</td>
+                            <td>Dr. {{ service.provider.fullname }}</td>
+                            <td style="color: brown;">{{service.created_date}}</td>
+                        </tr>
+
+                        {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center">No history of services rendered to this patient</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Beginning of Drug prescriptions II (no charges) -->
+<div class="modal fade" id="writePrescriptionModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Write Prescriptions for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                    <table id="drug-table" class="table">
+                        <thead>
+                            <tr>
+                                <th>Medications</th>
+                                <th>Qty.</th>
+                                <th>Instructions</th>
+                                <th>Add</th>
+                                <th>Remove</th>
+                            </tr>
+                        </thead>
+                        <tbody id="writePrescription-body">
+                            <tr>
+                                <td style="width: 25%;">
+                                    <input list="writePrescription-options" class="form-control writePrescription-name" placeholder="first 3 letters" >
+                                    <datalist id="writePrescription-options"></datalist>
+                                </td> 
+                                <td style="width: 8%;"><input type="number" class="form-control quantity" ></td>
+                                <td style="width: 55%;"><input type="text" class="form-control instruction" placeholder="Instructions"></td>
+                                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button type="button" id="submitWritePrescription" class="btn btn-primary">Create Prescription <i class="fa fa-arrow-right"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Javascript for Creating Write Prescription Modal -->
+
+<!-- Beginning of Allergies modal -->
+ <div class="modal fade" id="allergyViewModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+    <div class="modal-content" >
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel"><i class="fa fa-user"></i> Patient's allergies</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                <div style="padding-bottom: 30px;">
+                    <div class="message text-center alert alert-danger alert-dismissible fade show" role="alert" style="font-weight: bold; width: 92%; margin-left: 3%;">
+                        {% if patient.allergies %}
+                        <span class="badge badge-pill badge-danger">Allergies:</span>&nbsp; {{ patient.allergies }}
+                        {% else %}
+                        <span class="badge badge-pill badge-danger">Allergies:</span>&nbsp; No allergies recorded for this patient
+                        {% endif %}
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of allergies modal -->
+
+
+<!-- Javascript for Creating Lab Request Modal -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const testBody = document.getElementById('test-body');
+
+    //  Fetch suggestions dynamically for any row
+    testBody.addEventListener('input', async function (e) {
+        if (e.target.classList.contains('test-name')) {
+            const query = e.target.value.trim();
+            if (query.length < 2) return;
+
+            const datalist = e.target.nextElementSibling;
+            const response = await fetch(`/search-lab-tests/?term=${encodeURIComponent(query)}`);
+            const data = await response.json();
+
+            datalist.innerHTML = '';
+            data.forEach(test => {
+                const option = document.createElement('option');
+                option.value = test.test_name;
+                option.setAttribute('data-rate', test.price);
+                datalist.appendChild(option);
+            });
+        }
+    });
+
+    //  Auto-fill rate when test is chosen
+    testBody.addEventListener('change', function (e) {
+        if (e.target.classList.contains('test-name')) {
+            const input = e.target;
+            const datalist = input.nextElementSibling;
+            const selectedValue = input.value;
+            const option = Array.from(datalist.options).find(opt => opt.value === selectedValue);
+            const rateField = input.closest('tr').querySelector('.rate');
+
+            if (option) {
+                rateField.value = option.getAttribute('data-rate');
+            } else {
+                rateField.value = '';
+            }
+        }
+    });
+
+    //  Add row
+    testBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('add-row')) {
+            const newRow = testBody.querySelector('tr').cloneNode(true);
+
+            // generate a unique datalist ID for each row
+            const uniqueId = 'test-options-' + Date.now();
+            const testInput = newRow.querySelector('.test-name');
+            const datalist = newRow.querySelector('datalist');
+
+            testInput.value = '';
+            newRow.querySelector('.rate').value = '';
+            datalist.innerHTML = '';
+            datalist.id = uniqueId;
+            testInput.setAttribute('list', uniqueId);
+
+            testBody.appendChild(newRow);
+        }
+    });
+
+    // Remove row
+    testBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('remove-row')) {
+            const row = e.target.closest('tr');
+            if (testBody.querySelectorAll('tr').length > 1) {
+                row.remove();
+            } else {
+                row.querySelectorAll('input').forEach(i => i.value = '');
+            }
+        }
+    });
+
+
+    // Handle exception bill checkbox for lab tests
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('lab-exception-checkbox')) {
+            const checkbox = e.target;
+            const row = checkbox.closest('tr');
+            const testInput = row.querySelector('.test-name');
+            const testName = testInput ? testInput.value.trim() : 'this test';
+            
+            if (checkbox.checked) {
+                Swal.fire({
+                    title: 'Exception Bill',
+                    text: `"${testName}" will NOT be billed. Are you sure?`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#3085d6',
+                    confirmButtonText: 'Yes, mark as exception',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        row.classList.add('table-warning');
+                        // Update the row data for submission
+                        row.dataset.exceptionBill = 'true';
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Exception Marked',
+                            text: `"${testName}" will not be billed.`,
+                            timer: 1500,
+                            showConfirmButton: false
+                        });
+                    } else {
+                        checkbox.checked = false;
+                        row.dataset.exceptionBill = 'false';
+                    }
+                });
+            } else {
+                row.classList.remove('table-warning');
+                row.dataset.exceptionBill = 'false';
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Billable',
+                    text: `"${testName}" will be billed.`,
+                    timer: 1000,
+                    showConfirmButton: false
+                });
+            }
+        }
+    });
+
+
+    //  Submit all rows
+    document.getElementById('submitTests').addEventListener('click', async function () {
+        const rows = Array.from(testBody.querySelectorAll('tr'));
+        const tests = rows.map(r => ({
+            test_name: r.querySelector('.test-name').value,
+            rate: parseFloat(r.querySelector('.rate').value || 0),
+            exception_bill: r.dataset.exceptionBill === 'true' ? true : false
+        })).filter(t => t.test_name);
+
+        if (!tests.length) {
+            Swal.fire('Empty Request', 'Please add at least one test.', 'warning');
+            return;
+        }
+
+        // Collect sample data
+        const selectedSamples = Array.from(document.querySelectorAll('input[name="sample"]:checked'))
+            .map(checkbox => checkbox.value);
+        const otherSamples = document.getElementById('other-samples').value.trim();
+        
+        // Combine selected samples and other samples
+        let allSamples = selectedSamples;
+        if (otherSamples) {
+            allSamples.push(`Other: ${otherSamples}`);
+        }
+        const samplesValue = allSamples.join(', ');
+
+        // Get emergency and comment values
+        const emergencyValue = document.getElementById('emergency-select').value;
+        const commentValue = document.getElementById('comment-text').value;
+
+        const response = await fetch('/save-lab-requests/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                tests: tests,
+                patient_id: "{{ patient.id|default:'' }}",
+                category_id: "{{ patient.category.id|default:'' }}",
+                plan_id: "{{ patient.plan.id|default:'' }}",
+                samples: samplesValue,
+                emergency: emergencyValue,
+                comment: commentValue
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            Swal.fire('Success', 'Lab requests sent successfully.', 'success');
+            resetTable();
+            resetFormFields();
+        } else {
+            Swal.fire('Error', result.error || 'An error occurred.', 'error');
+        }
+    });
+
+    function resetTable() {
+        testBody.innerHTML = `
+            <tr>
+                <td><input list="test-options-${Date.now()}" class="form-control test-name"><datalist id="test-options-${Date.now()}"></datalist></td>
+                <td><input type="text" class="form-control rate" readonly></td>
+                <td style="text-align: center;">
+                    <input type="checkbox" class="lab-exception-checkbox" 
+                        title="Check if this test should NOT be billed">
+                </td>
+                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+            </tr>
+        `;
+    }
+
+
+    function resetFormFields() {
+        // Reset checkboxes
+        document.querySelectorAll('input[name="sample"]').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        // Reset other fields
+        document.getElementById('other-samples').value = '';
+        document.getElementById('emergency-select').value = '';
+        document.getElementById('comment-text').value = 'Comments...';
+    }
+
+    //  Get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                cookie = cookie.trim();
+                if (cookie.startsWith(name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+<!-- End of Lab Test Modal -->
+
+<!-- Beginning of Scan Request -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const scanBody = document.getElementById('scan-body');
+
+    //  Fetch suggestions dynamically for any row
+    scanBody.addEventListener('input', async function (e) {
+        if (e.target.classList.contains('scan-name')) {
+            const query = e.target.value.trim();
+            if (query.length < 2) return;
+
+            const datalist = e.target.nextElementSibling;
+            const response = await fetch(`/search-radio-scans/?term=${encodeURIComponent(query)}`);
+            const data = await response.json();
+
+            datalist.innerHTML = '';
+            data.forEach(scan => {
+                const option = document.createElement('option');
+                option.value = scan.scan_name;
+                option.setAttribute('data-rate', scan.price);
+                datalist.appendChild(option);
+            });
+        }
+    });
+
+    //  Auto-fill rate when scan is chosen
+    scanBody.addEventListener('change', function (e) {
+        if (e.target.classList.contains('scan-name')) {
+            const input = e.target;
+            const datalist = input.nextElementSibling;
+            const selectedValue = input.value;
+            const option = Array.from(datalist.options).find(opt => opt.value === selectedValue);
+            const rateField = input.closest('tr').querySelector('.rate');
+
+            if (option) {
+                rateField.value = option.getAttribute('data-rate');
+            } else {
+                rateField.value = '';
+            }
+        }
+    });
+
+    //  Add row
+    scanBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('add-row')) {
+            const newRow = scanBody.querySelector('tr').cloneNode(true);
+
+            // generate a unique datalist ID for each row
+            const uniqueId = 'scan-options-' + Date.now();
+            const scanInput = newRow.querySelector('.scan-name');
+            const datalist = newRow.querySelector('datalist');
+
+            scanInput.value = '';
+            newRow.querySelector('.rate').value = '';
+            datalist.innerHTML = '';
+            datalist.id = uniqueId;
+            scanInput.setAttribute('list', uniqueId);
+
+            scanBody.appendChild(newRow);
+        }
+    });
+
+    //  Remove row
+    scanBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('remove-row')) {
+            const row = e.target.closest('tr');
+            if (scanBody.querySelectorAll('tr').length > 1) {
+                row.remove();
+            } else {
+                row.querySelectorAll('input').forEach(i => i.value = '');
+            }
+        }
+    });
+
+ 
+    // Handle exception bill checkbox for scans
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('scan-exception-checkbox')) {
+            const checkbox = e.target;
+            const row = checkbox.closest('tr');
+            const scanInput = row.querySelector('.scan-name');
+            const scanName = scanInput ? scanInput.value.trim() : 'this scan';
+            
+            if (checkbox.checked) {
+                Swal.fire({
+                    title: 'Exception Bill',
+                    text: `"${scanName}" will NOT be billed. Are you sure?`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#3085d6',
+                    confirmButtonText: 'Yes, mark as exception',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        row.classList.add('table-warning');
+                        row.dataset.exceptionBill = 'true';
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Exception Marked',
+                            text: `"${scanName}" will not be billed.`,
+                            timer: 1500,
+                            showConfirmButton: false
+                        });
+                    } else {
+                        checkbox.checked = false;
+                        row.dataset.exceptionBill = 'false';
+                    }
+                });
+            } else {
+                row.classList.remove('table-warning');
+                row.dataset.exceptionBill = 'false';
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Billable',
+                    text: `"${scanName}" will be billed.`,
+                    timer: 1000,
+                    showConfirmButton: false
+                });
+            }
+        }
+    });
+
+    //  Submit all rows
+    document.getElementById('submitScans').addEventListener('click', async function () {
+        const rows = Array.from(scanBody.querySelectorAll('tr'));
+        const scans = rows.map(r => ({
+            scan_name: r.querySelector('.scan-name').value,
+            rate: parseFloat(r.querySelector('.rate').value || 0),
+            exception_bill: r.dataset.exceptionBill === 'true' ? true : false
+        })).filter(t => t.scan_name);
+
+        if (!scans.length) {
+            Swal.fire('Empty Request', 'Please add at least one scan.', 'warning');
+            return;
+        }
+
+        // Get mobility, emergency and comment values
+        const mobilityValue = document.getElementById('mobility').value;
+        const emergencyValue = document.getElementById('emergency-select').value;
+        const commentValue = document.getElementById('comment-text').value;
+        const response = await fetch('/save-scan-requests/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                scans: scans,
+                patient_id: "{{ patient.id|default:'' }}",
+                category_id: "{{ patient.category.id|default:'' }}",
+                plan_id: "{{ patient.plan.id|default:'' }}",
+                mobility: mobilityValue,
+                emergency: emergencyValue,
+                comment: commentValue
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            Swal.fire('Success', 'Scan requests sent successfully.', 'success');
+            resetTable();
+            resetFormFields();
+        } else {
+            Swal.fire('Error', result.error || 'An error occurred.', 'error');
+        }
+    });
+
+    function resetTable() {
+        scanBody.innerHTML = `
+            <tr>
+                <td><input list="scan-options-${Date.now()}" class="form-control scan-name"><datalist id="scan-options-${Date.now()}"></datalist></td>
+                <td><input type="text" class="form-control rate" readonly></td>
+                <td style="text-align: center;">
+                    <input type="checkbox" class="scan-exception-checkbox" 
+                        title="Check if this scan should NOT be billed">
+                </td>
+                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+            </tr>
+        `;
+    }
+
+
+    function resetFormFields() {
+        // Reset other fields
+        document.getElementById('mobility').value = '';
+        document.getElementById('emergency-select').value = '';
+        document.getElementById('comment-text').value = 'Comments...';
+    }
+
+    //  Get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                cookie = cookie.trim();
+                if (cookie.startsWith(name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+ <!-- End of Scan Request -->
+
+<!-- Beginning of Drug request -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+   
+    // Store selected store ID
+    let selectedStoreId = 'ipd_pharm1';
+    let saveTimeout = null;
+
+    // Update store info display
+    function updateStoreInfo() {
+        const storeSelect = $('#store-select');
+        const selectedOption = storeSelect.find('option:selected');
+        const storeName = selectedOption.text();
+        $('#current-store-info').text('Selected: ' + storeName);
+    }
+
+    // Handle store selection change
+    $('#store-select').change(function() {
+        selectedStoreId = $(this).val();
+        if (!selectedStoreId) {
+            showErrorMessage('Please select a pharmacy store');
+            return;
+        }
+        updateStoreInfo();
+        
+        // Clear search results when store changes
+        $('#product-search').val('');
+        $('#search-results').hide();
+        $('#results-list').empty();
+    });
+
+    // Search products with store filter
+    $('#product-search').on('input', function() {
+        const query = $(this).val();
+        
+        if (!selectedStoreId) {
+            showErrorMessage('Please select a pharmacy store first');
+            return;
+        }
+        
+        if (query.length > 2) {
+            $.get('/search-products/', {q: query, store: selectedStoreId}, function(data) {
+                const results = data.results;
+                const resultsList = $('#results-list');
+                resultsList.empty();
+                
+                if (results.length > 0) {
+                    $('#search-results').show();
+                    results.forEach(function(product) {
+                        resultsList.append(`
+                            <li class="list-group-item product-item ${product.stock < 1 ? 'text-danger' : ''}" 
+                                data-id="${product.id}"
+                                data-store-id="${product.store_id}"
+                                data-store-name="${product.store_name}"
+                                data-stock="${product.stock}"
+                                data-price="${product.price}"
+                                data-uom="${product.uom}"
+                                data-original-name="${product.original_name}">
+                                ${product.text}
+                                <span class="badge ${product.stock < 5 ? 'badge-danger' : 'badge-success'} float-right">
+                                    Stock: ${product.stock}
+                                </span>
+                            </li>
+                        `);
+                    });
+                } else {
+                    $('#search-results').hide();
+                }
+            });
+        } else {
+            $('#search-results').hide();
+        }
+    });
+    
+    // Add product item to list
+    $(document).on('click', '.product-item', function() {
+        const productId = $(this).data('id');
+        const stock = $(this).data('stock');
+        const storeId = $(this).data('store-id');
+        const storeName = $(this).data('store-name');
+        const patientId = $('#patient-id').val();
+        
+        // Check if store matches selected store
+        if (storeId !== selectedStoreId) {
+            showErrorMessage(`This product is from ${storeName}. Please select ${storeName} from the store dropdown.`);
+            return;
+        }
+        
+        $.post('/add-drug-item/', {
+            product_id: productId,
+            store_id: storeId,
+            quantity: 1,
+            patient_id: patientId,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(data) {
+            if (data.success) {
+                addItemToTable(data.item, stock, storeName);
+                $('#product-search').val('');
+                $('#search-results').hide();
+                updateGrandTotal();
+            } else {
+                showErrorMessage('Error: ' + data.error);
+            }
+        });
+    });
+
+    //  SAVE COMPLETE ITEM STATE 
+    function saveCompleteItemState(uniqueId) {
+        // Clear any pending save
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+        }
+        
+        // Debounce save to avoid too many requests
+        saveTimeout = setTimeout(function() {
+            const row = $(`tr[data-unique-id="${uniqueId}"]`);
+            if (!row.length) return;
+            
+            const patientId = $('#patient-id').val();
+            
+            const itemData = {
+                unique_id: uniqueId,
+                route: row.find('.route-select').val() || '',
+                freq: row.find('.freq-select').val() || '',
+                dose: row.find('.item-dose').val() || 0,
+                duration: row.find('.item-duration').val() || 0,
+                start_date: row.find('.item-start-date').val() || '',
+                notes: row.find('.item-notes').val() || '',
+                quantity: row.find('.item-quantity').val() || 1,
+                patient_id: patientId
+            };
+            
+            console.log(`Saving complete state for ${uniqueId}:`, itemData);
+            
+            $.post('/update-complete-drug-item/', {
+                ...itemData,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            }, function(data) {
+                if (!data.success) {
+                    console.error('Failed to save item state:', data.error);
+                    showErrorMessage('Error saving item data');
+                }
+            }).fail(function() {
+                console.error('Network error while saving item state');
+            });
+        }, 300);
+    }
+
+    //  EVENT HANDLERS 
+    
+    // Handle route changes
+    $(document).on('change', '.route-select', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Handle frequency changes
+    $(document).on('change', '.freq-select', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Handle dose changes
+    $(document).on('input', '.item-dose', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Handle duration changes
+    $(document).on('input', '.item-duration', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Handle start date changes
+    $(document).on('change', '.item-start-date', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Handle notes changes
+    $(document).on('input', '.item-notes', function() {
+        const uniqueId = $(this).data('unique-id');
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+        
+        // Auto-resize textarea
+        $(this).css('height', 'auto');
+        $(this).css('height', (this.scrollHeight) + 'px');
+    });
+
+    // Handle quantity changes
+    $(document).on('change', '.item-quantity', function() {
+        const uniqueId = $(this).data('unique-id');
+        const row = $(this).closest('tr');
+        let quantity = parseInt($(this).val());
+        const stock = parseInt(row.data('stock'));
+        const rate = parseFloat(row.find('.item-rate').text());
+        
+        // Validate quantity
+        if (isNaN(quantity) || quantity < 1) {
+            quantity = 1;
+            $(this).val(1);
+        }
+        
+        if (quantity > stock) {
+            showErrorMessage(`Cannot exceed available stock of ${stock}`);
+            quantity = stock;
+            $(this).val(stock);
+        }
+        
+        // Update frontend total
+        row.find('.item-total').text((quantity * rate).toFixed(2));
+        updateGrandTotal();
+        
+        if (uniqueId) {
+            saveCompleteItemState(uniqueId);
+        }
+    });
+
+    // Remove item
+    $(document).on('click', '.remove-item', function() {
+        const uniqueId = $(this).data('unique-id');
+        const row = $(this).closest('tr');
+        const patientId = $('#patient-id').val();
+        const itemName = row.find('td:first').text().trim();
+        
+        if (!uniqueId) {
+            showErrorMessage('Error: Cannot identify item to remove');
+            return;
+        }
+        
+        if (!confirm(`Are you sure you want to remove "${itemName}"?`)) {
+            return;
+        }
+        
+        const removeBtn = $(this);
+        removeBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+        
+        $.post('/remove-drug-item/', {
+            unique_id: uniqueId,
+            patient_id: patientId,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(data) {
+            if (data.success) {
+                row.fadeOut(300, function() {
+                    $(this).remove();
+                    updateGrandTotal();
+                    showSuccessMessage(data.message || 'Item removed successfully');
+                });
+            } else {
+                showErrorMessage('Error removing item: ' + data.error);
+                removeBtn.prop('disabled', false).html('<i class="fa fa-times"></i>');
+            }
+        }).fail(function() {
+            showErrorMessage('Network error while removing item');
+            removeBtn.prop('disabled', false).html('<i class="fa fa-times"></i>');
+        });
+    });
+    
+    // Process costing with validation
+    $('#process-casting').click(function() {
+        const patientId = $('#patient-id').val();
+        const processBtn = $(this);
+        
+        // Validate all inputs first
+        const validationResult = validateDrugForm();
+        
+        if (!validationResult.isValid) {
+            return;
+        }
+        
+        // Disable button during processing
+        processBtn.prop('disabled', true);
+        processBtn.html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+        
+        $.post(window.location.pathname, {
+            process_casting: true,
+            patient_id: patientId,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(data) {
+            if (data.success) {
+                showSuccessMessage('Drug administration recorded successfully!');
+                if (data.redirect) {
+                    setTimeout(() => {
+                        window.location.href = `/administer-drugs/${patientId}/`;
+                    }, 1500);
+                }
+            } else {
+                showErrorMessage('Error: ' + data.error);
+            }
+        }).fail(function() {
+            showErrorMessage('Network error - please try again');
+        }).always(function() {
+            processBtn.prop('disabled', false);
+            processBtn.text('Process Costing');
+        });
+    });
+
+    // Clear session
+    $('#clear-session').click(function() {
+        if (confirm('Are you sure you want to clear all items?')) {
+            const patientId = $('#patient-id').val();
+            
+            $.post('/clear-drug-session/', {
+                patient_id: patientId,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            }, function(data) {
+                if (data.success) {
+                    $('#drug-items-body').empty();
+                    updateGrandTotal();
+                    showSuccessMessage('All items cleared successfully');
+                } else {
+                    showErrorMessage('Error clearing items: ' + (data.error || 'Unknown error'));
+                }
+            }).fail(function() {
+                showErrorMessage('Network error while clearing session');
+            });
+        }
+    });
+
+    //  VALIDATION FUNCTION 
+    function validateDrugForm() {
+        let isValid = true;
+        const errorMessages = [];
+        
+        const itemCount = $('#drug-items-body tr').length;
+        
+        if (itemCount === 0) {
+            errorMessages.push('Please add at least one drug item');
+            isValid = false;
+        }
+        
+        $('#drug-items-body tr').each(function(index) {
+            const row = $(this);
+            const itemName = row.find('td:first').text().trim();
+            let rowHasError = false;
+            
+            // Validate route
+            const route = row.find('.route-select').val();
+            if (!route || route === 'select' || route === '') {
+                row.find('.route-select').addClass('is-invalid');
+                errorMessages.push(`Please select a route for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else {
+                row.find('.route-select').removeClass('is-invalid');
+            }
+            
+            // Validate frequency
+            const freq = row.find('.freq-select').val();
+            if (!freq || freq === 'select' || freq === '') {
+                row.find('.freq-select').addClass('is-invalid');
+                errorMessages.push(`Please select frequency for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else {
+                row.find('.freq-select').removeClass('is-invalid');
+            }
+            
+            // Validate dose
+            const doseInput = row.find('.item-dose');
+            const dose = doseInput.val().trim();
+            
+            if (dose === '') {
+                doseInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a dose for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else if (isNaN(dose) || parseInt(dose) <= 0) {
+                doseInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a valid dose (positive number) for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else {
+                doseInput.removeClass('is-invalid');
+            }
+            
+            // Validate duration
+            const durationInput = row.find('.item-duration');
+            const duration = durationInput.val().trim();
+            
+            if (duration === '') {
+                durationInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a duration for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else if (isNaN(duration) || parseInt(duration) <= 0) {
+                durationInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a valid duration (positive number) for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else {
+                durationInput.removeClass('is-invalid');
+            }
+            
+            // Validate quantity
+            const quantityInput = row.find('.item-quantity');
+            const quantity = quantityInput.val().trim();
+            const stock = parseInt(row.data('stock')) || 0;
+            
+            if (quantity === '') {
+                quantityInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a quantity for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else if (isNaN(quantity) || parseInt(quantity) <= 0) {
+                quantityInput.addClass('is-invalid');
+                errorMessages.push(`Please enter a valid quantity (positive number) for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else if (parseInt(quantity) > stock) {
+                quantityInput.addClass('is-invalid');
+                errorMessages.push(`Quantity exceeds available stock (${stock}) for "${itemName}"`);
+                rowHasError = true;
+                isValid = false;
+            } else {
+                quantityInput.removeClass('is-invalid');
+            }
+            
+            if (rowHasError) {
+                row.addClass('table-danger');
+            } else {
+                row.removeClass('table-danger');
+            }
+        });
+        
+        if (!isValid && errorMessages.length > 0) {
+            showValidationErrors(errorMessages);
+        }
+        
+        return {
+            isValid: isValid,
+            errors: errorMessages,
+            itemCount: itemCount
+        };
+    }
+
+    //  UI FUNCTIONS 
+    function showValidationErrors(messages) {
+        const errorList = messages.map(msg => `<li>${msg}</li>`).join('');
+        
+        if (typeof Swal === 'undefined') {
+            alert('Please fix the following errors:\n\n' + messages.join('\n'));
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Validation Errors',
+                html: `<div style="text-align: left; max-height: 300px; overflow-y: auto;">
+                       <ul style="padding-left: 20px; margin-bottom: 0;">${errorList}</ul>
+                       </div>`,
+                confirmButtonText: 'OK',
+                width: '600px'
+            });
+        }
+    }
+
+    function showSuccessMessage(message) {
+        const alertDiv = $('#alert-message');
+        alertDiv.removeClass('alert-danger').addClass('alert-success');
+        alertDiv.text(message);
+        $('#message-alert').fadeIn();
+        setTimeout(() => $('#message-alert').fadeOut(), 2000);
+    }
+
+    function showErrorMessage(message) {
+        const alertDiv = $('#alert-message');
+        alertDiv.removeClass('alert-success').addClass('alert-danger');
+        alertDiv.text(message);
+        $('#message-alert').fadeIn();
+        setTimeout(() => $('#message-alert').fadeOut(), 2000);
+    }
+
+    function addItemToTable(item, stock, storeName = '', route = '', freq = '', dose = '', duration = '', start_date = '', notes = '') {
+    const stockClass = stock < 5 ? 'stock-warning' : 'stock-ok';
+    const uniqueId = item.unique_id || `temp_${Date.now()}_${Math.random()}`;
+    const today = new Date().toISOString().split('T')[0];
+    const defaultStartDate = start_date && start_date !== '' ? start_date : today;
+    
+    console.log(`Adding item with unique_id: ${uniqueId}`);
+    
+    // Checking if the item was previously marked as exception bill (for session loading)
+    const isExceptionBill = item.exception_bill || false;
+    
+    $('#drug-items-body').append(`
+        <tr data-unique-id="${uniqueId}" data-id="${item.id}" data-stock="${stock}">
+            <td>${item.name}</td>
+            <td>${item.uom}</td>
+            <td>
+                <span class="badge badge-info">${storeName || item.store_name || 'IPD Pharmacy 1'}</span> 
+                <span class="${stockClass}" style='font-size:12px;'><br>${stock} quantity left</span> 
+            </td>
+            <td>
+                <select class="route-select form-control form-control-sm" data-unique-id="${uniqueId}" required>
+                    <option value="">Select</option>
+                    <option value="Tab" ${route === 'Tab' ? 'selected' : ''}>Tab</option>
+                    <option value="SC" ${route === 'SC' ? 'selected' : ''}>SC</option>
+                    <option value="ID" ${route === 'ID' ? 'selected' : ''}>ID</option>
+                    <option value="IM" ${route === 'IM' ? 'selected' : ''}>IM</option>
+                    <option value="IV" ${route === 'IV' ? 'selected' : ''}>IV</option>
+                    <option value="PR" ${route === 'PR' ? 'selected' : ''}>PR (Rectal)</option>
+                    <option value="SL" ${route === 'SL' ? 'selected' : ''}>Sublingual</option>
+                    <option value="PV" ${route === 'PV' ? 'selected' : ''}>PV (Vaginal)</option>
+                    <option value="Inhalation" ${route === 'Inhalation' ? 'selected' : ''}>Inhalation</option>
+                    <option value="Nasal" ${route === 'Nasal' ? 'selected' : ''}>Nasal</option>
+                    <option value="Ocular" ${route === 'Ocular' ? 'selected' : ''}>Ocular</option>
+                    <option value="Otic" ${route === 'Otic' ? 'selected' : ''}>Otic</option>
+                    <option value="Topical" ${route === 'Topical' ? 'selected' : ''}>Topical</option>
+                    <option value="Oral" ${route === 'Oral' ? 'selected' : ''}>Oral</option>
+                    <option value="Syp" ${route === 'Syp' ? 'selected' : ''}>Syp</option>
+                </select>
+            </td>
+            <td>
+                <select class="freq-select form-control form-control-sm" data-unique-id="${uniqueId}" required>
+                    <option value="">Select</option>
+                    <option value="stat" ${freq === 'stat' ? 'selected' : ''}>stat</option>
+                    <option value="om" ${freq === 'om' ? 'selected' : ''}>om</option>
+                    <option value="bd" ${freq === 'bd' ? 'selected' : ''}>bd</option>
+                    <option value="tds" ${freq === 'tds' ? 'selected' : ''}>tds</option>
+                    <option value="qds" ${freq === 'qds' ? 'selected' : ''}>qds</option>
+                    <option value="nocte" ${freq === 'nocte' ? 'selected' : ''}>nocte</option>
+                    <option value="weekly" ${freq === 'weekly' ? 'selected' : ''}>weekly</option>
+                    <option value="monthly" ${freq === 'monthly' ? 'selected' : ''}>monthly</option>
+                    <option value="prn" ${freq === 'prn' ? 'selected' : ''}>PRN (As Needed)</option>
+                    <option value="mane" ${freq === 'mane' ? 'selected' : ''}>Mane (Morning)</option>
+                    <option value="alt_die" ${freq === 'alt_die' ? 'selected' : ''}>Every other day</option>
+                    <option value="ac" ${freq === 'ac' ? 'selected' : ''}>Before Meals</option>
+                    <option value="pc" ${freq === 'pc' ? 'selected' : ''}>After Meals</option>
+                    <option value="others" ${freq === 'others' ? 'selected' : ''}>others</option>
+                </select>
+            </td>
+            <td>
+                <input type="number" class="form-control form-control-sm item-dose" 
+                    style="height:28px; width:50px" min="1" max="999" step="1"
+                    data-unique-id="${uniqueId}" value="${dose || ''}" required>
+            </td>
+            <td>
+                <input type="number" class="form-control form-control-sm item-duration" 
+                    style="height:28px; width:50px" min="1" max="365" step="1"
+                    data-unique-id="${uniqueId}" value="${duration || ''}" required>
+            </td>
+            <td>
+                <input type="date" class="form-control form-control-sm item-start-date" 
+                    style="height:28px; width:120px"
+                    data-unique-id="${uniqueId}" 
+                    value="${defaultStartDate}" 
+                    min="${today}"
+                    required>
+            </td>
+            <td>
+                <input type="number" class="form-control form-control-sm item-quantity" 
+                    style="height:28px; width:50px" min="1" max="${stock}" step="1"
+                    value="${item.quantity}" data-unique-id="${uniqueId}" required>
+            </td>
+            <td>
+                <textarea class="form-control form-control-sm item-notes" 
+                    style="height:28px; width:180px; resize: vertical; font-size: 12px; border: 1px solid #ccc"
+                    data-unique-id="${uniqueId}" 
+                    placeholder="e.g., Take after meals, Shake well, etc."
+                    rows="1">${notes || ''}</textarea>
+            </td>
+            <td class="item-rate" style="display:none">${item.rate}</td>
+            <td class="item-total" style="display:none">${item.total}</td>
+            <td>
+                <input type="checkbox" class="exception-bill-checkbox" 
+                       data-unique-id="${uniqueId}"
+                       ${isExceptionBill ? 'checked' : ''}
+                       title="Check if this item should NOT be billed">
+            </td> 
+            <td><button class="text-danger text-sm remove-item" data-unique-id="${uniqueId}"><i class='fa fa-times'></i></button></td>
+        </tr>
+    `);
+}
+    
+    function updateGrandTotal() {
+        let grandTotal = 0;
+        $('.item-total').each(function() {
+            grandTotal += parseFloat($(this).text());
+        });
+        $('#grand-total').text(grandTotal.toFixed(2));
+        
+        const hasItems = $('#drug-items-body tr').length > 0;
+        $('#process-casting').prop('disabled', !hasItems);
+    }
+
+    // Clear validation on input change
+    $(document).on('change input', '.route-select, .freq-select, .item-dose, .item-duration, .item-quantity, .item-start-date', function() {
+        $(this).removeClass('is-invalid');
+        $(this).closest('tr').removeClass('table-danger');
+    });
+
+    // Handle Exception Bill checkbox
+    $(document).on('change', '.exception-bill-checkbox', function() {
+        const uniqueId = $(this).data('unique-id');
+        const isChecked = $(this).is(':checked');
+        const row = $(this).closest('tr');
+        const itemName = row.find('td:first').text().trim();
+        
+        if (isChecked) {
+            // Show confirmation when checked
+            Swal.fire({
+                title: 'Exception Bill',
+                text: `"${itemName}" will NOT be billed. Are you sure?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, mark as exception',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Update session with exception bill status
+                    updateExceptionBillStatus(uniqueId, true);
+                    showSuccessMessage(`"${itemName}" marked as exception (Not Billable)`);
+                    // Add visual indicator
+                    row.addClass('table-warning');
+                    row.find('.exception-bill-checkbox').prop('checked', true);
+                } else {
+                    // Uncheck if user cancels
+                    $(this).prop('checked', false);
+                    updateExceptionBillStatus(uniqueId, false);
+                }
+            });
+        } else {
+            // When unchecking, just update session
+            updateExceptionBillStatus(uniqueId, false);
+            row.removeClass('table-warning');
+            showSuccessMessage(`"${itemName}" marked as billable`);
+        }
+    });
+
+    // Function to update exception bill status in session
+    function updateExceptionBillStatus(uniqueId, status) {
+        const patientId = $('#patient-id').val();
+        
+        $.post('/update-exception-bill-status/', {
+            unique_id: uniqueId,
+            exception_bill: status ? 1 : 0,
+            patient_id: patientId,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(data) {
+            if (!data.success) {
+                console.error('Failed to update exception bill status:', data.error);
+                showErrorMessage('Error updating exception status');
+            }
+        }).fail(function() {
+            console.error('Network error while updating exception status');
+        });
+    }
+
+    // LOAD EXISTING SESSION ITEMS 
+    {% if session_items %}
+        {% for item in session_items %}
+            addItemToTable({
+                name: '{{ item.name }}',
+                uom: '{{ item.uom }}',
+                quantity: {{ item.quantity }},
+                rate: '{{ item.price }}',
+                total: ({{ item.quantity }} * parseFloat('{{ item.price }}')).toFixed(2),
+                id: {{ forloop.counter0 }},
+                unique_id: '{{ item.unique_id|default:"" }}',
+                store_name: '{{ item.store_name|default:"IPD Pharmacy 1" }}',
+                exception_bill: {{ item.exception_bill|default:0 }}  // Add this
+            }, 
+            {{ item.stock }}, 
+            '{{ item.store_name|default:"IPD Pharmacy 1" }}',
+            '{{ item.route|default:"" }}', 
+            '{{ item.freq|default:"" }}',
+            '{{ item.dose|default:"" }}',
+            '{{ item.duration|default:"" }}',
+            '{{ item.start_date|default:"" }}',
+            '{{ item.notes|default:"" }}'
+            );
+        {% endfor %}
+        updateGrandTotal();
+    {% endif %}
+
+    //  CSS STYLES 
+    const style = document.createElement('style');
+    style.textContent = `
+        .is-invalid {
+            border: 1px solid #dc3545 !important;
+            background-color: #f8d7da !important;
+        }
+        .stock-warning {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .stock-ok {
+            color: #28a745;
+        }
+        .table-danger {
+            background-color: rgba(220, 53, 69, 0.1) !important;
+        }
+        .table-warning {
+            background-color: rgba(255, 193, 7, 0.2) !important;
+        }
+        .item-notes {
+            transition: height 0.2s;
+            min-height: 28px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+        .exception-bill-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .exception-bill-checkbox:checked {
+            accent-color: #dc3545;
+        }
+    `;
+    document.head.appendChild(style);
+
+    //  DEBUG FUNCTION 
+    window.debugSession = function() {
+        const patientId = $('#patient-id').val();
+        $.post('/get-session-items/', {
+            patient_id: patientId,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(data) {
+            if (data.success) {
+                console.log('=== SESSION DATA ===');
+                console.log('Items count:', data.items.length);
+                data.items.forEach((item, idx) => {
+                    console.log(`Item ${idx}:`, {
+                        name: item.name,
+                        unique_id: item.unique_id,
+                        route: item.route,
+                        freq: item.freq,
+                        dose: item.dose,
+                        duration: item.duration,
+                        start_date: item.start_date,
+                        notes: item.notes
+                    });
+                });
+                console.log('=======');
+            }
+        });
+    };
+    
+    console.log('Drug prescription system initialized');
+});
+</script>
+<!-- End of Drug request -->
+
+<!-- Beginning of write Prescription Modal -->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+    const writePrescriptionBody = document.getElementById('writePrescription-body');
+    let rowCounter = 0; // Counter for creating unique datalist IDs
+
+    // Fetch suggestions dynamically for any row
+    writePrescriptionBody.addEventListener('input', async function (e) {
+        if (e.target.classList.contains('writePrescription-name')) {
+            const query = e.target.value.trim();
+            if (query.length < 2) return;
+
+            const datalist = e.target.nextElementSibling;
+            const response = await fetch(`/search-inventory/?term=${encodeURIComponent(query)}`);
+            const data = await response.json();
+
+            datalist.innerHTML = '';
+            data.forEach(drug => {
+                const option = document.createElement('option');
+                option.value = drug.drug_name;
+                datalist.appendChild(option);
+            });
+        }
+    });
+
+    // Add row
+    writePrescriptionBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('add-row')) {
+            rowCounter++;
+            const firstRow = writePrescriptionBody.querySelector('tr');
+            const newRow = firstRow.cloneNode(true);
+
+            // Generate a bulletproof unique datalist ID for the new row
+            const uniqueId = `writePrescription-options-${rowCounter}-${Date.now()}`;
+            const writePrescriptionInput = newRow.querySelector('.writePrescription-name');
+            const datalist = newRow.querySelector('datalist');
+
+            writePrescriptionInput.value = '';
+            newRow.querySelector('.instruction').value = '';
+            newRow.querySelector('.quantity').value = '';
+            datalist.innerHTML = '';
+            
+            datalist.id = uniqueId;
+            writePrescriptionInput.setAttribute('list', uniqueId);
+
+            writePrescriptionBody.appendChild(newRow);
+        }
+    });
+
+    // Remove row
+    writePrescriptionBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('remove-row')) {
+            const row = e.target.closest('tr');
+            if (writePrescriptionBody.querySelectorAll('tr').length > 1) {
+                row.remove();
+            } else {
+                row.querySelectorAll('input').forEach(i => i.value = '');
+            }
+        }
+    });
+
+    // Handle Form Submission via AJAX
+    document.getElementById('submitWritePrescription').addEventListener('click', async function () {
+        const rows = writePrescriptionBody.querySelectorAll('tr');
+        const prescriptions = [];
+        let isValid = true;
+
+        rows.forEach(row => {
+            const item = row.querySelector('.writePrescription-name').value.trim();
+            const quantity = row.querySelector('.quantity').value.trim();
+            const instruction = row.querySelector('.instruction').value.trim();
+
+            // Making sure medication and quantity are filled out
+            if (!item || !quantity || !instruction) {
+                isValid = false;
+                row.style.border = "1px solid red"; // Highlighting problematic row
+            } else {
+                row.style.border = "";
+                prescriptions.push({
+                    item: item,
+                    quantity: parseInt(quantity, 10),
+                    instruction: instruction
+                });
+            }
+        });
+
+        if (!isValid) {
+            Swal.fire('Incomplete Request', 'Please fill out the Medication, Quantity and instruction fields for all rows.', 'warning');
+            return;
+        }
+
+        if (prescriptions.length === 0) return;
+
+        // Helper function for CSRF token from cookies
+        const getCSRFToken = () => {
+            return document.cookie.split('; ')
+                .find(row => row.startsWith('csrftoken='))
+                ?.split('=')[1];
+        };
+
+        try {
+            const patientId = "{{ patient.id }}"; 
+            
+            const response = await fetch(`/save-prescription/${patientId}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken(),
+                },
+                body: JSON.stringify({ prescriptions: prescriptions })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                Swal.fire('Success', 'Prescription created successfully.', 'success');
+                setTimeout(function() {
+                    window.location.reload();
+                }, 5000);
+            } else {
+                alert('Error: ' + (result.error || 'Something went wrong.'));
+            }
+        } catch (error) {
+            console.error('Submission failed:', error);
+            alert('An unexpected network error occurred.');
+        }
+    });
+
+});
+</script>
+<!-- End of write Prescription Modal -->
+
+<script>
+$(document).on('click', '.delete-product', function () {
+    const button = $(this);
+    const row = button.closest('tr');
+    const productId = button.data('product-id');
+    const storeId = button.data('store-id');
+    const productName = button.data('product-name');
+    const storeName = row.find('td:first').text().trim();
+
+    Swal.fire({
+        title: 'Are you sure?',
+        text: `Delete "${productName}" from ${storeName}?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+            
+            // Use store-specific delete URL
+            $.ajax({
+                url: `/delete-drug/${storeId}/${productId}/`,
+                type: "POST",
+                data: {
+                    'csrfmiddlewaretoken': '{{ csrf_token }}'
+                },
+                dataType: 'json',
+                success: function (response) {
+                    if (response.success) {
+                        row.fadeOut(300, function() {
+                            $(this).remove();
+                            if ($('#requestedDrugs tbody tr').length === 0) {
+                                $('#requestedDrugs tbody').html(`
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted">
+                                            No requested drugs found
+                                        </td>
+                                    </tr>
+                                `);
+                            }
+                        });
+                        
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Deleted!',
+                            text: response.message,
+                            timer: 2000,
+                            showConfirmButton: false
+                        });
+                    } else {
+                        Swal.fire('Error!', response.error, 'error');
+                        button.prop('disabled', false).html('Delete <i class="fa fa-trash"></i>');
+                    }
+                },
+                error: function(xhr) {
+                    let errorMsg = 'An error occurred while deleting.';
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.error) errorMsg = response.error;
+                    } catch(e) {}
+                    Swal.fire('Error!', errorMsg, 'error');
+                    button.prop('disabled', false).html('Delete <i class="fa fa-trash"></i>');
+                }
+            });
+        }
+    });
+});
+</script>
+
+
+<!-- Javascript to modify Scan requests from Doctor to Radiology -->
+  <script>
+$(document).on('click', '.delete-scan', function () {
+    const row = $(this).closest('tr');
+    const productId = row.data('id');
+
+    if (confirm('Are you sure you want to delete this scan entry?')) {
+        $.ajax({
+            url: '/delete-doctor-to-radiology-scan/' + productId + '/',
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            success: function () {
+                row.remove();
+                Swal.fire({
+                icon: 'success',
+                title: 'Removed!',
+                confirmButtonText: 'Okay',
+                text: `Scan removed from the list!`,
+                });
+            },
+            error: function () {
+                alert('Error deleting product.');
+            }
+        });
+    }
+});
+</script>
+<!-- Javascript to modify Test requests from Doctor to Laboratory -->
+  <script>
+$(document).on('click', '.delete-test', function () {
+    const row = $(this).closest('tr');
+    const productId = row.data('id');
+
+    if (confirm('Are you sure you want to delete this test entry?')) {
+        $.ajax({
+            url: '/delete-doctor-to-laboratory-test/' + productId + '/',
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            success: function () {
+                row.remove();
+                Swal.fire({
+                icon: 'success',
+                title: 'Removed!',
+                confirmButtonText: 'Okay',
+                text: `Test removed from the list!`,
+                });
+            },
+            error: function () {
+                alert('Error deleting product.');
+            }
+        });
+    }
+});
+</script>
+
+<!-- Other services -->
+<script>
+$(document).ready(function() {
+    // When service selection changes
+    $('#purpose').change(function() {
+        var selectedOption = $(this).find('option:selected');
+        var price = selectedOption.data('price');
+        
+        if (price) {
+            $('#price').val(price);
+        } else {
+            $('#price').val('');
+        }
+    });
+    
+    // Exception Bill checkbox handler with confirmation
+    $('#serviceExceptionBill').change(function() {
+        const checkbox = $(this);
+        const serviceName = $('#purpose option:selected').text() || 'this service';
+        
+        if (checkbox.is(':checked')) {
+            Swal.fire({
+                title: 'Exception Bill',
+                text: `"${serviceName}" will NOT be billed. Are you sure?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, mark as exception',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    checkbox.prop('checked', true);
+                    checkbox.closest('.form-group').addClass('has-warning');
+                } else {
+                    checkbox.prop('checked', false);
+                    checkbox.closest('.form-group').removeClass('has-warning');
+                }
+            });
+        } else {
+            checkbox.closest('.form-group').removeClass('has-warning');
+        }
+    });
+    
+    // Add CSS
+    const style = document.createElement('style');
+    style.textContent = `
+        .has-warning .custom-control-label {
+            color: #856404;
+        }
+        .has-warning .custom-control-input:checked ~ .custom-control-label::before {
+            background-color: #ffc107;
+            border-color: #ffc107;
+        }
+        .table-warning {
+            background-color: rgba(255, 193, 7, 0.2) !important;
+        }
+        .badge-warning {
+            background-color: #ffc107;
+            color: #856404;
+        }
+        .badge-success {
+            background-color: #28a745;
+            color: white;
+        }
+    `;
+    document.head.appendChild(style);
+});
+</script>
+{% endblock %}

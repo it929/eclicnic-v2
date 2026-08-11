@@ -1,0 +1,266 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    select{
+        border: 1px solid #d5cdcd;
+        color: #8e8b8b; padding: 2px; border-radius: 3px;
+    }
+    .a{
+        width: 33%; height: 400px; padding: 20px;
+    }
+    .b{
+        width: 33%; height: 400px; padding: 20px; margin: -400px 31%;
+    }
+    .c{
+        width: 33%; height: 400px; padding: 20px; margin: -100px 62%;
+    }
+    .d{
+        width: 95%; height: 100px; padding: 20px; margin-top: -180px;
+    }
+        select.form2{
+        width:28%;border: 1px solid #ccc; border-radius: 5px; text-align: center; height: 36px;
+    }
+    input.form2{
+        width:70%; height: 37px; border: 1px solid #ccc; border-radius: 5px; padding-left: 15px; color:#817f7f ;
+    }
+    #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+            display: block;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #medical-module-wrapper .dropdown-menu {
+            display: block;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(15px);
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+        }
+</style>
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+{% if page == 'test-history' %}
+<div id="medical-module-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+            <div class="collapse navbar-collapse" id="navbarText">
+                <ul class="navbar-nav mr-auto">
+                    <li class="nav-item ">
+                    <a class="nav-link" href="{% url 'lab_investigation' patient.id %}">Doctor's Request <span class="sr-only">(current)</span></a>
+                    </li>
+                    <li class="nav-item dropdown hover-dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Download Result
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                            <a class="dropdown-item text-primary" href="{% url 'get_lab_results_today' patient.id %}">Today's Result (current)</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-primary" href="{% url  'get_lab_results' patient.id %}">Other Results (past)</a>
+                        </div>
+                    </li>
+                    <li class="nav-item active">
+                    <a class="nav-link" href="{% url 'test_history' patient.id %}">Past Investigations</a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+    </div>
+  <div class="card shadow mb-4" style="margin-top: 10px;">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-secondary">history of past results 
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                        <div class="card mb-4 ">
+                        {% for result in existing_lab_results %}
+                        <div class="lab-result" style="margin-top: 10px; padding: 15px;">
+                            <h6 class="text-secondary font-weight-bold">{{ result.investigation }}</h6>
+                            <p><strong>Results:</strong> {{ result.results|default:"No results entered" }}</p>
+                            <p><strong>Created:</strong> {{ result.created_date }}</p>
+                            <span><strong>Carried out by:</strong> {{ result.staff.fullname }}</span> 
+                             <!-- Check thelab_edit_delete attribute -->
+                            {% if result.can_edit_delete %}
+                                    <form method="POST" action="{% url 'delete_lab_result' key=patient.id result_id=result.id %}" style="display:inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" 
+                                            onclick="return confirm('Are you sure you want to delete this result?')"
+                                            style="padding: 5px 10px; background: #f44336; font-size: 13px; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                        Delete
+                                    </button>
+                                </form>
+                            {% else %}
+                                <span style="color: #666; font-style: italic;">(Delete time expired - 24 hour limit)</span>
+                            {% endif %}
+                        </div>
+                        <hr>
+                    {% empty %}
+                        <p>No lab results found for this patient.</p>
+                    {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div id="medical-module-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+            <div class="collapse navbar-collapse" id="navbarText">
+                <ul class="navbar-nav mr-auto">
+                    <li class="nav-item active">
+                    <a class="nav-link" href="{% url 'lab_investigation' patient.id %}">Doctor's Request <span class="sr-only">(current)</span></a>
+                    </li>
+                    <li class="nav-item dropdown hover-dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Download Result
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                            <a class="dropdown-item text-primary" href="{% url 'get_lab_results_today' patient.id %}">Today's Result (current)</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-primary" href="{% url  'get_lab_results' patient.id %}">Other Results (past)</a>
+                        </div>
+                    </li>
+                    <li class="nav-item">
+                    <a class="nav-link" href="{% url 'test_history' patient.id %}">Past Investigations</a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+    </div>
+<div id="accordion" style="margin-top: 10px;">
+<div class="message text-left alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold; ">
+    <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
+        Create your reports
+      </a>
+    </div>
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Requested Investigations 
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                        <div class="card mb-4">
+                            <div class="card-body">
+                            {% if reports %}
+                                {% for report in reports %}
+                                    {% if report.completed == 0 %}
+                                    <div class="bg bg-warning" style="cursor:pointer; padding:15px; border:1px solid #ddd; border-radius:6px; margin-bottom:15px;">
+                                    {% else %}
+                                    <div class="investigation-card"
+                                        data-investigation="{{ report.item }}"
+                                        data-radiolab-id="{{ report.id }}"
+                                        data-patient="{{ patient.id }}"
+                                        style="cursor:pointer; padding:15px; border:1px solid #ddd; border-radius:6px; margin-bottom:15px;"
+                                        data-toggle="modal"
+                                        data-target="#labResultModal">
+                                    {% endif %}
+                                        <table>
+                                            <tr><td>Investigation:</td><td>&nbsp;&nbsp;&nbsp;<strong>{{ report.item }}</strong></td></tr>
+                                            <tr><td>Samples:</td><td>&nbsp;&nbsp;&nbsp;{{ report.samples }}</td></tr>
+                                            <tr><td>Urgency:</td><td>&nbsp;&nbsp;&nbsp;{{ report.emergency }}</td></tr>
+                                            <tr><td>Sent Date:</td><td style="color:brown;">&nbsp;&nbsp;&nbsp;{{ report.created_date }}</td></tr>
+                                            <tr><td>Sent By:</td><td>&nbsp;&nbsp;&nbsp;Dr. {{ report.staff.fullname }}</td></tr>
+                                            <tr><td>Comments:</td><td>&nbsp;&nbsp;&nbsp;{{ report.comment }}</td></tr>
+                                        </table>
+                                    </div>
+
+                                    <hr>
+                              {% endfor %}
+                            {% else %}
+                            <span>No available records</span>
+                        {% endif %}
+                </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+<div class="modal fade" id="labResultModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <form method="POST"
+            action="{% url 'add_lab_result' key=patient.id %}"
+            enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="modal-header">
+          <h5 class="modal-title">Record the outcome of your investigations</h5>
+          <button type="button" class="close" data-dismiss="modal">
+            <span>&times;</span>
+          </button>
+        </div>
+
+        <div class="modal-body">
+
+          <!-- Auto-filled investigation -->
+          <input type="hidden" name="radiolab_id" id="modalRadiolabId">
+          <input type="hidden" name="investigation" id="modalInvestigation">
+
+          <div class="form-group">
+            <label>Investigation</label>
+            <input type="text" class="form-control" id="modalInvestigationDisplay" disabled>
+          </div>
+
+          <div class="form-group">
+            <label>Results</label>
+            <textarea name="results" class="form-control"
+                      rows="4" placeholder="Enter lab results..." required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <a class="btn btn-primary" href="#" data-toggle="modal" data-target="#labResultsModal">Submit Result</a>
+        </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="labResultsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+            <div class="modal-footer">
+                <input type="text" value="0" style="display: none;" name="valu"/>   
+                <button type="submit" class="btn btn-primary">Send Result <i class="fa fa-arrow-right"></i></button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div>
+            </form>
+        </div>
+        </div> 
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    document.querySelectorAll('.investigation-card').forEach(card => {
+        card.addEventListener('click', function () {
+
+            const investigation = this.dataset.investigation;
+            const radiolabId = this.dataset.radiolabId;
+
+            document.getElementById('modalInvestigation').value = investigation;
+            document.getElementById('modalInvestigationDisplay').value = investigation;
+            document.getElementById('modalRadiolabId').value = radiolabId;
+
+        });
+    });
+
+});
+</script>
+
+
+
+{% endblock content %}

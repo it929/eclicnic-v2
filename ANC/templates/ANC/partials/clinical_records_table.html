@@ -1,0 +1,407 @@
+{% load static %}
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <select id="clinicalFilter" class="filter-select">
+        <option value="all" {% if filter_type == 'all' %}selected{% endif %}>All Records</option>
+        <optgroup label="Filter by ANC Week">
+            {% for week in unique_weeks %}
+            <option value="{{ week }}" {% if selected_week == week %}selected{% endif %}>{{ week|title }}</option>
+            {% endfor %}
+        </optgroup>
+        <option value="date" {% if filter_type == 'date' %}selected{% endif %}>Specific Date</option>
+        <option value="date-range" {% if filter_type == 'date-range' %}selected{% endif %}>Date Range</option>
+    </select>
+    
+    <input type="date" id="clinicalDate" class="filter-input" value="{{ selected_date }}" style="{% if filter_type != 'date' %}display: none;{% endif %}">
+    
+    <div id="dateRangeContainer" style="display: {% if filter_type == 'date-range' %}inline-block{% else %}none{% endif %};">
+        <input type="date" id="clinicalStartDate" class="filter-input" value="{{ start_date }}" placeholder="Start Date">
+        <input type="date" id="clinicalEndDate" class="filter-input" value="{{ end_date }}" placeholder="End Date">
+    </div>
+    
+    <button class="filter-btn" onclick="applyClinicalFilter()">Apply Filter</button>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-cards">
+    <div class="summary-card total">
+        <div class="card-title">Total Records</div>
+        <div class="card-value">{{ counts.total }}</div>
+    </div>
+    <div class="summary-card appointments" onclick="scrollToSection('appointments-section')">
+        <div class="card-title">Appointments</div>
+        <div class="card-value">{{ counts.appointments }}</div>
+    </div>
+    <div class="summary-card labs" onclick="scrollToSection('labs-section')">
+        <div class="card-title">Labs/Radiology</div>
+        <div class="card-value">{{ counts.radiology_labs }}</div>
+    </div>
+    <div class="summary-card medications" onclick="scrollToSection('medications-section')">
+        <div class="card-title">Medications</div>
+        <div class="card-value">{{ counts.ipd_drugs|add:counts.ipd2_drugs|add:counts.ipd3_drugs|add:counts.opd_drugs|add:counts.opd2_drugs }}</div>
+    </div>
+    <div class="summary-card vitals" onclick="scrollToSection('vitals-section')">
+        <div class="card-title">Vital Signs</div>
+        <div class="card-value">{{ counts.vitals }}</div>
+    </div>
+</div>
+
+<!-- Records Sections -->
+<div class="records-container">
+    <!-- Appointments Section -->
+    {% if appointments %}
+    <div class="record-section" id="appointments-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <h4>📅 Appointments <span class="badge">{{ appointments.count }}</span></h4>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="section-content">
+            <table class="record-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>ANC Week</th>
+                        <th>Purpose</th>
+                        <th>Visit Type</th>
+                        <th>Clinician</th>
+                        <th>Comment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for apt in appointments %}
+                    <tr>
+                        <td>{{ apt.arrival_date|date:"Y-m-d" }}</td>
+                        <td>{{ apt.arrival_time|time:"H:i" }}</td>
+                        <td><span class="week-badge">{{ apt.anc_weeks|default:"N/A" }}</span></td>
+                        <td>{{ apt.purpose }}</td>
+                        <td>{{ apt.visit_type }}</td>
+                        <td>{{ apt.clinician }}</td>
+                        <td>{{ apt.comment|truncatechars:30 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Radiology/Lab Section -->
+    {% if radiology_labs %}
+    <div class="record-section" id="labs-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <h4>🔬 Radiology & Lab <span class="badge">{{ radiology_labs.count }}</span></h4>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="section-content">
+            <table class="record-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>ANC Week</th>
+                        <th>Item</th>
+                        <th>Type</th>
+                        <th>Result</th>
+                        <th>Comment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lab in radiology_labs %}
+                    <tr>
+                        <td>{{ lab.created_date|date:"Y-m-d" }}</td>
+                        <td>{{ lab.created_date|time:"H:i" }}</td>
+                        <td><span class="week-badge">{{ lab.anc_weeks|default:"N/A" }}</span></td>
+                        <td>{{ lab.item }}</td>
+                        <td>{% if lab.item_type == 'L' %}Lab{% else %}Radiology{% endif %}</td>
+                        <td>{% if lab.emergency %}⚠️ Emergency{% else %}Routine{% endif %}</td>
+                        <td>{{ lab.comment|truncatechars:30 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Medications Section (IPD + OPD combined with subheaders) -->
+    {% if ipd_drugs or ipd2_drugs or ipd3_drugs or opd_drugs or opd2_drugs %}
+    <div class="record-section" id="medications-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <h4>💊 Medications <span class="badge">{{ counts.ipd_drugs|add:counts.ipd2_drugs|add:counts.ipd3_drugs|add:counts.opd_drugs|add:counts.opd2_drugs }}</span></h4>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="section-content">
+            <!-- IPD Drugs -->
+            {% if ipd_drugs %}
+            <div class="sub-section">
+                <h5>🏥 IPD Medications</h5>
+                <table class="record-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>ANC Week</th>
+                            <th>Item</th>
+                            <th>Dose</th>
+                            <th>Quantity</th>
+                            <th>Route/Freq</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in ipd_drugs %}
+                        <tr>
+                            <td>{{ drug.created_date|date:"Y-m-d" }}</td>
+                            <td><span class="week-badge">{{ drug.anc_weeks|default:"N/A" }}</span></td>
+                            <td>{{ drug.item }}</td>
+                            <td>{{ drug.dose }}</td>
+                            <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                            <td>{{ drug.route }}/{{ drug.frequency }}</td>
+                            <td>{{ drug.notes|truncatechars:20 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- IPD2 Drugs -->
+            {% if ipd2_drugs %}
+            <div class="sub-section">
+                <h5>🏥 IPD2 Medications</h5>
+                <table class="record-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>ANC Week</th>
+                            <th>Item</th>
+                            <th>Dose</th>
+                            <th>Quantity</th>
+                            <th>Route/Freq</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in ipd2_drugs %}
+                        <tr>
+                            <td>{{ drug.created_date|date:"Y-m-d" }}</td>
+                            <td><span class="week-badge">{{ drug.anc_weeks|default:"N/A" }}</span></td>
+                            <td>{{ drug.item }}</td>
+                            <td>{{ drug.dose }}</td>
+                            <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                            <td>{{ drug.route }}/{{ drug.frequency }}</td>
+                            <td>{{ drug.notes|truncatechars:20 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- IPD3 Drugs -->
+            {% if ipd3_drugs %}
+            <div class="sub-section">
+                <h5>🏥 IPD3 Medications</h5>
+                <table class="record-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>ANC Week</th>
+                            <th>Item</th>
+                            <th>Dose</th>
+                            <th>Quantity</th>
+                            <th>Route/Freq</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in ipd3_drugs %}
+                        <tr>
+                            <td>{{ drug.created_date|date:"Y-m-d" }}</td>
+                            <td><span class="week-badge">{{ drug.anc_weeks|default:"N/A" }}</span></td>
+                            <td>{{ drug.item }}</td>
+                            <td>{{ drug.dose }}</td>
+                            <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                            <td>{{ drug.route }}/{{ drug.frequency }}</td>
+                            <td>{{ drug.notes|truncatechars:20 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- OPD Drugs -->
+            {% if opd_drugs %}
+            <div class="sub-section">
+                <h5>🚑 OPD Medications</h5>
+                <table class="record-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>ANC Week</th>
+                            <th>Item</th>
+                            <th>Dose</th>
+                            <th>Quantity</th>
+                            <th>Route/Freq</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in opd_drugs %}
+                        <tr>
+                            <td>{{ drug.created_date|date:"Y-m-d" }}</td>
+                            <td><span class="week-badge">{{ drug.anc_weeks|default:"N/A" }}</span></td>
+                            <td>{{ drug.item }}</td>
+                            <td>{{ drug.dose }}</td>
+                            <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                            <td>{{ drug.route }}/{{ drug.frequency }}</td>
+                            <td>{{ drug.notes|truncatechars:20 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- OPD2 Drugs -->
+            {% if opd2_drugs %}
+            <div class="sub-section">
+                <h5>🚑 OPD2 Medications</h5>
+                <table class="record-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>ANC Week</th>
+                            <th>Item</th>
+                            <th>Dose</th>
+                            <th>Quantity</th>
+                            <th>Route/Freq</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in opd2_drugs %}
+                        <tr>
+                            <td>{{ drug.created_date|date:"Y-m-d" }}</td>
+                            <td><span class="week-badge">{{ drug.anc_weeks|default:"N/A" }}</span></td>
+                            <td>{{ drug.item }}</td>
+                            <td>{{ drug.dose }}</td>
+                            <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                            <td>{{ drug.route }}/{{ drug.frequency }}</td>
+                            <td>{{ drug.notes|truncatechars:20 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Other Services Section -->
+    {% if other_services %}
+    <div class="record-section" id="services-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <h4>🛠️ Other Services <span class="badge">{{ other_services.count }}</span></h4>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="section-content">
+            <table class="record-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>ANC Week</th>
+                        <th>Purpose</th>
+                        <th>Price</th>
+                        <th>Provider</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for service in other_services %}
+                    <tr>
+                        <td>{{ service.created_date|date:"Y-m-d" }}</td>
+                        <td><span class="week-badge">{{ service.anc_weeks|default:"N/A" }}</span></td>
+                        <td>{{ service.purpose }}</td>
+                        <td>₦{{ service.price }}</td>
+                        <td>{{ service.provider.fullname|default:"N/A" }}</td>
+                        <td>{% if service.completed %}✅ Completed{% else %}⏳ Pending{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Vital Signs Section -->
+    {% if vitals %}
+    <div class="record-section" id="vitals-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <h4>❤️ Vital Signs <span class="badge">{{ vitals.count }}</span></h4>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="section-content">
+            <table class="record-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>ANC Week</th>
+                        <th>BP</th>
+                        <th>Weight</th>
+                        <th>Height</th>
+                        <th>BMI</th>
+                        <th>Temp</th>
+                        <th>Pulse</th>
+                        <th>SpO₂</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vital in vitals %}
+                    <tr>
+                        <td>{{ vital.created_date|date:"Y-m-d" }}</td>
+                        <td>{{ vital.created_date|time:"H:i" }}</td>
+                        <td><span class="week-badge">{{ vital.anc_weeks|default:"N/A" }}</span></td>
+                        <td>{{ vital.bp|default:"N/A" }}</td>
+                        <td>{{ vital.weight }}{{ vital.unit|default:"" }}</td>
+                        <td>{{ vital.height }}{{ vital.unit|default:"" }}</td>
+                        <td>{{ vital.bmi|default:"N/A" }}</td>
+                        <td>{{ vital.temperature }}°C</td>
+                        <td>{{ vital.pulse|default:"N/A" }}</td>
+                        <td>{{ vital.sp_02|default:"N/A" }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if counts.total == 0 %}
+    <div class="no-records">
+        <p>No clinical records found for this patient.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Update the count badge
+    document.getElementById('clinicalModalCount').textContent = '{{ counts.total }}';
+    
+    // Toggle section visibility
+    function toggleSection(header) {
+        $(header).next('.section-content').slideToggle();
+        $(header).find('.toggle-icon').text(function(_, text) {
+            return text === '▼' ? '▲' : '▼';
+        });
+    }
+    
+    // Scroll to section
+    function scrollToSection(sectionId) {
+        document.getElementById(sectionId).scrollIntoView({ behavior: 'smooth' });
+    }
+</script>

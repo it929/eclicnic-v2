@@ -1,0 +1,242 @@
+{% extends "admin.html" %}
+{% load custom_tags %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-upload" ></i> &nbsp;Upload to Scan Inventory</h1>
+      <p></p>
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                        <h5>Upload tests to Scan Inventory</h5>
+                    </div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                                <input type="file" name="excel_file" accept=".xls,.xlsx" required  >
+
+                                {% if messages %}
+                                    <ul class="mt-3">
+                                        {% for message in messages %}
+                                            <li class="alert alert-{{ message.tags }}">{{ message }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-upload"></i> Upload and Import
+                        </button>
+                        <a href="{% url 'scan_inventory' %}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                    </form>
+                </div>
+            </div>
+        
+            <div class="mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Excel File Requirements</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul>
+                            <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                            <li>First row must contain column headers</li>
+                            <li>Required columns: <code>item</code>, <code>item_id</code>, <code>rate</code></li>
+                            <li>Download <a href="{% url 'download_test_template' %}">template file</a> for reference</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                    <div class="card-header">
+                        <h5 ><span class="badge badge-danger font-weight-bold">{{counts}}</span> &nbsp;<i class="fa fa-pencil"></i> &nbsp;Scan Tests </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                <thead>
+                                    <tr>     
+                                        <th>Test ID</th>
+                                        <th>Test Name</th>
+                                        <th>Rate</th>
+                                    </tr>
+                                </thead>
+                                <tfoot>
+                                    <tr>
+                                        <th>Test ID</th>
+                                        <th>Test Name</th>
+                                        <th>Rate</th>
+                                    </tr>
+                                </tfoot>
+                                <tbody>
+                                    {% for test in scan_records %}
+                                    <tr>
+                                        
+                                        <td><a href="#" style="text-decoration: none;">{{ test.item_id }}</a> </td>
+                                        <td><a href="#" style="text-decoration: none;">{{ test.item }}</a></td>
+                                        <td><a href="#" style="color: brown; text-decoration: none;">&#8358; {{ test.rate | currency }}</a></td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="6" class="text-center">No Test available in Scan Inventory</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+        </div>
+    </div>
+    
+</div>
+ <div class="modal fade" id="ScanTestModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> Item(s) to: <span id="inAssetValue2" class="text-primary" style="font-family: cursive;">Scan Inventory</span> </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table id="item-table" class="table">
+                <thead>
+                    <tr>
+                        <th>Item (Scan Test)</th>
+                        <th>Item ID (SKU)</th>
+                        <th>Rate (₦)</th>
+                        <th>Add</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="item-body">
+                    <tr>
+                        <td><input type="text" class="form-control item" ></td>
+                        <td><input type="text" class="form-control item_id" ></td>
+                        <td><input type="number" class="form-control rate" ></td>
+                        <td><button type="button" class="btn btn-success add-row">+</button></td>
+                        <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                    </tr>
+                </tbody>
+            </table>
+                <button type="button" id="submitItems" class="btn btn-success">Save Scan Tests</button>
+        </div>
+    </div>
+    </div>
+</div>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function () {
+    // Add new row (clones the current row and clears inputs)
+    $(document).on("click", ".add-row", function () {
+        const currentRow = $(this).closest("tr");
+        const newRow = currentRow.clone(true); // clone handlers too
+        newRow.find("input").val("");
+        $("#item-body").append(newRow);
+    });
+
+    // Remove row but prevent removing the last one
+    $(document).on("click", ".remove-row", function () {
+        const rowCount = $("#item-body tr").length;
+
+        if (rowCount <= 1) {
+            // Use SweetAlert2 if available, otherwise alert()
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Can't remove",
+                    text: "At least one row must remain.",
+                });
+            } else {
+                alert("At least one row must remain.");
+            }
+            return;
+        }
+
+        $(this).closest("tr").remove();
+    });
+
+    // Submit rows via AJAX
+    $("#submitItems").on("click", function () {
+        const items = [];
+
+        $("#item-body tr").each(function () {
+            const item = $(this).find(".item").val().trim();
+            const item_id = $(this).find(".item_id").val().trim();
+            const rateRaw = $(this).find(".rate").val().trim();
+
+            // treat only fully filled rows as valid
+            if (item !== "" && rateRaw !== "") {
+                const rate = parseFloat(rateRaw);
+                if (!Number.isNaN(rate)) {
+                    items.push({ item: item, item_id: item_id, rate: rate });
+                }
+            }
+        });
+
+        if (items.length === 0) {
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "No items",
+                    text: "Please add at least one item with a rate before saving.",
+                });
+            } else {
+                alert("Please add at least one item with a rate before saving.");
+            }
+            return;
+        }
+
+        // AJAX payload (example)
+        $.ajax({
+            url: "{% url 'save_scan_inventory' %}",
+            type: "POST",
+            data: JSON.stringify({ items: items }),
+            contentType: "application/json",
+            headers: { "X-CSRFToken": "{{ csrf_token }}" },
+            success: function (resp) {
+                if (resp.success) {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({
+                            icon: "success",
+                            title: "Saved",
+                            text: resp.message || "Items saved successfully",
+                        }).then(() => location.reload());
+                    } else {
+                        alert(resp.message || "Items saved successfully");
+                        location.reload();
+                    }
+                } else {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({ icon: "error", title: "Error", text: resp.error || "Save failed" });
+                    } else {
+                        alert("Error: " + (resp.error || "Save failed"));
+                    }
+                }
+            },
+            error: function (xhr) {
+                if (typeof Swal !== "undefined") {
+                    Swal.fire({ icon: "error", title: "Server error", text: xhr.responseText || "Something went wrong." });
+                } else {
+                    alert("Something went wrong. See console for details.");
+                }
+                console.error(xhr);
+            }
+        });
+    });
+});
+</script>
+
+
+{% endblock %}

@@ -1,0 +1,245 @@
+
+{% extends "admin.html" %}
+{% load custom_tags %}
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% if page == 'history-of-inventory-requests-to-ipd2' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41);" >Inventory Requests History </h1>
+      <p></p>
+ 
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Date</th><th>Status</th><th>Requested By</th><th>Aprroved By</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in ipd2_history %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>{{ product.price }}</td>
+            <td style="color: brown; width: 12%;">{{ product.created_date | date:"M d, Y"  }}</td>
+            {% if product.status == 0 %}
+                <td style=" width: 12%;"><span class="text-secondary">No Action </i></span></td>
+            {% elif product.status == 1 %}
+                <td style=" width: 12%;"><span class="text-success">Approved </i></span></td>
+            {% elif product.status == 2 %}
+                <td style=" width: 12%;"><span class="text-danger">Declined </span></td>
+            {% endif %}
+            <td  class="text-primary">{{product.staff.fullname}}</td>
+            {% if product.staff2 %}
+                <td  class="text-primary">{{product.staff2}}</td>
+            {% else %}
+                <td  class="text-primary">No action taken</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41); margin-left: 0px;" >
+            <a href="#" class="font-weight-bold text-primary" style="text-decoration: none;"> 
+                 Requests from Inventory</a> 
+            <button id="approve-all" class="btn btn-success" style="margin-left: 82.3%;"><i class="fa fa-check"></i> Approve all</button>
+
+        </h1>
+      <h6 class="text-secondary" style="margin-top: -30px; padding-bottom: 10px;">Requests from Inventory </h6>
+    
+      <table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item</th><th>UoM</th><th>Qty</th><th>Rate</th><th>Request Time</th><th>Approve</th><th>Decline</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in get_inventory_requests %}
+        <tr data-id="{{ product.id }}">
+            <td>{{ product.product_names }}</td>
+            <td>{{ product.minimum_UoM }}</td>
+            <td style=" width: 7%;">{{ product.quantity }}</td>
+            <td>&#8358; {{ product.price | currency }}</td>
+            <td style="color: brown;">{{ product.created_date | timesince }} ago</td>
+            <td style=" width: 12%; text-align: center; cursor: pointer;" class="text-success">
+                 <button onclick="confirmAction('{{ product.id }}', 'approve')" class="btn btn-success btn-sm">Approve</button>
+            </td>
+            <td style=" width: 12%; text-align: center; cursor: pointer;" class="text-danger">
+                 <i class="fa fa-times"></i>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+
+
+<!-- Javascript for attending to IPD Pharmacy 2 Request By inventory  Modal -->
+<script>
+$.ajaxSetup({
+  headers: { "X-CSRFToken": $("meta[name=csrf-token]").attr("content") }
+});
+</script>
+
+<script>
+$(document).ready(function () {
+    // Approve
+    $("#submittedDrugs").on("click", ".fa-check", function () {
+        let row = $(this).closest("tr");
+        let id = row.data("id");
+
+        $.post(`/approve-ipd2-request/${id}/`, {}, function (response) {
+            if (response.success) {
+                row.addClass("slide-out-forward");
+                setTimeout(() => row.remove(), 500); // remove after animation
+            } else {
+                alert("Error: " + response.error);
+            }
+        });
+    });
+
+    // Decline
+    $("#submittedDrugs").on("click", ".fa-times", function () {
+        let row = $(this).closest("tr");
+        let id = row.data("id");
+
+        $.post(`/ipd2-decline-inventory-request/${id}/`, {}, function (response) {
+            if (response.success) {
+                row.addClass("slide-out-backward");
+                setTimeout(() => row.remove(), 500);
+            } else {
+                alert("Error: " + response.error);
+            }
+        });
+    });
+});
+</script>
+<script>
+function confirmAction(pk, action) {
+    let actionText = action === 'approve' ? 'Approve' : 'Decline';
+    let url = action === 'approve'
+        ? `/ipd2-approve-inventory-request/${pk}/`
+        : `/ipd2-decline-inventory-request/${pk}/`;
+
+    Swal.fire({
+        title: `Are you sure?`,
+        text: `Do you want to ${actionText.toLowerCase()} this request?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: `Yes, ${actionText}`,
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch(url, {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": getCookie("csrftoken"),  // Django CSRF helper
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire(
+                        'Done!',
+                        `Request ${actionText.toLowerCase()}d successfully.`,
+                        'success'
+                    ).then(() => {
+                        location.reload(); // refresh table or page
+                    });
+                } else {
+                    Swal.fire(
+                        'Error!',
+                        data.error || 'Something went wrong.',
+                        'error'
+                    );
+                }
+            })
+            .catch(error => {
+                Swal.fire('Error!', error, 'error');
+            });
+        }
+    });
+}
+
+// ✅ Simple helper for CSRF
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+<script>
+$(document).ready(function () {
+    $("#approve-all").on("click", function () {
+        Swal.fire({
+            title: "Approve All Requests?",
+            text: "This will approve all pending Inventory requests if stock is sufficient.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Yes, approve all",
+            cancelButtonText: "Cancel"
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.ajax({
+                    url: "{% url 'ipd2_approve_all_inventory_requests' %}",
+                    type: "POST",
+                    headers: { "X-CSRFToken": "{{ csrf_token }}" },
+                    success: function (resp) {
+                        if (resp.success) {
+                            Swal.fire("Approved!", "All requests approved successfully.", "success")
+                                .then(() => {
+                                    location.reload(); // reload table
+                                });
+                        } else {
+                            Swal.fire("Error!", resp.error, "error");
+                        }
+                    },
+                    error: function () {
+                        Swal.fire("Error!", "Something went wrong.", "error");
+                    }
+                });
+            }
+        });
+    });
+});
+</script>
+<style>
+/* Forward slide (approval) */
+.slide-out-forward {
+    animation: slideForward 0.5s forwards;
+}
+@keyframes slideForward {
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+/* Backward slide (decline) */
+.slide-out-backward {
+    animation: slideBackward 0.5s forwards;
+}
+@keyframes slideBackward {
+    to {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+}
+</style>
+{% endif %}
+{% endblock content %}

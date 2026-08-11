@@ -1,0 +1,96 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+
+<div class="container-fluid">
+    <h1 class="h3 mb-0 text-gray-800 font-weight-bold" style="padding-left: 10px;">Manage IPD Inventory</h1>
+    <p></p>
+<div class="row">
+    <div class="col-lg-6">
+        <!-- Basic Card Example -->
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"> Update product's Date</h6>
+            </div>
+            <div class="card-body">
+                <form method="Post">
+                    {% csrf_token %}
+                    <div class="form-group">
+                        <input type="number" readonly class="form-control text-warning" placeholder="Update the Expiry Date" style="background: #fff;" />
+                    </div>
+                    <div class="form-group" style="width: 50%;">
+                        <h6>Manufacturing Date</h6>
+                        <input type="date" name="manufacturing_date" class="form-control" required/>
+                    </div>
+                    <div class="form-group" style="width: 50%; margin: -81px 50%;">
+                        <h6>Expiry Date</h6>
+                        <input type="date" name="expiry_date" class="form-control" required/>
+                    </div>
+                    <button type="submit" name="update_transaction" class="btn btn-primary" style="width: 120px; margin-top: 100px;">Update <i class="fa fa-adjust"></i></button>
+                </form>
+            </div>
+        </div>
+        <!-- <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="fa fa-edit"></i> Edit product</h6>
+            </div>
+            <div class="card-body">
+                <a href="#"data-toggle="modal" data-target="#editProductModal" class="btn btn-primary" >Edit Product <i class="fa fa-edit"></i></a>
+            </div>
+        </div> -->
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <!-- Card Header - Accordion -->
+            <a href="#collapseCardExample" class="d-block card-header py-3" data-toggle="collapse"
+                role="button" aria-expanded="true" aria-controls="collapseCardExample">
+                <h6 class="m-0 font-weight-bold text-primary">Product's Details</h6>
+            </a>
+            <!-- Card Content - Collapse -->
+            <div class="collapse show" id="collapseCardExample">
+                <div class="card-body">
+                    <table cellpadding="6">
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product's Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.product_name}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product ID (SKU)</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.product_id}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Description</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.description}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product's Price</td><td>&nbsp;&nbsp;&nbsp;</td><td>&#8358; {{product.price | currency}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Stock (Quantity)</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{product.stock}} {{product.minimum_UoM}}</td></tr>
+                        {% if product.status > 0 %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Reorder Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: #256fad;">Normal (Above threshold level)</td></tr>
+                        {% else %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Reorder Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">Critical (Below threshold level)</td></tr>
+                        {% endif %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Date Created</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.created_date}}</td></tr>                  
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Manufacturing Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.manufacturing_date}}</td></tr>                  
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.expiry_date}}</td></tr>  
+                        {% if expiry_status == 1 %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">Expired ({{product.expiry_date | timesince}}) ago</td></tr>                  
+                        {% else %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Status</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-warning">Expiring in ({{product.expiry_date | timeuntil}}) time</td></tr>                  
+                        {% endif %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Added/Modified By</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{product.staff.fullname}}</td></tr>                  
+                    </table>
+                    <table style="width: 90%;">
+                        <tr style="border-bottom: 1px solid #ccc; position: relative; top: 15px;"><td><img src="{{product.barcode.url}}" style="height: 100px; width: 430px;" /></td></tr>                  
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+<div class="modal fade" id="editProductModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 150%; margin-right: 100px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" id="exampleModalLabel"><i class="fa fa-edit"></i> Edit Products</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+    </div>
+    </div>
+</div>
+{% endblock content %}
+

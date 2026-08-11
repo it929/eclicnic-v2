@@ -1,0 +1,79 @@
+    <div class="sidebar-heading">
+        Report Window
+    </div>
+    {% if request.user.department.department == 'Reporting' %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyAdmin"
+            aria-expanded="true" aria-controls="collapseMyAdmin">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseMyAdmin" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyReports"
+            aria-expanded="true" aria-controls="collapseMyReports">
+            <i class="fas fa-chart-line"></i>
+            <span>Ambulatory Reports</span>
+        </a>
+        <div id="collapseMyReports" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'ambulatory_report' %}">Patients Regsitration</a>
+                <a class="collapse-item" href="{% url 'ambulatory_visit_report' %}">Visit report</a>
+                <a class="collapse-item" href="{% url 'admission_records_report' %}">IPD Admission Reports</a>
+                <a class="collapse-item" href="{% url 'deactivated_patients_report' %}">Profile Deactivation Report</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyBillingReports"
+            aria-expanded="true" aria-controls="collapseMyBillingReports">
+            <i class="fas fa-chart-line"></i>
+            <span>Billing Reports</span>
+        </a>
+        <div id="collapseMyBillingReports" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'billing_invoice_listing' %}">Billing Invoice Listing</a>
+                <a class="collapse-item" href="{% url 'exception_bills_report' %}">Exception Bills Report</a>
+                <a class="collapse-item" href="{% url 'cancelled_transactions_report' %}">Cancelled Bills Report</a>
+                <a class="collapse-item" href="{% url 'transaction_book_report' %}">Complete Transaction Book</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyInventoryReports"
+            aria-expanded="true" aria-controls="collapseMyInventoryReports">
+            <i class="fas fa-chart-line"></i>
+            <span>Pharmacies & Inventory</span>
+        </a>
+        <div id="collapseMyInventoryReports" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'expired_products_report' %}">Expired Products Report</a>
+                <a class="collapse-item" href="{% url 'expiring_products_report' %}">Short-Dated Products</a>
+                <a class="collapse-item" href="{% url 'low_stock_products_report' %}">Low Stock Report</a>
+                <a class="collapse-item" href="{% url 'out_of_stock_products_report' %}">Out of Stock Report</a>
+                <a class="collapse-item" href="{% url 'product_requisition_report' %}">Product Requisitions Detail</a>
+                <a class="collapse-item" href="{% url 'stock_analysis_report' %}">Stock Analysis Report</a>
+                <a class="collapse-item" href="{% url 'vendors_expense_analysis_report' %}">Vendors & Expense Report</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMyOthersReports"
+            aria-expanded="true" aria-controls="collapseMyOthersReports">
+            <i class="fas fa-chart-line"></i>
+            <span>Other Reports</span>
+        </a>
+        <div id="collapseMyOthersReports" class="collapse" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'expiring_products_report' %}">Appointments Reports</a>
+            </div>
+        </div>
+    </li>

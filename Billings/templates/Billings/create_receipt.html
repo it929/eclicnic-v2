@@ -1,0 +1,373 @@
+{% extends 'admin.html' %} 
+{% load static %}
+{% load custom_tags %}
+
+
+{% block content %}
+<style>
+    th, td{ font-size: 12px; }
+    .total{ background: none; border: none; width: 90px; }
+    .discount{ width: 60px; text-align: right; background: none; border: none; color: grey; }
+    input[type='text']{ width: 80px; border: none; border-bottom: 1px solid #ccc; background: none; }
+    select{ border: none; background: none; color: grey; }
+    .payment-summary {
+        margin-top: 20px; float: right; width: 80%; border: 1px solid #ddd;
+        padding: 7px; background-color: #f9f9f9;
+    }
+    .payment-summary table { width: 100%; border-collapse: collapse; }
+    .payment-summary td { padding: 4px 0; border-bottom: 1px dashed #eee; }
+    .payment-summary tr:last-child td { border-bottom: none; }
+    .payment-summary label { font-weight: bold; }
+    .payment-summary input[type="number"],
+    .payment-summary select,
+    .payment-summary textarea {
+        width: 100%; border: 1px solid #ccc; padding-left: 5px;
+        border-radius: 4px; font-size: 13px;
+    }
+    .payment-summary textarea { height: 50px; }
+    #amount_paid_input:disabled, #process_fund:disabled, #payment_type_select:disabled { 
+        background-color: #e9ecef; cursor: not-allowed; 
+    }
+</style>
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">
+            {{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) 
+                <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span>
+            </span>
+        </h3>
+    </div>
+
+    <div id="billing-module-wrapper" style="margin-top: -15px;">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+        <div class="collapse navbar-collapse" id="navbarText">
+        <ul class="navbar-nav mr-auto">
+            <li class="nav-item dropdown hover-dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                Invoices
+            </a>
+            <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+            </div>
+            </li>
+            <li class="nav-item dropdown hover-dropdown actives">
+                <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+                    Receipts
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+                    <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+                </div>
+            </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                        Transactions
+                    </a>
+                    <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                        <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                    </div>
+                </li>
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+                Deposits & Refunds
+            </a>
+            </li>
+        </ul>
+        </div>
+    </nav>
+    </div>
+
+    <div class="card-body">
+        <div class="table-responsive">
+            {% csrf_token %}
+            {% if error_message %}
+                <div class="alert alert-danger" role="alert">{{ error_message }}</div>
+            {% else %}
+                <table class="table" cellpadding="0" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th>Service Item</th><th>Qty.</th><th>Rate(₦)</th>
+                            <th>Discount(%)</th><th>Total (₦)</th><th>Payment Option</th>
+                        </tr>
+                    </thead>
+                    <tbody> 
+                    {% if cleared_invoices %}    
+                        {% for invoice in cleared_invoices %}
+                            <tr class="bill-row">
+                                <td class="product-name">{{ invoice.product }}</td>
+                                <td class="qty-display">{{ invoice.qty }}</td>
+                                <td class="rate-display">{{ invoice.calculated_original_rate|floatformat:2 }}</td>
+                                <td class="discount-display">{{ invoice.discount }}</td>
+                                <td>{{ invoice.price|floatformat:2 }}</td>
+                                <td>{{ invoice.payment_option }}</td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr><td colspan="6" class="text-center">No invoice items found for this patient's outstanding invoice (Invoice #{{ invoice_number_to_receipt }}).</td></tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+                <hr>
+                <div id="total_sum" style="margin-left: 20%;">
+                    {% if patient.category.category == 'HMO' %}<a href="{% url 'non_categorized_payment' patient.id %}" style="text-decoration: none;">Want to Pay for this service?</a>{% endif %}
+                        Invoice ID: #{{invoice_number_to_receipt}}, &nbsp; 
+                        Total bill: ₦<span id="total_bills">{{bill_payable_amount|currency}}</span> &nbsp; 
+                        Current Balance: ₦<span id="total_deposits">{{total_deposits|currency}}</span>
+                </div> 
+                
+                <div class="payment-summary">
+                    <input type="hidden" id="invoice_number_hidden" value="{{ invoice_number_to_receipt }}">
+                    <input type="hidden" id="bill_payable_hidden" value="{{ bill_payable_amount|floatformat:2 }}">
+                    <input type="hidden" id="total_deposits_hidden" value="{{ total_deposits|floatformat:2 }}">
+                    <input type="hidden" id="is_hmo_hidden" value="{{ is_hmo|yesno:'true,false' }}">
+
+                    <div id="hmo_notice_container"></div>
+
+                    <table>
+                        <tr>
+                            <td><label for="payment_type_select">Payment Type</label></td>
+                            <td>
+                                <select class="form-control" id="payment_type_select">
+                                    <option value="Cash">Cash</option>
+                                    <option value="Transfer">Bank Transfer</option>
+                                    <option value="POS">Merchant POS</option>
+                                    <option value="Cheque">Cheque</option>
+                                    <option value="Bank Deposit">Bank Deposit</option>
+                                    <option value="Staff Salary">Staff Salary</option>
+                                    <option value="Other">Other</option>
+                                    <option value="HMO">HMO</option>
+                                </select>
+                            </td>
+                            <td><label for="process_fund" style="margin-left: 20px;">Fund Process</label></td>
+                            <td>
+                                <select class="form-control" id="process_fund">
+                                    <option value="fresh_payment">Fresh Payment</option>
+                                    <option value="my_deposit">From my deposit</option>
+                                    <option value="deposit_and_fresh_payment">My deposit + Fresh Payment</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><label for="bill_payable_display">Bill Payable</label></td>
+                            <td><span id="bill_payable_display">₦{{ bill_payable_amount|currency }}</span></td>
+                        </tr>
+                        <tr>
+                            <td><label for="amount_paid_input">Amount Paid</label></td>
+                            <td><input type="number" step="0.01" class="form-control" id="amount_paid_input" value="0.00"></td>
+                        </tr>
+                        <tr>
+                            <td><label>Balance</label></td>
+                            <td><span id="balance_display">₦0.00</span></td>
+                        </tr>
+                    </table>
+                    <textarea class="form-control" rows="2" id="remarks_textarea" placeholder="Add comments/remarks"></textarea>
+                    <button type="button" class="btn btn-primary" id="open_receipt_modal_btn" data-toggle="modal" data-target="#pinReceiptModal" style="float: right; margin-top: 7px;">
+                        <i class="fa fa-plus"></i> Create Receipt
+                    </button>
+                </div>
+                
+                <div class="modal fade" id="pinReceiptModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+                    <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                            </div>
+                            <div>
+                                <div style="padding-inline: 30px; padding-block: 20px;">
+                                    <input type="password" id="pin_code_input_receipt" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-primary" id="create_receipt_with_pin"><i class="fa fa-plus"></i> Create Receipt</button>
+                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                </div>
+                            </div>
+                        </div> 
+                    </div>
+                </div>
+            {% endif %} 
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const billPayable = parseFloat(document.getElementById('bill_payable_hidden').value) || 0;
+    const totalDeposits = parseFloat(document.getElementById('total_deposits_hidden').value) || 0;
+    const amountPaidInput = document.getElementById('amount_paid_input');
+    const balanceDisplay = document.getElementById('balance_display');
+    const processFundSelect = document.getElementById('process_fund');
+    const paymentTypeSelect = document.getElementById('payment_type_select');
+    const pinCodeInputReceipt = document.getElementById('pin_code_input_receipt');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    const isHMO = document.getElementById('is_hmo_hidden').value === 'true';
+
+    // If HMO, disable payment inputs and set defaults
+    if (isHMO) {
+        amountPaidInput.value = "0.00";
+        amountPaidInput.disabled = true;
+        processFundSelect.value = "fresh_payment";
+        processFundSelect.disabled = true;
+        paymentTypeSelect.value = "HMO";
+        paymentTypeSelect.disabled = true;
+        
+        const hmoNotice = document.createElement('div');
+        hmoNotice.className = 'alert alert-info';
+        hmoNotice.style.marginBottom = '10px';
+        hmoNotice.innerHTML = '<strong>HMO Patient:</strong> Receipt will be created with ₦0.00. Claim will be processed separately.';
+        document.getElementById('hmo_notice_container').appendChild(hmoNotice);
+    }
+
+    function calculateBalance() {
+        if (isHMO) {
+            balanceDisplay.innerHTML = "₦0.00";
+            balanceDisplay.style.color = 'green';
+            return 0;
+        }
+
+        const processFund = processFundSelect.value;
+        let amountPaid = parseFloat(amountPaidInput.value) || 0;
+        let balance = 0;
+
+        if (processFund === "fresh_payment") {
+            balance = billPayable - amountPaid;
+            amountPaidInput.disabled = false;
+            paymentTypeSelect.disabled = false;
+            
+        } else if (processFund === "my_deposit") {
+            balance = billPayable - totalDeposits;
+            amountPaidInput.value = "0.00";
+            amountPaidInput.disabled = true;
+            paymentTypeSelect.disabled = true;
+            
+        } else if (processFund === "deposit_and_fresh_payment") {
+            const remaining = billPayable - totalDeposits;
+            if (remaining <= 0) {
+                balance = 0;
+                amountPaidInput.value = "0.00";
+                amountPaidInput.disabled = true;
+            } else {
+                balance = remaining - amountPaid;
+                amountPaidInput.disabled = false;
+            }
+            paymentTypeSelect.disabled = false;
+        }
+
+        balanceDisplay.innerHTML = "₦" + balance.toFixed(2);
+        balanceDisplay.style.color = balance > 0 ? 'red' : (balance < 0 ? 'orange' : 'green');
+        return balance;
+    }
+
+    amountPaidInput.addEventListener('input', calculateBalance);
+    processFundSelect.addEventListener('change', function() {
+        if (this.value !== "fresh_payment" && !isHMO) {
+            amountPaidInput.value = "0.00";
+        }
+        calculateBalance();
+    });
+
+    calculateBalance();
+
+    document.getElementById('open_receipt_modal_btn').addEventListener('click', function(e){
+        let balance = calculateBalance();
+        if (!isHMO && balance > 0.01) {
+            e.preventDefault();
+            e.stopPropagation();
+            $('#pinReceiptModal').modal('hide');
+            Swal.fire({
+                icon: 'error',
+                title: 'Not Balanced',
+                text: `This account is not balanced. Outstanding: ₦${balance.toFixed(2)}`
+            });
+            return false;
+        }
+    });
+
+    document.getElementById('create_receipt_with_pin').addEventListener('click', function(){
+        let balance = calculateBalance();
+        if (!isHMO && balance > 0.01) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'This account is not balanced'
+            });
+            return;
+        }
+
+        const processFund = processFundSelect.value;
+        let finalPaymentType = paymentTypeSelect.value;
+        if (!isHMO) {
+            if (processFund === "my_deposit") {
+                finalPaymentType = "Deposit";
+            } else if (processFund === "deposit_and_fresh_payment") {
+                finalPaymentType = "Dep+Cash";
+            }
+        } else {
+            finalPaymentType = "HMO";
+        }
+
+        let payload = {
+            amount_paid: document.getElementById('amount_paid_input').value,
+            remarks: document.getElementById('remarks_textarea').value,
+            payment_type: finalPaymentType,
+            invoice_number: document.getElementById('invoice_number_hidden').value,
+            pin_code: pinCodeInputReceipt.value,
+            process_fund: processFund
+        };
+
+        fetch("", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": csrfToken,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                $('#pinReceiptModal').modal('hide');
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    html: `Receipt No: <b>${data.receipt_number}</b> Created Successfully`,
+                    confirmButtonText: 'OK'
+                }).then(() => {
+                    location.reload();
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: data.message
+                });
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'An unexpected error occurred. Please try again.'
+            });
+        })
+        .finally(() => {
+            pinCodeInputReceipt.value = '';
+        });
+    });
+});
+</script>
+{% endblock content %}

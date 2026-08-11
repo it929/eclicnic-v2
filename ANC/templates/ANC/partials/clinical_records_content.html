@@ -1,0 +1,788 @@
+{% load static %}
+<style>
+    .vital-signs-container {
+            margin-bottom: 15px;
+        }
+
+        .vital-signs-date-group {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background-color: #fafafa;
+            font-size: 12px;
+        }
+        .comp {
+            margin-top: -10px;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .vital-signs-date-header {
+            font-weight: bold;
+            /* font-family: cursive; */
+            color: brown;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+
+        .vital-signs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 10px;
+            /* border-bottom: 1px solid #ddd; */
+            padding-bottom: 20px;
+        }
+
+        .form-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            padding-bottom: -10px;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .vital-item {
+            padding: 8px;
+            background-color: #f1f1f1;
+            border-radius: 3px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+            font-size: 12px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .section-title {
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 3px;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        .comp2 {
+            margin-top: -15px;
+            font-size: 14px;
+            
+        }
+
+</style>
+<!-- Filter Bar - Simple: Only week filter -->
+<div class="filter-bar mb-3 p-3 bg-light rounded d-flex align-items-center gap-2 flex-wrap">
+    <select id="weekFilter" class="form-control" style="width: 250px;">
+        <option value="">-- Select ANC Week --</option>
+        <option value="all" {% if selected_week == 'all' %}selected{% endif %}>All Records (with ANC week)</option>
+        {% for week in unique_weeks %}
+        <option value="{{ week }}" {% if selected_week == week %}selected{% endif %}>{{ week|title }}</option>
+        {% endfor %}
+    </select>
+    
+    <button class="btn btn-secondary" onclick="loadSelectedWeek()">Load Records <i class="fa fa-filter"></i></button>
+</div>
+
+<!-- Show message if no filter selected -->
+{% if not selected_week %}
+<div class="alert alert-info text-center">
+    <i class="fa fa-info-circle"></i> Please select gestational age (week) from the dropdown above to view records.
+</div>
+{% endif %}
+
+<!-- Only show data if a filter was applied -->
+{% if selected_week %}
+    <!-- Summary Card -->
+    <h5 class="text-primary font-weight-bold printed" style="font-size: 13px;">Total Records Found: &nbsp;<span class="badge badge-danger">{{ total_records }}</span></h5>
+
+    <!-- Vital Signs Section -->
+    {% if vitals %}
+    <div class="card mb-3">
+        <div class="card-header text-white section-title" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px">❤️ Vital Signs &nbsp;<span class="badge badge-light">{{ vitals.count }}</span> <span class="float-right">▼</span></h5>
+        </div>
+        <div class="card-body section-content">
+            <div class="vital-signs-container">
+                        {% if vitals %}
+                        <div class="vital-signs-date-group">
+                            {% for vital in vitals %}
+                            <div class="vital-signs-date-header">
+                                <span>Date: {{ vital.created_date|date:"F j, Y" }} &nbsp;&nbsp;<span style="color: rgb(72, 63, 63);">Provider: {{bg_health_last_modified_by}} {{ vital.staff.fullname }}</span>&nbsp;&nbsp;<span class="badge badge-info">{{ vital.anc_weeks }}</span></span>
+                            </div>
+                            <div class="vital-signs-grid">
+                                {% if vital.height %}<div class="vital-item"><strong>Height:</strong> {{ vital.height }} (cm)</div>{% endif %}
+                                {% if vital.weight %}<div class="vital-item"><strong>Weight:</strong> {{ vital.weight }} (kg)</div>{% endif %}
+                                {% if vital.bmi %}<div class="vital-item"><strong>BMI:</strong> {{ vital.bmi }} (kg/m&sup2)</div>{% endif %}
+                                {% if vital.bp %}<div class="vital-item"><strong>BP:</strong> {{ vital.bp }} (mmHg)</div>{% endif %}
+                                {% if vital.pulse %}<div class="vital-item"><strong>Pulse:</strong> {{ vital.pulse }} (BPM)</div>{% endif %}
+                                {% if vital.temperature %}<div class="vital-item"><strong>Temperature:</strong> {{ vital.temperature }} (&deg;C)</div>{% endif %}
+                                {% if vital.respiratory_rate %}<div class="vital-item"><strong>Respiratory Rate:</strong> {{ vital.respiratory_rate }} cpm</div>{% endif %}
+                                {% if vital.sp_02 %}<div class="vital-item"><strong>SpO2:</strong> {{ vital.sp_02 }} (%)</div>{% endif %}
+                                {% if vital.oxygen_volume %}<div class="vital-item"><strong>Oxygen Vol.:</strong> {{ vital.oxygen_volume }} (L/min)</div>{% endif %}
+                                {% if vital.urine_ph %}<div class="vital-item"><strong>Urine PH:</strong> {{ vital.urine_ph }}</div>{% endif %}
+                                {% if vital.blood_glucose %}<div class="vital-item"><strong>Blood Glucose:</strong> {{ vital.blood_glucose }} (mg/dl)</div>{% endif %}
+                                {% if vital.urine_glucose %}<div class="vital-item">Urine Glucose:{{ vital.urine_glucose }} (mg/dl)</div>{% endif %}
+                                {% if vital.urine_protein %}<div class="vital-item"><strong>Urine Protein:</strong> {{ vital.urine_protein }} (mg/dl)</div>{% endif %}
+                            </div>
+                            {% if vital.comment %}
+                                <p style="margin-top: 10px;"><strong>Clinical Comments:</strong> {{ vital.comment }}</p>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                            <div class="no-data">No vital signs recorded for selected date.</div>
+                        {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Examinations Section -->
+    {% if examinations %}
+    <div class="card mb-3">
+        <div class="card-header text-white section-title" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px"> ANC Examinations &nbsp;<span class="badge badge-light">{{ examinations.count }}</span> <span class="float-right">▼</span></h5>
+        </div>
+        <div class="card-body section-content">
+            <div class="vital-signs-container">
+                        {% if examinations %}
+                        <div class="vital-signs-date-group">
+                            {% for exam in examinations %}
+                            <div class="vital-signs-date-header">
+                                <span>Date: {{ exam.created_date|date:"F j, Y" }} &nbsp;&nbsp;<span style="color: rgb(72, 63, 63);">Provider: {{ exam.staff.fullname }}</span>&nbsp;&nbsp;<span class="badge badge-info">{{ exam.anc_weeks }}</span></span>
+                            </div>
+                            <div class="vital-signs-grid">
+                                {% if exam.temperature %}<div class="vital-item"><strong>Temperature:</strong> {{ exam.temperature }} (&deg;C)</div>{% endif %}
+                                {% if exam.weight %}<div class="vital-item"><strong>Weight:</strong> {{ exam.weight }} (kg)</div>{% endif %}
+                                {% if exam.bp %}<div class="vital-item"><strong>BP:</strong> {{ exam.bp }} (mmHg)</div>{% endif %}
+                                {% if exam.pulse_rate %}<div class="vital-item"><strong>Pulse:</strong> {{ exam.pulse_rate }} (BPM)</div>{% endif %}
+                                {% if exam.pvc %}<div class="vital-item"><strong>PVC:</strong> {{ exam.pvc }}</div>{% endif %}
+                                {% if exam.oedema %}<div class="vital-item"><strong>Oedema:</strong> {{ exam.oedema }}</div>{% endif %}
+                                {% if exam.urine_protein %}<div class="vital-item"><strong>Urine Protein:</strong> {{ exam.urine_protein }}</div>{% endif %}
+                                {% if exam.urine_sugar %}<div class="vital-item"><strong>Urine Sugar:</strong> {{ exam.urine_sugar }}</div>{% endif %}
+                                {% if exam.foetal_heart %}<div class="vital-item"><strong>Foetal heart:</strong> {{ exam.foetal_heart }}</div>{% endif %}
+                                {% if exam.foetal_heart_rate %}<div class="vital-item"><strong>Foetal heart rate:</strong> {{ exam.foetal_heart_rate }} (bpm)</div>{% endif %}
+                                {% if exam.foetal_presentation %}<div class="vital-item"><strong>Foetal presentation:</strong> {{ exam.foetal_presentation }}</div>{% endif %}
+                                {% if exam.foetal_movement %}<div class="vital-item"><strong>Foetal movement:</strong> {{ exam.foetal_movement }}</div>{% endif %}
+                                {% if exam.position %}<div class="vital-item"><strong>Position:</strong> {{ exam.position }}</div>{% endif %}
+                                {% if exam.relationship_of_pp_to_brim %}<div class="vital-item" style="width: 200px;"><strong>Relationship to PP to brim:</strong> {{ exam.relationship_of_pp_to_brim }}</div>{% endif %}
+                                {% if exam.position_of_vagina %}<div class="vital-item"><strong>Position of vagina/vulva:</strong> {{ exam.position_of_vagina }}</div>{% endif %}
+                            </div>
+                            {% if exam.comment %}
+                                <p style="margin-top: 10px;"><strong>Clinical Comments:</strong> {{ exam.comment }}</p>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                            <div class="no-data">No ANC examinations recorded for selected date.</div>
+                        {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Encounters Section -->
+    {% if encounters %}
+    <div class="card mb-3">
+        <div class="card-header text-white section-title" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px"> Patient Encounters &nbsp;<span class="badge badge-light">{{ encounters.count }}</span> <span class="float-right">▼</span></h5>
+        </div>
+        <div class="card-body section-content">
+            <div class="vital-signs-container">
+                <div class="print-nice">
+                    {% if encounters %}
+                        {% for encounter in encounters %}
+                            <p class="comp" style="margin-top: 10px;"><strong>Chief Complaint:</strong> {{ encounter.chief_complaint }}</p>
+                            <p class="comp"><strong>History of Present Illness:</strong> {{ encounter.history_of_present_illness }}</p>
+                            <p class="comp"><strong>Diagnosis:</strong> {{ encounter.diagnosis }}</p>
+                            <p class="comp"><strong>Comments on Diagnosis:</strong> {{ encounter.comments_on_diagnosis }}</p>
+                            <p class="comp"><strong>Provider:</strong> Dr. {{ encounter.provider.fullname }}</p>
+                            <p class="comp"><strong>Date/Time:</strong> {{ encounter.created_at }} &nbsp;&nbsp;<span class="badge badge-info">{{ encounter.anc_weeks }}</span></p>
+                            {% if not forloop.last %}<hr>{% endif %}
+                        {% endfor %}
+                    {% else %}
+                        <div class="no-data">No encounter data available for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Radiology/Lab Section -->
+    {% if radiology_labs %}
+    <div class="card mb-3">
+        <div class="card-header section-title text-white" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px">🔬 Radiology & Laboratory &nbsp;<span class="badge badge-light">{{ radiology_labs.count }}</span> <span class="float-right">▼</span></h5>
+        </div>
+        <div class="card-body section-content">
+            <div class="table-responsive">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Investigations</th>
+                                            <th>Item-Type</th>
+                                            <th>Samples</th>
+                                            <th>Emergency</th>
+                                            <th>Comments</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                            <th>G.A.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for lab in radiology_labs %}
+                                        <tr>
+                                            <td>{{ lab.item }}</td>
+                                            <td>{% if lab.item_type == 'L' %}Lab Test{% else %}Image Scan{% endif %}</td>
+                                            <td>{{ lab.samples }}</td>
+                                            <td>{{ lab.emergency }}</td>
+                                            <td>{{ lab.comment }}</td>
+                                            <td>Dr. {{ lab.staff.fullname }}</td>
+                                            <td>{{ lab.created_date }}</td>
+                                            <td><span class="badge badge-info">{{ lab.anc_weeks }}</span></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>                
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Medications Section -->
+    {% if ipd_drugs or opd_drugs or ipd2_drugs or ipd3_drugs or opd2_drugs %}
+    <div class="card mb-3">
+        <div class="card-header section-title text-white" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px">💊 Medications &nbsp;
+                <span class="badge badge-light">{{ ipd_drugs.count|add:opd_drugs.count|add:opd2_drugs.count|add:ipd2_drugs.count|add:ipd3_drugs.count }}</span>
+                <span class="float-right">▼</span>
+            </h5>
+        </div>
+        <div class="card-body section-content">
+            {% if ipd_drugs %}
+            <h6 class="mt-1">🏥 Medications (IPD Pharmacy 1)</h6>
+            <div class="table-responsive mb-3">
+                    <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                    <th>G.A.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in ipd_drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                    <td>{{ drug.route }}</td>
+                                    <td>{{ drug.dose }}</td>
+                                    <td>{{ drug.frequency }}</td>
+                                    <td>{{ drug.duration }}</td>
+                                    <td>{{ drug.quantity }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.created_date }}</td>
+                                    <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                    </table>
+            </div>
+            {% endif %}
+
+            {% if ipd2_drugs %}
+            <h6 class="mt-1">🏥 Medications (IPD Pharmacy 2)</h6>
+            <div class="table-responsive mb-3">
+                    <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                    <th>G.A.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in ipd2_drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                    <td>{{ drug.route }}</td>
+                                    <td>{{ drug.dose }}</td>
+                                    <td>{{ drug.frequency }}</td>
+                                    <td>{{ drug.duration }}</td>
+                                    <td>{{ drug.quantity }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.created_date }}</td>
+                                    <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                    </table>
+            </div>
+            {% endif %}
+
+            {% if ipd3_drugs %}
+            <h6 class="mt-1">🏥 Medications (IPD Pharmacy 3)</h6>
+            <div class="table-responsive mb-3">
+                    <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                    <th>G.A.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in ipd3_drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                    <td>{{ drug.route }}</td>
+                                    <td>{{ drug.dose }}</td>
+                                    <td>{{ drug.frequency }}</td>
+                                    <td>{{ drug.duration }}</td>
+                                    <td>{{ drug.quantity }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.created_date }}</td>
+                                    <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                    </table>
+            </div>
+            {% endif %}
+            
+            {% if opd_drugs %}
+            <h6 >🚑 Medications (OPD Pharmacy 1)</h6>
+            <div class="table-responsive">
+                <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                    <th>G.A.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in opd_drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                    <td>{{ drug.route }}</td>
+                                    <td>{{ drug.dose }}</td>
+                                    <td>{{ drug.frequency }}</td>
+                                    <td>{{ drug.duration }}</td>
+                                    <td>{{ drug.quantity }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.created_date }}</td>
+                                    <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                    </table>
+            </div>
+            {% endif %}
+
+            {% if opd2_drugs %}
+            <h6 >🚑 Medications (OPD Pharmacy 2)</h6>
+            <div class="table-responsive">
+                <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                    <th>G.A.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in opd2_drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                    <td>{{ drug.route }}</td>
+                                    <td>{{ drug.dose }}</td>
+                                    <td>{{ drug.frequency }}</td>
+                                    <td>{{ drug.duration }}</td>
+                                    <td>{{ drug.quantity }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.created_date }}</td>
+                                    <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                    </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+        <!-- Appointments Section -->
+    {% if appointments or other_services %}
+    <div class="card mb-3">
+        <div class="card-header text-white section-title printed" onclick="toggleSection(this)" style="cursor: pointer;">
+            <h5 class="mb-0" style="font-size:14px">📅 Appointments & Other Services &nbsp;<span class="badge badge-light">{{ appointments.count }}</span> <span class="float-right">▼</span></h5>
+        </div>
+        <div class="form-grid2 card-body section-content">
+                <div class="section">
+                    <div class="section-title" style="font-size:10px">APPOINTMENTS</div>
+                        <div style="margin-left: 15px;">
+                            <!-- <p></p> -->
+                            {% if appointments %}
+                                {% for apt in appointments %}
+                                <p class='comp2' style="margin-top: 5px;">
+                                    <strong>Provider:</strong> <span class="text-primary">Dr. {{apt.provider.fullname}}</span> -
+                                    <strong>Date/Time:</strong> <span style="color: brown;">{{apt.created_date}}</span>
+                                </p>
+                                <p class='comp2'><strong>Arrival Date:</strong> <span>{{apt.arrival_date}} By {{apt.arrival_time}}</span></p>
+                                <p class='comp2'><strong>Purpose of appointment:</strong> <span>{{apt.purpose}}</span></p>
+                                <p class='comp2'><strong>Visit Type:</strong> <span>{{apt.visit_type}}</span></p>
+                                <p class="comp2"><strong>Clinician's Name:</strong> [{{apt.clinician}}] &nbsp;&nbsp;<span class="badge badge-info">{{ apt.anc_weeks }}</span></p>
+                                {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Other Services section -->
+                 {% if other_services %}
+                <div class="section">
+                    <div class="section-title" style="font-size:10px">OTHER SERVICES INFORMATION &nbsp;<span class="badge badge-light">{{ other_services.count }}</span></div>
+                        <div id="otherServicesSection">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Services</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for service in other_services %}
+                                        <tr>
+                                            <td>{{ service.purpose }}</td>
+                                            <td>Dr. {{ service.provider.fullname }}</td>
+                                            <td>{{ service.created_date }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>   
+                    </div>
+                </div>
+                {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- No results message -->
+    {% if total_records == 0 %}
+    <div class="alert alert-warning text-center">
+        <i class="fa fa-exclamation-triangle"></i> No records found for the selected filter.
+    </div>
+    {% endif %}
+{% endif %}
+
+<script>
+// Toggle section visibility
+function toggleSection(header) {
+    $(header).next('.card-body').slideToggle();
+    $(header).find('.float-right').text(function(_, text) {
+        return text === '▼' ? '▲' : '▼';
+    });
+}
+
+// Load selected week
+window.loadSelectedWeek = function() {
+    var selectedWeek = $('#weekFilter').val();
+    
+    if (!selectedWeek) {
+        alert('Please select a week to view');
+        return;
+    }
+    
+    // Call the parent function to load records
+    if (typeof window.loadClinicalRecords === 'function') {
+        window.loadClinicalRecords(selectedWeek);
+    }
+};
+</script>
+<script>
+    // Print clinical records function
+window.printClinicalRecords = function() {
+    // Get the selected week for the title
+    var selectedWeek = $('#weekFilter option:selected').text();
+    
+    // Create a print window
+    var printWindow = window.open('', '_blank', 'width=1200,height=800');
+    
+    // Get the patient name from the page
+    var patientName = "{{ patient.surname }} {{ patient.first_name }} {{ patient.other_name }}".trim() || "Patient";
+    var patientHospitalNumber = "{{ patient.hospital_number }}" || "";
+    var currentDate = new Date().toLocaleDateString();
+    
+    // Get all the visible content (only the filtered records)
+    var contentHtml = $('#clinicalTableContainer').html();
+    
+    // Create a styled print document
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>ANC Clinical Records - ${patientName}</title>
+            <style>
+                /* Force background colors to print */
+                * {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                    color-adjust: exact !important;
+                }
+                
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                    padding: 0;
+                    color: #333;
+                }
+                .print-header {
+                    text-align: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 20px;
+                    border-bottom: 2px solid #2c3e50;
+                }
+                .print-header h1 {
+                    color: #2c3e50;
+                    margin: 0;
+                    font-size: 24px;
+                }
+                .print-header h3 {
+                    color: #666;
+                    margin: 5px 0;
+                    font-size: 16px;
+                }
+                .print-header p {
+                    color: #777;
+                    margin: 5px 0;
+                    font-size: 14px;
+                }
+                .print-header .week-info {
+                    background-color: #e8f4f8 !important;
+                    padding: 8px;
+                    border-radius: 4px;
+                    display: inline-block;
+                    margin-top: 10px;
+                }
+                .section-title {
+                    background-color: #2c3e50 !important;
+                    color: white !important;
+                    padding-left: 15px
+                    border-radius: 3px;
+                    margin: 20px 0 10px 0;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                    font-size: 12px;
+                }
+                th {
+                    background-color: #f2f2f2 !important;
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                    font-weight: bold;
+                }
+                td {
+                    border: 1px solid #ddd;
+                    padding: 6px;
+                }
+                .vital-signs-container {
+                    margin-bottom: 15px;
+                }
+                .section-content{
+                    margin-top: -15px
+                }
+                .vital-signs-date-group {
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 5px;
+                    background-color: #fafafa !important;
+                }
+                .vital-signs-date-header {
+                    font-weight: bold;
+                    color: brown;
+                    margin-bottom: 10px;
+                    padding-bottom: 5px;
+                    border-bottom: 1px solid #ddd;
+                }
+                .vital-signs-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 10px;
+                }
+                .vital-item {
+                    padding: 8px;
+                    background-color: #f1f1f1 !important;
+                    border-radius: 3px;
+                }
+                .badge {
+                    background-color: #17a2b8 !important;
+                    color: white !important;
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-size: 10px;
+                    font-weight: bold;
+                }
+                .filter-bar, .printed{
+                    display:none
+                }
+                .form-grid2 {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 20px;
+                    margin-bottom: 20px;
+                }
+                .comp2 {
+                    margin-top: -10px;
+                    font-size: 14px;
+                }
+                .print-nice{
+                    margin-top:30px
+                }
+                .text-primary {
+                    color: #007bff !important;
+                }
+                .footer {
+                    text-align: center;
+                    margin-top: 30px;
+                    padding-top: 20px;
+                    border-top: 1px solid #ddd;
+                    font-size: 12px;
+                    color: #777;
+                }
+                
+                /* Force specific background colors for all sections */
+                .bg-primary, 
+                [class*="bg-primary"] {
+                    background-color: #2c3e50 !important;
+                    color: white !important;
+                }
+                
+                .bg-info,
+                [class*="bg-info"] {
+                    background-color: #17a2b8 !important;
+                    color: white !important;
+                }
+                
+                .badge-info {
+                    background-color: #17a2b8 !important;
+                    color: white !important;
+                }
+                
+                .badge-danger {
+                    background-color: #dc3545 !important;
+                    color: white !important;
+                }
+                
+                .badge-light {
+                    background-color: #f8f9fa !important;
+                    color: #333 !important;
+                }
+                
+                /* Print-specific settings */
+                @media print {
+                    // @page {
+                    //     size: landscape;
+                    //     margin: 0.5in;
+                    // }
+                    body { 
+                        margin: 0.25in; 
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+                    .no-print { 
+                        display: none; 
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <h1>Isalu Hospital - Antenatal Clinical records</h1>
+                <h3>${patientName} ${patientHospitalNumber ? '(' + patientHospitalNumber + ')' : ''}</h3>
+                <p>Printed on: ${currentDate}</p>
+                <div class="week-info">
+                    <strong>Filter:</strong> ${selectedWeek}
+                </div>
+            </div>
+            
+            ${contentHtml}
+            
+            <div class="footer">
+                <p>Generated from Isalu Hospital Antenatal Care System | This is a computer-generated document</p>
+            </div>
+            
+            <script>
+                // Auto-trigger print dialog when page loads
+                window.onload = function() {
+                    // Apply print color adjustment again
+                    document.body.style.webkitPrintColorAdjust = 'exact';
+                    document.body.style.printColorAdjust = 'exact';
+                    
+                    setTimeout(function() {
+                        window.print();
+                    }, 500);
+                };
+            <\/script>
+        </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+};
+</script>

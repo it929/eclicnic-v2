@@ -1,0 +1,42 @@
+<!-- These are just regular nav links, no accordion structure -->
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'admin-dashboard' %}">
+        <i class="fas fa-fw fa-tachometer-alt"></i>
+        <span>Dashboard</span>
+    </a>
+</li>
+
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'patient_registration' %}">
+        <i class="fas fa-fw fa-user-plus"></i>
+        <span>Register Patient</span>
+    </a>
+</li>
+
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'search_page' %}">
+        <i class="fas fa-fw fa-search"></i>
+        <span>Search Patients</span>
+    </a>
+</li>
+
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'today_appointment' %}">
+        <i class="fas fa-fw fa-bell"></i>
+        <span>Today's Appointments</span>
+    </a>
+</li>
+
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'attendants_today' %}">
+        <i class="fas fa-fw fa-clipboard-list"></i>
+        <span>Attendance</span>
+    </a>
+</li>
+
+<li class="nav-item">
+    <a class="nav-link" href="{% url 'deactivated_patients' %}">
+        <i class="fas fa-fw fa-user-times"></i>
+        <span>Deactivated Patients</span>
+    </a>
+</li>

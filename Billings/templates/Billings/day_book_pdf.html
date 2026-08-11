@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Daily Day Book Report</title>
+    <style>
+        body {
+            font-family: 'DejaVu Sans', Arial, sans-serif;
+            font-size: 10px;
+            margin: 20px;
+            padding: 0;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #333;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 18px;
+            color: #2c3e50;
+        }
+        
+        .header h2 {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        .header p {
+            margin: 5px 0;
+            font-size: 11px;
+            color: #777;
+        }
+        
+        .summary-box {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+        }
+        
+        .summary-table {
+            width: 100%;
+            margin: 0 auto;
+        }
+        
+        .summary-table td {
+            padding: 5px 10px;
+            font-size: 11px;
+        }
+        
+        .summary-table td:first-child {
+            font-weight: bold;
+        }
+        
+        .summary-table td:last-child {
+            text-align: right;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        th {
+            background: #2c3e50;
+            color: white;
+            padding: 8px;
+            font-size: 10px;
+            text-align: left;
+        }
+        
+        td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            font-size: 9px;
+        }
+        
+        .text-right {
+            text-align: right;
+        }
+        
+        .footer {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 9px;
+            color: #777;
+        }
+        
+        .watermark {
+            position: fixed;
+            bottom: 50px;
+            right: 50px;
+            opacity: 0.1;
+            font-size: 60px;
+            transform: rotate(-45deg);
+            pointer-events: none;
+        }
+        
+        .positive {
+            color: #28a745;
+        }
+        
+        .negative {
+            color: #dc3545;
+        }
+        
+        @page {
+            size: landscape;
+            margin: 1cm;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ company_name|default:"Healthcare Facility" }}</h1>
+        <h2>Daily Transaction Day Book Report</h2>
+        <p>
+            Period: {{ start_datetime|date:"d M Y h:i A" }} to {{ end_datetime|date:"d M Y h:i A" }}
+        </p>
+        <p>Generated on: {{ generated_on|date:"d M Y h:i A" }}</p>
+    </div>
+    
+    <div class="summary-box">
+        <table class="summary-table" style="border: none;">
+            <tr>
+                <td style="border: none;">Total Revenues:</td>
+                <td style="border: none; text-align: right;" class="positive">₦ {{ total_revenues|floatformat:2 }}</td>
+                <td style="border: none; width: 20px;"></td>
+                <td style="border: none;">Total Collections:</td>
+                <td style="border: none; text-align: right;" class="positive">₦ {{ total_collections|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <td style="border: none;">Total Refunds:</td>
+                <td style="border: none; text-align: right;" class="negative">₦ {{ total_refunds|floatformat:2 }}</td>
+                <td style="border: none;"></td>
+                <td style="border: none;">Outstanding Balance:</td>
+                <td style="border: none; text-align: right;" class="{% if total_balance > 0 %}positive{% elif total_balance < 0 %}negative{% endif %}">
+                    ₦ {{ total_balance|floatformat:2 }}
+                </td>
+            </tr>
+        </table>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <!-- <th>S/N</th> -->
+                <th>Date</th>
+                <th style="width: 23%;">Patient Name</th>
+                <th style="width: 23%;">Details</th>
+                <th class="text-right">Revenue</th>
+                <th class="text-right">Collection</th>
+                <th class="text-right">Refund</th>
+                <th class="text-right">Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if day_book_entries %}
+                {% for entry in day_book_entries %}
+                <tr>
+                    <!-- <td>{{ forloop.counter }}</td> -->
+                    <td>{{ entry.date }}</td>
+                    <td>{{ entry.patient }} [{{ entry.patient_id }}]</td>
+                    <td>{{ entry.details }}</td>
+                    <td class="text-right">{{ entry.revenue|floatformat:2 }}</td>
+                    <td class="text-right">{{ entry.collections|floatformat:2 }}</td>
+                    <td class="text-right">{{ entry.refunds|floatformat:2 }}</td>
+                    <td class="text-right">{{ entry.balance|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" style="text-align: center;">No transactions recorded for this period</td>
+                </tr>
+            {% endif %}
+        </tbody>
+        {% if day_book_entries %}
+        <tfoot>
+            <tr style="background: #f8f9fa; font-weight: bold;">
+                <td colspan="3" class="text-right">TOTAL:</td>
+                <td class="text-right">{{ total_revenues|floatformat:2 }}</td>
+                <td class="text-right">{{ total_collections|floatformat:2 }}</td>
+                <td class="text-right">{{ total_refunds|floatformat:2 }}</td>
+                <td class="text-right">{{ total_balance|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+    
+    <div class="footer">
+        <p>This is a computer-generated daily report. For inquiries, please contact the Finance Department.</p>
+        <p>Page 1 of 1</p>
+    </div>
+</body>
+</html>

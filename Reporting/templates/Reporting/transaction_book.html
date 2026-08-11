@@ -1,0 +1,303 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+
+<style>
+    .filter-section {
+        background: white;
+        padding: 25px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        align-items: flex-end;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .filter-group label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        width: 100%;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .btn-generate {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 10px 30px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: background 0.3s;
+        width: 100%;
+    }
+    
+    .btn-generate:hover {
+        background: #218838;
+    }
+    
+    .btn-preview {
+        background: #667eea;
+    }
+    
+    .btn-preview:hover {
+        background: #5a67d8;
+    }
+    
+    .orientation-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .orientation-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .orientation-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .destination-group {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        padding-top: 5px;
+    }
+    
+    .destination-group label {
+        font-weight: normal;
+        text-transform: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    
+    .destination-group input[type="radio"] {
+        width: auto;
+        margin-right: 5px;
+    }
+    
+    .info-box {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #667eea;
+        margin-bottom: 20px;
+    }
+    
+    .info-box h5 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    
+    .info-box ul {
+        margin: 0;
+        padding-left: 20px;
+        color: #666;
+    }
+    
+    .info-box ul li {
+        margin-bottom: 5px;
+    }
+    
+    .small-box {
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+        color: white;
+        text-align: center;
+    }
+    
+    .small-box .inner h3 {
+        font-size: 28px;
+        font-weight: bold;
+        margin: 0;
+    }
+    
+    .small-box .inner p {
+        margin: 5px 0 0 0;
+        font-size: 14px;
+        opacity: 0.9;
+    }
+    
+    .bg-info { background: #17a2b8; }
+    .bg-success { background: #28a745; }
+    .bg-warning { background: #ffc107; color: #333; }
+    .bg-danger { background: #dc3545; }
+    
+    @media print {
+        .filter-section {
+            display: none;
+        }
+    }
+</style>
+
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800 font-weight-bold">
+        <i class="fa fa-file-excel"></i> &nbsp;Transaction Book Report
+    </h1>
+    
+    <div class="info-box">
+        <h5><i class="fa fa-info-circle"></i> Report Information</h5>
+        <ul>
+            <li><strong>Format:</strong> Microsoft Excel (.xlsx) with proper number formatting</li>
+            <li><strong>Includes:</strong> Complete patient details, service breakdowns, and financial summaries</li>
+        </ul>
+    </div>
+    
+    <div class="filter-section">
+        <form method="GET" action="{{ request.path }}" target="_blank">
+            <input type="hidden" name="export" value="true">
+            
+            <div class="filter-grid">
+                <div class="filter-group">
+                    <label>Date From</label>
+                    <input type="date" name="start_date" value="{{ start_date }}" required>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Date To</label>
+                    <input type="date" name="end_date" value="{{ end_date }}" required>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Sponsor</label>
+                    <select name="sponsor">
+                        <option value="All" {% if sponsor == 'All' %}selected{% endif %}>All Sponsors</option>
+                        {% for s in sponsors %}
+                            <option value="{{ s }}" {% if sponsor == s %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Patient Type</label>
+                    <select name="patient_type">
+                        <option value="All" {% if patient_type == 'All' %}selected{% endif %}>All Types</option>
+                        {% for pt in patient_types %}
+                            <option value="{{ pt }}" {% if patient_type == pt %}selected{% endif %}>{{ pt }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Payment Type</label>
+                    <select name="payment_type" id="payment_type">
+                        <option value="All" {% if payment_type == 'All' %}selected{% endif %}>All Payments</option>
+                        {% for po in payment_options %}
+                            <option value="{{ po }}" {% if payment_type == po %}selected{% endif %}>{{ po }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Billing Officer</label>
+                    <select name="billing_officer">
+                        <option value="All" {% if billing_officer == 'All' %}selected{% endif %}>All Officers</option>
+                        {% for officer in billing_officers %}
+                            <option value="{{ officer.id }}" {% if billing_officer == officer.id|stringformat:"s" %}selected{% endif %}>
+                                {{ officer.fullname }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Orientation</label>
+                        <div class="orientation-group">
+                            <label>
+                                <input type="radio" name="orientation" value="Landscape" 
+                                       {% if orientation == 'Landscape' or not orientation %}checked{% endif %}>
+                                Landscape
+                            </label>
+                            <label>
+                                <input type="radio" name="orientation" value="Portrait" 
+                                       {% if orientation == 'Portrait' %}checked{% endif %}>
+                                Portrait
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>Destination</label>
+                        <div class="destination-group">
+                            <label>
+                                <input type="radio" name="destination" value="excel" checked>
+                                MS Excel
+                            </label>
+                            <label>
+                                <input type="radio" name="destination" value="pdf">
+                                PDF
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="filter-group">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn-generate">
+                            <i class="fa fa-file-excel"></i> Generate Report
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+</div>
+
+<script>
+    // Auto-submit when radio buttons change (optional)
+    document.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+
+        });
+    });
+</script>
+
+{% endblock %}

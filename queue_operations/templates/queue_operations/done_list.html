@@ -1,0 +1,113 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+{% if request.user.department.department in 'Nursing, Admin, CMD' and page == 'nurse-done-list' %}
+<div class="container-fluid">
+      <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;Vital Signs Completed By Me (Today) </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date</th>
+                            <th>Sent By</th>
+                        </tr>
+                    </thead>
+                    <tfoot>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date</th>
+                            <th>Sent By</th>
+                        </tr>
+                    </tfoot>
+                    <tbody>
+                        {% for patient in my_patients %}
+                        <tr>
+                            
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }}</a></td>
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.plan.plan|default:"-" }}</a></td>
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                            <td><a href="{% url 'modify_vital_signs' patient.patient.id %}" style="text-decoration: none;">{{ patient.attendant.fullname }}</a></td> 
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No patients on the done list today</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% elif request.user.department.department in 'Clinical, Admin, CMD' and page == 'doctor-done-list' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <!-- Content Row -->
+      <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date</th>
+                            <th>Sent By</th>
+                        </tr>
+                    </thead>
+                    <tfoot>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date</th>
+                            <th>Sent By</th>
+                        </tr>
+                    </tfoot>
+                    <tbody>
+                        {% for patient in patients %}
+                        <tr>
+                            
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }}</a></td>
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.plan.plan|default:"-" }}</a></td>
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                            <td><a href="{% url 'operations_profile' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No patients on the done list today</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

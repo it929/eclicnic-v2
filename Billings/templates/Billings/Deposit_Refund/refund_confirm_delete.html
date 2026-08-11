@@ -1,0 +1,48 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    {% include 'Billings/Deposit_Refund/navigation-bills.html' %}
+    <p></p>
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card border-danger text-center shadow">
+                <div class="card-body">
+                    <h4 class="card-title text-danger">Confirm Deletion</h4>
+                    <p class="card-text">Are you sure you want to delete the record for <strong>₦{{ refund.amount }}</strong>?</p>
+                    <p class="text-muted small">This action will be logged and cannot be undone.</p>
+                    
+                    <form method="POST">
+                        {% csrf_token %}
+                        <button type="button" class="btn btn-danger px-4" data-toggle="modal" data-target="#pinRefundDeleteModal">Confirm Delete</button>
+                        <a href="{% url 'list_refunds' patient.id %}" class="btn btn-secondary px-4">Cancel</a>
+                        <!-- pinRefundDeleteModal modal -->
+                        <div class="modal fade" id="pinRefundDeleteModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                        aria-hidden="true">
+                            <div class="modal-dialog" role="document">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <div style="padding-inline: 30px; padding-block: 20px;">
+                                            <input type="password" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                                        </div>
+                                            <div class="modal-footer">
+                                                <button type="submit" class="btn btn-danger"><i class="fa fa-trash"></i> Delete Refund</button>
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                            </div>
+                                    </div>
+                                </div> 
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

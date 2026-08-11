@@ -1,0 +1,555 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800 font-weight-bold">
+            <i class="fas fa-chart-line"></i> Financial Analytics Dashboard
+        </h1>
+        <div>
+            <button onclick="exportToExcel()" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel"></i> Export Excel
+            </button>
+            <button onclick="window.location.reload()" class="btn btn-info btn-sm">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- View Type Tabs -->
+    <ul class="nav nav-tabs mb-4" id="viewTabs">
+        <li class="nav-item">
+            <a class="nav-link {% if view_type == 'daily' %}active{% endif %}" href="#" data-view="daily">
+                <i class="fas fa-calendar-day"></i> Daily Revenue
+            </a>
+        </li>
+        {% if request.user.department.department in 'Admin, CMD' %}
+        <li class="nav-item">
+            <a class="nav-link {% if view_type == 'monthly' %}active{% endif %}" href="#" data-view="monthly">
+                <i class="fas fa-calendar-alt"></i> Monthly Revenue
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if view_type == 'yearly' %}active{% endif %}" href="#" data-view="yearly">
+                <i class="fas fa-calendar"></i> Yearly Revenue
+            </a>
+        </li>
+        {% endif %}
+    </ul>
+
+    <!-- Filters Section -->
+    <div class="card shadow mb-4">
+        <div class="card-header bg-primary text-white">
+            <h6 class="mb-0 font-weight-bold">
+                <i class="fas fa-filter"></i> Analytics Filters
+            </h6>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="filterForm" action="{% url 'financial_analytics' %}">
+                <input type="hidden" name="view_type" id="viewTypeInput" value="{{ view_type }}">
+                
+                <div class="row">
+                    <!-- Service Type Filter -->
+                    <div class="col-md-3 mb-3">
+                        <label><i class="fas fa-cogs"></i> Service Type</label>
+                        <select name="service_type" id="service_type" class="form-control" onchange="this.form.submit()">
+                            <option value="">All Services</option>
+                            {% for service in service_types %}
+                                <option value="{{ service }}" {% if selected_service == service %}selected{% endif %}>
+                                    {{ service }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Daily Filters -->
+                    <div id="dailyFilters" class="col-md-5 mb-3" style="{% if view_type != 'daily' %}display:none;{% endif %}">
+                        <label><i class="fas fa-calendar-alt"></i> Date Range</label>
+                        <div class="input-group">
+                            <input type="date" name="start_date" id="start_date" class="form-control" value="{{ start_date }}">
+                            <span class="input-group-text">to</span>
+                            <input type="date" name="end_date" id="end_date" class="form-control" value="{{ end_date }}">
+                        </div>
+                    </div>
+                    
+                    <!-- Monthly Filters -->
+                    <div id="monthlyFilters" style="{% if view_type != 'monthly' %}display:none;{% endif %}">
+                        <div style="width: 140px;">
+                            <label><i class="fas fa-calendar"></i> Year</label>
+                            <select name="selected_year" id="selected_year_month" class="form-control" 
+                                    {% if view_type != 'monthly' %}disabled{% endif %} onchange="this.form.submit()">
+                                <option value="">Select Year</option>
+                                {% for year in available_years %}
+                                    <option value="{{ year.year }}" {% if selected_year == year.year %}selected{% endif %}>
+                                        {{ year.year }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div style="margin-left: 155px; margin-top: -70px;">
+                            <label><i class="fas fa-calendar-alt"></i> Month</label>
+                            <select name="selected_month" id="selected_month" class="form-control" 
+                                    {% if view_type != 'monthly' %}disabled{% endif %} onchange="this.form.submit()">
+                                <option value="1" {% if selected_month == 1 %}selected{% endif %}>January</option>
+                                <option value="2" {% if selected_month == 2 %}selected{% endif %}>February</option>
+                                <option value="3" {% if selected_month == 3 %}selected{% endif %}>March</option>
+                                <option value="4" {% if selected_month == 4 %}selected{% endif %}>April</option>
+                                <option value="5" {% if selected_month == 5 %}selected{% endif %}>May</option>
+                                <option value="6" {% if selected_month == 6 %}selected{% endif %}>June</option>
+                                <option value="7" {% if selected_month == 7 %}selected{% endif %}>July</option>
+                                <option value="8" {% if selected_month == 8 %}selected{% endif %}>August</option>
+                                <option value="9" {% if selected_month == 9 %}selected{% endif %}>September</option>
+                                <option value="10" {% if selected_month == 10 %}selected{% endif %}>October</option>
+                                <option value="11" {% if selected_month == 11 %}selected{% endif %}>November</option>
+                                <option value="12" {% if selected_month == 12 %}selected{% endif %}>December</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Yearly Filters -->
+                    <div id="yearlyFilters" class="col-md-2 mb-3" style="{% if view_type != 'yearly' %}display:none;{% endif %}">
+                        <label><i class="fas fa-calendar"></i> Year</label>
+                        <select name="selected_year" id="selected_year_yearly" class="form-control" 
+                                {% if view_type != 'yearly' %}disabled{% endif %} onchange="this.form.submit()">
+                            <option value="">Select Year</option>
+                            {% for year in available_years %}
+                                <option value="{{ year.year }}" {% if selected_year == year.year %}selected{% endif %}>
+                                    {{ year.year }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    
+                    <div class="col-md-2 mb-3">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn btn-primary btn-block">
+                            <i class="fas fa-search"></i> Apply Filters
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                <i class="fas fa-chart-line"></i> Total Revenue
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                ₦{{ total_revenue| currency }}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-dollar-sign fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                <i class="fas fa-chart-bar"></i> Categories
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                {{ category_revenue|length }}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-tags fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                <i class="fas fa-chart-pie"></i> Top Category
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                {% if category_revenue %}
+                                    {{ category_revenue.0.category }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-trophy fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                <i class="fas fa-percent"></i> Average Revenue
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                ₦{{ total_revenue| currency|default:"0.00" }}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-chart-simple fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart and Table Row -->
+    <div class="row">
+        <!-- Revenue Chart -->
+        <div class="col-xl-7 col-lg-7 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-primary text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-chart-bar"></i> Revenue by Patient Category
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="revenueChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Revenue Summary Table -->
+        <div class="col-xl-5 col-lg-5 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-primary text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-table"></i> Revenue Summary
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Revenue (₦)</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="revenueTableBody">
+                                {% for item in category_revenue %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ item.category }}</strong>
+                                        <br>
+                                        <small class="text-muted">{{ item.count }} invoices</small>
+                                    </strong>
+                                    <td>
+                                        ₦{{ item.revenue|floatformat:2 }}
+                                    </strong>
+                                    <td>
+                                        <div class="progress">
+                                            <div class="progress-bar bg-primary" role="progressbar" 
+                                                style="width: {{ item.percentage }}%">
+                                                {{ item.percentage }}%
+                                            </div>
+                                        </div>
+                                    </strong>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="3" class="text-center">No revenue data available</strong>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="bg-light">
+                                <tr>
+                                    <th><strong>Total</strong></th>
+                                    <th><strong>₦{{ total_revenue|floatformat:2 }}</strong></th>
+                                    <th><strong>100%</strong></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily Revenue Breakdown (Only for daily view with range) -->
+    {% if daily_breakdown and daily_breakdown|length > 1 %}
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 bg-info text-white">
+                    <h6 class="m-0 font-weight-bold">
+                        <i class="fas fa-chart-line"></i> Daily Revenue Breakdown
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="dailyRevenueChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+// Chart variables
+let revenueChart = null;
+let dailyChart = null;
+
+// Initialize charts
+document.addEventListener('DOMContentLoaded', function() {
+    const chartLabels = {{ chart_labels|safe }};
+    const chartData = {{ chart_data|safe }};
+    
+    // Revenue Chart
+    const ctx = document.getElementById('revenueChart').getContext('2d');
+    revenueChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: chartLabels,
+            datasets: [{
+                label: 'Revenue (₦)',
+                data: chartData,
+                backgroundColor: [
+                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
+                    '#858796', '#5a5c69', '#2e59d9', '#17a673', '#2c9faf'
+                ],
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Revenue: ₦${context.parsed.y.toLocaleString()}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Revenue (₦)',
+                        font: { size: 12, weight: 'bold' }
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return '₦' + value.toLocaleString();
+                        }
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Patient Category',
+                        font: { size: 12, weight: 'bold' }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Daily Revenue Chart
+    {% if daily_breakdown %}
+    const dailyLabels = [{% for item in daily_breakdown %}'{{ item.date }}',{% endfor %}];
+    const dailyData = [{% for item in daily_breakdown %}{{ item.revenue|floatformat:2 }},{% endfor %}];
+    
+    const dailyCtx = document.getElementById('dailyRevenueChart').getContext('2d');
+    dailyChart = new Chart(dailyCtx, {
+        type: 'line',
+        data: {
+            labels: dailyLabels,
+            datasets: [{
+                label: 'Daily Revenue (₦)',
+                data: dailyData,
+                backgroundColor: 'rgba(78, 115, 223, 0.1)',
+                borderColor: '#4e73df',
+                borderWidth: 2,
+                pointBackgroundColor: '#4e73df',
+                pointBorderColor: '#fff',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Revenue: ₦${context.parsed.y.toLocaleString()}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Revenue (₦)',
+                        font: { size: 12, weight: 'bold' }
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return '₦' + value.toLocaleString();
+                        }
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Date',
+                        font: { size: 12, weight: 'bold' }
+                    }
+                }
+            }
+        }
+    });
+    {% endif %}
+});
+
+// Tab switching
+document.querySelectorAll('#viewTabs .nav-link').forEach(tab => {
+    tab.addEventListener('click', function(e) {
+        e.preventDefault();
+        const newViewType = this.dataset.view;
+        const currentViewType = document.getElementById('viewTypeInput').value;
+        
+        if (newViewType === currentViewType) return;
+        
+        document.getElementById('viewTypeInput').value = newViewType;
+        
+        // Toggle visibility and disable hidden fields
+        document.getElementById('dailyFilters').style.display = newViewType === 'daily' ? 'block' : 'none';
+        document.getElementById('monthlyFilters').style.display = newViewType === 'monthly' ? 'block' : 'none';
+        document.getElementById('yearlyFilters').style.display = newViewType === 'yearly' ? 'block' : 'none';
+        
+        // Disable hidden fields so they don't submit
+        document.querySelectorAll('#dailyFilters input').forEach(el => el.disabled = newViewType !== 'daily');
+        document.querySelectorAll('#monthlyFilters select').forEach(el => el.disabled = newViewType !== 'monthly');
+        document.querySelectorAll('#yearlyFilters select').forEach(el => el.disabled = newViewType !== 'yearly');
+        
+        // Submit with current filter values
+        document.getElementById('filterForm').submit();
+    });
+});
+
+// On page load, ensure correct fields are enabled
+document.addEventListener('DOMContentLoaded', function() {
+    const viewType = '{{ view_type }}';
+    document.querySelectorAll('#dailyFilters input').forEach(el => el.disabled = viewType !== 'daily');
+    document.querySelectorAll('#monthlyFilters select').forEach(el => el.disabled = viewType !== 'monthly');
+    document.querySelectorAll('#yearlyFilters select').forEach(el => el.disabled = viewType !== 'yearly');
+});
+
+// Export to Excel
+function exportToExcel() {
+    const revenueData = [];
+    
+    document.querySelectorAll('#revenueTableBody tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 3) {
+            revenueData.push({
+                Category: cells[0].innerText.split('\n')[0].trim(),
+                Revenue: cells[1].innerText,
+                Percentage: cells[2].innerText.split('\n')[0].trim()
+            });
+        }
+    });
+    
+    let csv = "=== REVENUE BY PATIENT CATEGORY ===\n";
+    csv += "Patient Category,Revenue (₦),Percentage\n";
+    revenueData.forEach(row => {
+        csv += `"${row.Category}","${row.Revenue}","${row.Percentage}"\n`;
+    });
+    
+    csv += `\nTotal Revenue: ₦{{ total_revenue|floatformat:2 }}\n`;
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', `financial_analytics_${new Date().toISOString().slice(0,19)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+</script>
+
+<style>
+    .progress {
+        height: 20px;
+        border-radius: 10px;
+    }
+    
+    .progress-bar {
+        line-height: 20px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+    
+    canvas {
+        max-height: 400px;
+        width: 100% !important;
+    }
+    
+    .nav-tabs .nav-link {
+        font-weight: 600;
+    }
+    
+    .table td {
+        vertical-align: middle;
+    }
+    
+    tfoot th {
+        background-color: #f8f9fc;
+        font-size: 14px;
+    }
+    
+    @media print {
+        .btn, .card-header, .dataTables_filter, .dataTables_length, .dataTables_paginate {
+            display: none !important;
+        }
+        .card {
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

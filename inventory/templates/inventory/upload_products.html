@@ -1,0 +1,271 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-file-excel" ></i> &nbsp;Upload to Inventory</h1>
+      <p></p>
+    
+    <div class="card">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                        <input type="file" name="excel_file" accept=".xls,.xlsx" required  >
+
+                        {% if messages %}
+                            <ul class="mt-3">
+                            {% for message in messages %}
+                                <li class="alert alert-{{ message.tags }}">{{ message }}</li>
+                            {% endfor %}
+                            </ul>
+                        {% endif %}
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i> Upload and Import
+                </button>
+                <a href="{% url 'upload_products' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </form>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Excel File Requirements</h5> 
+            </div>
+            <div class="card-body">
+                <ul>
+                    <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                    <li>First row must contain column headers</li>
+                    <li>Required columns: <code>product_name</code>, <code>product_id</code>, <code>price</code>, <code>stock</code>, <code>minimum_UoM</code>, <code>low_stock_threshold</code></li>
+                    <li>Date format: YYYY-MM-DD or DD/MM/YYYY or MM/DD/YYYY</li>
+                    <li>Download <a href="{% url 'download_product_format' %}">template file</a> for reference</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Product Multiple selection modal (Inventory)-->
+ <div class="modal fade" id="multiProductsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> Product(s) to: <span id="inAssetValue2" class="text-primary" style="font-family: cursive;">Inventory</span> </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table id="drug-table" class="table">
+                <thead>
+                    <tr>
+                    <th>Item</th>
+                    <th>UoM</th>
+                    <th>Qty.</th>
+                    <th>Rate (₦)</th>
+                    <th>Total (₦)</th>
+                    <th>Add</th>
+                    <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="drug-body">
+                    <tr>
+                        <td>
+                            <input list="drug-options" class="form-control drug-name">
+                            <datalist id="drug-options"></datalist>
+                        </td>
+                        <td>
+                            <select class="form-control uom">
+                                <option value="ampoules">Ampoules</option><option value="bottles">Bottles</option><option value="boxes">Boxes</option>
+                                <option value="cartons">Cartons</option><option value="rolls">Rolls</option><option value="packs">Packs</option><option value="pieces">Pieces</option>
+                                <option value="prefilled_syringe">Prefilled Syringe</option><option value="sachets">Sachets</option><option value="syringes">Syringes</option>
+                                <option value="tins">Tins</option><option value="tubes">Tubes</option><option value="vial">Vial</option><option value="others">Others</option><option value="each">Each</option>
+                                <option value="mls">mls (mililiters)</option>
+                            </select>
+                        </td>
+                        <td><input type="number" class="form-control quantity" value="1" style="width: 60px;"></td>
+                        <td><input type="text" class="form-control rate" readonly></td>
+                        <td><input type="text" class="form-control total" readonly></td>
+                        <td><button type="button" class="btn btn-success add-row">+</button></td>
+                        <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                    </tr>
+                </tbody>
+                </table>
+                <button type="button" id="submitDrugs" class="btn btn-success">Save Products</button>
+        </div>
+    </div>
+    </div>
+</div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+    const datalist = document.getElementById("drug-options");
+
+    // Fetch drug list dynamically
+    async function fetchDrugs(term) {
+        const response = await fetch(`/api/product-search2/?term=${term}`);
+        const data = await response.json();
+        datalist.innerHTML = ""; // clear old options
+        data.forEach(item => {
+        const option = document.createElement("option");
+        option.value = item.product_name;
+        option.dataset.id = item.id;
+        option.dataset.price = item.price;
+        datalist.appendChild(option);
+        });
+    }
+
+    // Attach drug listeners (for autocomplete & price update)
+    function attachDrugListeners(input) {
+        input.addEventListener("input", function () {
+        if (this.value.length >= 1) {
+            fetchDrugs(this.value);
+        }
+        });
+
+        input.addEventListener("change", function () {
+        const match = [...datalist.options].find(opt => opt.value === this.value);
+        if (match) {
+            const row = this.closest("tr");
+            this.dataset.id = match.dataset.id;
+            row.querySelector(".rate").value = match.dataset.price;
+            row.querySelector(".quantity").value = 1;
+            calculateRowTotal(row);
+        }
+        });
+    }
+
+    // Calculate row total (quantity * rate)
+    function calculateRowTotal(row) {
+        const qty = parseFloat(row.querySelector(".quantity").value) || 0;
+        const rate = parseFloat(row.querySelector(".rate").value) || 0;
+        row.querySelector(".total").value = (qty * rate).toFixed(2);
+    }
+
+    // Attach quantity listeners so total updates on change
+    function attachQuantityListener(input) {
+        input.addEventListener("input", function () {
+        const row = this.closest("tr");
+        calculateRowTotal(row);
+        });
+    }
+
+    // Attach listeners to existing row on load
+    attachDrugListeners(document.querySelector(".drug-name"));
+    attachQuantityListener(document.querySelector(".quantity"));
+
+    // Handle add/remove row buttons
+    document.addEventListener("click", function (e) {
+        if (e.target.classList.contains("add-row")) {
+        const tableBody = document.getElementById("drug-body");
+        const newRow = tableBody.rows[0].cloneNode(true);
+
+        // Reset values
+        newRow.querySelectorAll("input").forEach(inp => inp.value = "");
+        newRow.querySelectorAll("select").forEach(sel => sel.selectedIndex = 0);
+
+        tableBody.appendChild(newRow);
+
+        // Reattach listeners for the new row
+        attachDrugListeners(newRow.querySelector(".drug-name"));
+        attachQuantityListener(newRow.querySelector(".quantity"));
+        }
+
+        if (e.target.classList.contains("remove-row")) {
+        const row = e.target.closest("tr");
+        const tableBody = document.getElementById("drug-body");
+
+        // Prevent removing the last row (must always have at least one)
+        if (tableBody.rows.length > 1) {
+            row.remove();
+        } else {
+            Swal.fire({
+            icon: 'info',
+            title: 'Action Not Allowed',
+            text: 'At least one row must remain.'
+        });
+        // alert('At least one row must remain.')
+        }
+        }
+    });
+
+    document.getElementById("submitDrugs").addEventListener("click", async function () {
+        const rows = document.querySelectorAll("#drug-body tr");
+        let transactions = [];
+
+        rows.forEach(row => {
+        const productName = row.querySelector(".drug-name").value;
+        const productId = row.querySelector(".drug-name").dataset.id;  // set earlier when drug selected
+        const quantity = row.querySelector(".quantity").value;
+        const rate = row.querySelector(".rate").value;
+        const uom = row.querySelector(".uom").value;
+
+        if (productId && quantity > 0) {
+            transactions.push({
+            product_id: productId,
+            product_names: productName,
+            quantity: quantity,
+            price: rate,
+            minimum_UoM: uom,
+            });
+        }
+        });
+
+        if (transactions.length === 0) {
+            Swal.fire({
+                    icon: 'info',
+                    title: 'Action Not Allowed',
+                    text: 'No valid row to save, pls input data.'
+                });
+            return;
+        }
+
+        try {
+        const response = await fetch("{% url 'save_inventory_transaction' %}", {
+            method: "POST",
+            headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": "{{ csrf_token }}",
+            },
+            body: JSON.stringify({ transactions: transactions }),
+        });
+
+        const data = await response.json();
+        // if (data.success) {
+        //     alert("Transactions saved successfully!");
+        //     location.reload(); // reload or clear table
+        // } else {
+        //     alert("Error saving transactions.");
+        // }
+        if (data.success) {
+        Swal.fire({
+            icon: 'success',
+            title: 'Saved!',
+            text: 'Product(s) saved successfully!',
+            timer: 2000,
+            showConfirmButton: false
+            }).then(() => {
+                location.reload();
+            }); 
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Error saving transactions.'
+            });
+        }
+
+        } catch (error) {
+        console.error("Error:", error);
+        alert("Something went wrong.");
+        }
+    });
+    });
+</script>
+{% endblock %}

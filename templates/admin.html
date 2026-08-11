@@ -1,0 +1,578 @@
+{% load static %}
+{% load custom_tags %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Isalu Hospital</title>
+
+    <!-- Custom fonts for this template -->
+    <link href="{% static 'admin-vendor/fontawesome-free/css/all.min.css' %}" rel="stylesheet" type="text/css">
+    <link rel="shortcut icon" href="{% static 'admin-img/myicon.ico' %}" type="image/x-icon" />
+    <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="{% static 'admin-css/sb-admin-2.min.css' %}" rel="stylesheet">
+    <link href="{% static 'admin-vendor/datatables/dataTables.bootstrap4.min.css' %}" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.1/themes/base/jquery-ui.css">
+    <!-- for drug chart -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+</head>
+
+<body id="page-top" data-user-fullname="{{ request.user.fullname }}">
+    <!-- Page Wrapper -->
+    <div id="wrapper">
+
+        <!-- Sidebar -->
+        <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+            <!-- Sidebar - Brand -->
+            <a class="sidebar-brand d-flex align-items-center justify-content-center" href="{% url 'admin-dashboard' %}">
+                <div class="sidebar-brand-icon">
+                    <i class="fas fa-stethoscope"></i>
+                </div>
+                <div class="sidebar-brand-text mx-3">Isalu Hospital</div>
+            </a>
+
+            {% include 'navigations.html' %}
+
+            <hr class="sidebar-divider d-none d-md-block">
+
+            <!-- Sidebar Toggler -->
+            <div class="text-center d-none d-md-inline">
+                <button class="rounded-circle border-0" id="sidebarToggle"></button>
+            </div>
+        </ul>
+        <!-- End of Sidebar -->
+
+        <!-- Content Wrapper -->
+        <div id="content-wrapper" class="d-flex flex-column">
+
+            <!-- Main Content -->
+            <div id="content">
+
+                <!-- Topbar -->
+                <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+
+                    <!-- Sidebar Toggle (Topbar) -->
+                    <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
+                        <i class="fa fa-bars"></i>
+                    </button>
+
+                    <!-- Topbar Search / Action Links -->
+                    <form class="d-none d-sm-inline-block form-inline mr-auto ml-md-3 my-2 my-md-0 mw-100 navbar-search" style="width: 33%;">
+                        <div class="input-group" >
+                            <input type="text" class="form-control bg-light border-0 small" placeholder="Search for..."
+                                   aria-label="Search" aria-describedby="basic-addon2">
+                            <div class="input-group-append">
+                                <button class="btn btn-primary" type="button">
+                                    <i class="fas fa-search fa-sm"></i>
+                                </button>
+                            </div>
+
+                            {% if request.user.department.department in "Front Desk, Admin, CMD" %}
+                                {% if page == 'upload-plans' %}
+                                    <a href="#" data-toggle="modal" data-target="#addPatientPlanModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Add new Plan
+                                    </a>
+                                {% elif page == 'visit-purpose' %}
+                                    <a href="#" data-toggle="modal" data-target="#addServiceListModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Add Service List
+                                    </a>
+                                {% elif page == 'patient-profile' %}
+                                    <a href="#" data-toggle="modal" data-target="#appointmentModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Schedule Visit
+                                    </a>
+                                {% elif page == 'register-patients' %}
+                                    <a href="{% url 'patient_list' %}" class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-upload"></i> Import Patients
+                                    </a>
+                                {% elif page == 'attendants-all' %}
+                                    <a href="#" data-toggle="modal" data-target="#attendanceModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Filter Attendance
+                                    </a>
+                                {% endif %}
+                            {% endif %}
+                            {% if request.user.department.department in 'Inventory, Admin, CMD' %}
+                                {% if page == 'add-product' %}
+                                <a href="#"data-toggle="modal" data-target="#productModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>
+                                {% elif page == 'upload-product' %}
+                                <a href="#"data-toggle="modal" data-target="#multiProductsModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>   
+                                {% elif page == 'ipd-pharm' %}
+                                <a href="#"data-toggle="modal" data-target="#ipdPharmModal" class="font-weight-bold text-info" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>  
+                                {% elif page == 'ipd2-pharm' %}
+                                <a href="#"data-toggle="modal" data-target="#ipd2PharmModal" class="font-weight-bold text-info" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>
+                                {% elif page == 'ipd3-pharm' %}
+                                <a href="#"data-toggle="modal" data-target="#ipd3PharmModal" class="font-weight-bold text-info" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>  
+                                {% elif page == 'opd-pharm' %}
+                                <a href="#"data-toggle="modal" data-target="#opdPharmModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a>  
+                                {% elif page == 'opd2-pharm' %}
+                                <a href="#"data-toggle="modal" data-target="#opd2PharmModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Add Products</a> 
+                                {% elif page == 'view-vendors' %}
+                                <a href="#"data-toggle="modal" data-target="#viewVendorsModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Record</a> 
+                                {% elif page == 'manage-ipd1-requests' %}
+                                <a href="#"data-toggle="modal" data-target="#ipd1RequestFormModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Request</a> 
+                                {% elif page == 'manage-ipd2-requests' %}
+                                <a href="#"data-toggle="modal" data-target="#ipd2RequestFormModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Request</a> 
+                                {% elif page == 'manage-ipd3-requests' %}
+                                <a href="#"data-toggle="modal" data-target="#ipd3RequestFormModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Request</a>
+                                {% elif page == 'manage-opd-requests' %}
+                                <a href="#"data-toggle="modal" data-target="#opdRequestFormModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Request</a>
+                                {% elif page == 'manage-opd2-requests' %}
+                                <a href="#"data-toggle="modal" data-target="#opd2RequestFormModal" class="font-weight-bold text-primary" style="text-decoration: none; margin: 10px 30px;"> 
+                                    <i class="fa fa-plus"></i> Create Request</a>                                        
+                                {% endif %}
+                            {% endif %}
+                            {% if request.user.department.department in 'Laboratory, Radiology, Admin, CMD' %}
+                                {% if page == 'upload-test' %}
+                                    <a href="#" data-toggle="modal" data-target="#labTestModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Add Lab tests
+                                    </a>
+                                {% elif page == 'upload-scan' %}
+                                    <a href="#" data-toggle="modal" data-target="#ScanTestModal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Add Scan tests
+                                    </a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </form>
+
+                    <!-- Topbar Navbar -->
+                    <ul class="navbar-nav ml-auto">
+
+                        <li class="nav-item dropdown no-arrow mx-1">
+                            {% if page == 'add-product' or page == 'view-opd-product' or page == 'view-opd2-product' or page == 'view-ipd-product' or page == 'view-ipd2-product' or page == 'view-ipd3-product'%}
+                            <a class="nav-link dropdown-toggle text-danger font-weight-bold" href="#" data-toggle="modal" data-target="#productLockedModal"
+                                >
+                               <i class="fas fa-lock fa-fw"></i> Locked &nbsp;<span class="badge badge-danger">{{locked_counts}}</span>
+                            </a>
+                            <div class="modal fade" id="productLockedModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+                                aria-hidden="true">
+                                <div class="modal-dialog" role="document">
+                                    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel" style="font-family: cursive;"> Locked Products <span class="badge badge-danger">{{locked_counts}}</span></h5>
+                                            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">×</span>
+                                            </button>
+                                        </div>
+                                        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                                            <table class="table table-bordered"  width="100%" cellspacing="0">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Product</th>
+                                                        <th>Description</th>
+                                                        <th>Price</th>
+                                                        <th>Stock</th>
+                                                        <th>Expiry Date</th>
+                                                    </tr>
+                                                </thead>
+                                                <tfoot>
+                                                    <tr>
+                                                        <th>Product</th>
+                                                        <th>Description</th>
+                                                        <th>Price</th>
+                                                        <th>Stock</th>
+                                                        <th>Expiry Date</th>
+                                                    </tr>
+                                                </tfoot>
+                                                <tbody> 
+                                                    
+                                                {% for prod in locked %}
+                                                    {% if page == 'add-product' %}
+                                                        <tr>
+                                                            <td><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                                                            <td><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; ">{{prod.description}}</a></td>
+                                                            <td><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                                                            <td style="width: 8%;"><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                                                            <td style="width: 30%;"><a href="{% url 'update_stock' prod.id %}" style="text-decoration: none; ">{{prod.expiry_date}}</a></td>
+                                                        </tr>
+                                                    {% else %}
+                                                        <tr>
+                                                            <td><a href="#" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                                                            <td><a href="#" style="text-decoration: none; ">{{prod.description}}</a></td>
+                                                            <td><a href="#" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                                                            <td style="width: 8%;"><a href="#" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                                                            <td style="width: 30%;"><a href="#" style="text-decoration: none; ">{{prod.expiry_date}}</a></td>
+                                                        </tr>
+                                                    {% endif %}
+                                                {% endfor %}
+                                                    
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    </div>
+                                </div>
+                            {% elif request.user.department.department == 'Front Desk' %}
+                            <a class="nav-link dropdown-toggle" href="#" id="messagesDropdown" role="button"
+                               data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-bell fa-fw"></i>
+                                <span class="badge badge-danger badge-counter">{{ birthday_counts }}</span>
+                            </a>
+                            {% endif %}
+                            <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in"
+                                 aria-labelledby="messagesDropdown">
+                                <h6 class="dropdown-header">Today's Birthday Celebrants</h6>
+                                {% for msg in birth_day_patients %}
+                                    <a class="dropdown-item d-flex align-items-center" href="{% url 'patient_profile' msg.id %}">
+                                        <div class="dropdown-list-image mr-3">
+                                            <img class="rounded-circle" src="{{ msg.avatar.url }}" alt="...">
+                                            <div class="status-indicator bg-success"></div>
+                                        </div>
+                                        <div class="font-weight-bold">
+                                            <div class="text-truncate">{{ msg.surname }} {{ msg.first_name }}</div>
+                                            <div class="small text-gray-500">{{ msg.get_age }} years old today</div>
+                                        </div>
+                                    </a>
+                                {% endfor %}
+                                <a class="dropdown-item text-center small text-gray-500" href="{% url 'birthday_list' %}">
+                                    View all Celebrants
+                                </a>
+                            </div>
+                        </li>                        
+                        <!-- Queue Notification -->
+                        {% if request.user.department.department in 'Admin, CMD' %}
+                            {% if page in 'nurse-queue-load, nurse-done-list, operations-profile-nur, background-health, vital-signs, create-ward, create-bed ' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'waiting_list' %}">
+                                        Nurse Queue &nbsp;<span class="badge badge-danger" id="nurse-queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'lab-inventory, upload-test, test-items, lab-queue, lab-results, edit-lab-result, test-history, test-items, operations-profile-lab' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'lab_waiting' %}">
+                                        Laboratory - Queue &nbsp;<span class="badge badge-danger" id="lab-queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'scan-inventory, upload-scan, scan-queue, scan-results, edit-scan-result, scan-result-history, operations-profile-rad, scan-review' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'scan_waiting' %}">
+                                        Radiology - Queue &nbsp;<span class="badge badge-danger" id="scan-queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'view-ipd-product, generate-ipd-report, generate-ipd-outstock, ipd1-patient-profile, update-ipd-stock, ipd-requisitions, manage-ipd-request, history-of-ipd-requests, request-to-ipd, history-of-inventory-requests-to-ipd1, pharm1-queue, ipd1-prescriptions, ipd1-dispense, ipd1-completed' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'ipd_pharm1_queue' %}">
+                                        IPD Pharmacy 1 - Queue &nbsp;<span class="badge badge-danger" id="ipd-pharm1-queue-count">0</span>
+                                    </a>
+                                </li>   
+                            {% elif page in 'view-ipd2-product, stock-report-ipd2, stock-upd-ipd2, ipd2-requisitions, manage-ipd2-request, history-of-ipd2-requests, ipd2-inventory-requests, history-of-inventory-requests-to-ipd2, ipd2-doctor-prescriptions, ipd2-queue, ipd2-dispense, ipd2-completed, ipd2-patient-profile ' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'ipd2pharm_queue' %}">
+                                        IPD Pharmacy 2 - Queue &nbsp;<span class="badge badge-danger" id="ipd2pharm_queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'view-ipd3-product, instock-report-ipd3, outstock-report-ipd3, stock-upd-ipd3, ipd3-requisitions, manage-ipd3-request, history-of-ipd3-requests, ipd3-inventory-requests, history-of-inventory-requests-to-ipd3, ipd3-queue, ipd3-doctor-prescriptions, ipd3-dispense, ipd3-completed, ipd3-patient-profile' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'ipd3pharm_queue' %}">
+                                        IPD Pharmacy 3 - Queue &nbsp;<span class="badge badge-danger" id="ipd3pharm_queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'view-opd-product, instock-report-opd, outstock-report-opd, stock-upd-opd, opd-requisitions, manage-opd-request, history-of-opd-requests, opd-inventory-requests, history-of-inventory-requests-to-opd, opd-queue, opd-doctor-prescriptions, opd-dispense, opd-completed, opd-patient-profile' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'opdpharm_queue' %}">
+                                        OPD Pharmacy 1 - Queue &nbsp;<span class="badge badge-danger" id="opdpharm_queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'view-opd2-product, instock-report-opd2, outstock-report-opd2, stock-upd-opd2, opd2-requisitions, manage-opd2-request, history-of-opd2-requests, opd2-inventory-requests, history-of-inventory-requests-to-opd2, opd2-queue, opd2-doctor-prescriptions, opd2-dispense, opd2-completed, opd2-patient-profile' %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'opd2pharm_queue' %}">
+                                        OPD Pharmacy 2 - Queue &nbsp;<span class="badge badge-danger" id="opd2pharm_queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% elif page in 'add-product, upload-product, ipd-pharm, ipd2-pharm, ipd3-pharm, opd-pharm, opd2-pharm, view-vendors, manage-ipd1-requests, manage-ipd2-requests, manage-ipd3-requests, manage-opd-requests, manage-opd2-requests' %}
+                                <li class="nav-item">
+                                </li>
+                            {% else %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'scan_results_waiting' %}">
+                                        Scans  &nbsp;<span class="badge badge-success" id="scan-results-queue-count">0</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'lab_results_waiting' %}">
+                                        Lab Result &nbsp;<span class="badge badge-warning" id="lab-results-queue-count">0</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'doctor_waiting_list' %}">
+                                        Patients Queue &nbsp;<span class="badge badge-danger" id="doctor-queue-count">0</span>
+                                    </a>
+                                </li>
+                            {% endif %}
+
+
+                            <!-- Other departments -->
+                        {% elif request.user.department.department == 'Nursing' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'waiting_list' %}">
+                                    Nurse Queue &nbsp;<span class="badge badge-danger" id="nurse-queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'Clinical' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'scan_results_waiting' %}">
+                                    Scans  &nbsp;<span class="badge badge-success" id="scan-results-queue-count">0</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'lab_results_waiting' %}">
+                                    Lab Result &nbsp;<span class="badge badge-warning" id="lab-results-queue-count">0</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'doctor_waiting_list' %}">
+                                    Patients Queue &nbsp;<span class="badge badge-danger" id="doctor-queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'Radiology' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'scan_waiting' %}">
+                                    Radiology - Queue &nbsp;<span class="badge badge-danger" id="scan-queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'Laboratory' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'lab_waiting' %}">
+                                    Laboratory - Queue &nbsp;<span class="badge badge-danger" id="lab-queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'IPD Pharmacy 1' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'ipd_pharm1_queue' %}">
+                                    IPD Pharmacy 1 - Queue &nbsp;<span class="badge badge-danger" id="ipd-pharm1-queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'IPD Pharmacy 2' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'ipd2pharm_queue' %}">
+                                    IPD Pharmacy 2 - Queue &nbsp;<span class="badge badge-danger" id="ipd2pharm_queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'IPD Pharmacy 3' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'ipd3pharm_queue' %}">
+                                    IPD Pharmacy 3 - Queue &nbsp;<span class="badge badge-danger" id="ipd3pharm_queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'OPD Pharmacy 1' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'opdpharm_queue' %}">
+                                    OPD Pharmacy 1 - Queue &nbsp;<span class="badge badge-danger" id="opdpharm_queue-count">0</span>
+                                </a>
+                            </li>
+                        {% elif request.user.department.department == 'OPD Pharmacy 2' %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'opd2pharm_queue' %}">
+                                    OPD Pharmacy 2 - Queue &nbsp;<span class="badge badge-danger" id="opd2pharm_queue-count">0</span>
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        <div class="topbar-divider d-none d-sm-block"></div>
+
+                        <!-- User Information -->
+                        <li class="nav-item dropdown no-arrow">
+                            {% if request.user.is_authenticated %}
+                                <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                                   data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                    <span class="mr-2 d-none d-lg-inline text-gray-600 small">{{ request.user.fullname }}</span>
+                                    <img class="img-profile rounded-circle" src="{{ request.user.avatar.url }}">
+                                </a>
+                            {% else %}
+                                <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                                   data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                    <span class="mr-2 d-none d-lg-inline text-gray-600 small">Isalu Hospital</span>
+                                    <img class="img-profile rounded-circle" src="{% static 'admin-img/undraw_profile.svg' %}">
+                                </a>
+                            {% endif %}
+                            <div class="dropdown-menu dropdown-menu-right shadow animated--grow-in"
+                                 aria-labelledby="userDropdown">
+                                <a class="dropdown-item" href="{% url 'user-profile' user.id %}">
+                                    <i class="fas fa-user fa-sm fa-fw mr-2 text-gray-400"></i> Profile
+                                </a>
+                                <a class="dropdown-item" href="{% url 'profile-update' user.id %}">
+                                    <i class="fas fa-cogs fa-sm fa-fw mr-2 text-gray-400"></i> Settings
+                                </a>
+                                <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="#" data-toggle="modal" data-target="#logoutModal">
+                                    <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i> Logout
+                                </a>
+                            </div>
+                        </li>
+                    </ul>
+                </nav>
+
+                <!-- Page Content -->
+                {% include 'users/messages.html' %}
+                {% block content %}{% endblock %}
+            </div>
+
+            <!-- Footer -->
+            <footer class="sticky-footer bg-white">
+                <div class="container my-auto text-center">
+                    <span>Powered By STEAM Technologies</span>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Scroll to Top Button-->
+    <a class="scroll-to-top rounded" href="#page-top"><i class="fas fa-angle-up"></i></a>
+
+    <!-- Logout Modal -->
+    <div class="modal fade" id="logoutModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Ready to Leave?</h5>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                <div class="modal-body">Select "Logout" below to end your session.</div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+                    <a class="btn btn-primary" href="{% url 'logout' %}">Logout</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="admitPatientModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-edit"></i> Want to admit this Patient? </h5>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                <div class="modal-footer">
+                        <a class="btn btn-primary" href="#" data-toggle="modal" class="text-danger" data-target="#pin2AdmainPatientModal">Admit Now <i class="fa fa-user-plus"></i></a>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                    </form>
+                </div> 
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="pin2AdmainPatientModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <form method="post">
+                    {% csrf_token %}
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+                    <div class="modal-footer">
+                        <button type="submit" name="admit_patient" class="btn btn-primary">Admit Now <i class="fa fa-upload"></i></button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                    </div>
+                </form>
+            </div>
+        </div> 
+    </div>
+</div>
+   <!--<audio id="notify-sound" src="{% static 'sounds/notification.mp3' %}" preload="auto"></audio>-->
+
+    {{ redirect_to_login_immediately }}
+
+    <!-- Core Scripts -->
+    <script src="{% static 'admin-vendor/jquery/jquery.min.js' %}"></script>
+    <script src="{% static 'admin-vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+    <script src="{% static 'admin-vendor/jquery-easing/jquery.easing.min.js' %}"></script>
+    <script src="{% static 'admin-vendor/datatables/jquery.dataTables.min.js' %}"></script>
+    <script src="{% static 'admin-vendor/datatables/dataTables.bootstrap4.min.js' %}"></script>
+    <script src="{% static 'admin-js/sb-admin-2.min.js' %}"></script>
+    <script src="{% static 'admin-js/demo/datatables-demo.js' %}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://code.jquery.com/ui/1.13.1/jquery-ui.min.js"></script>
+
+
+    <!-- SweetAlert Message Display -->
+    {% if messages %}
+        {% for message in messages %}
+        <script>
+            Swal.fire({
+                icon: '{{ message.tags }}',
+                title: '{{ message.tags|capfirst }}',
+                text: '{{ message }}',
+                timer: 3000,
+                showConfirmButton: false,
+                position: 'top-end'
+            });
+        </script>
+        {% endfor %}
+    {% endif %}
+
+    <!-- Queue Polling -->
+    <script>
+        function checkQueue(url, targetId) {
+            let prevCount = 0;
+            setInterval(() => {
+                $.get(url, function (json) {
+                    let newCount = json.count || 0;
+                    $("#" + targetId).text(newCount);
+                    if (newCount > prevCount) {
+                        const audio = document.getElementById('notify-sound');
+                        if (audio) {
+                            audio.pause(); 
+                            audio.currentTime = 0;
+                            // audio.play().catch(err => console.warn('Audio blocked:', err));
+                        }
+                    }
+                    prevCount = newCount;
+                });
+            }, 1000);
+        }
+
+        $(function () {
+            checkQueue("{% url 'nurse_waiting_count' %}", "nurse-queue-count");
+            checkQueue("{% url 'doctor_waiting_count' %}", "doctor-queue-count");
+            checkQueue("{% url 'lab_waiting_count' %}", "lab-queue-count");
+            checkQueue("{% url 'scan_waiting_count' %}", "scan-queue-count");
+            checkQueue("{% url 'pharm1_waiting_count' %}", "ipd-pharm1-queue-count");
+            checkQueue("{% url 'ipd2pharm_waiting_count' %}", "ipd2pharm_queue-count");
+            checkQueue("{% url 'ipd3pharm_waiting_count' %}", "ipd3pharm_queue-count");
+            checkQueue("{% url 'opdpharm_waiting_count' %}", "opdpharm_queue-count");
+            checkQueue("{% url 'opd2pharm_waiting_count' %}", "opd2pharm_queue-count");
+            checkQueue("{% url 'lab_results_waiting_count' %}", "lab-results-queue-count");
+            checkQueue("{% url 'scan_results_waiting_count' %}", "scan-results-queue-count");
+        });
+    </script>
+
+    {% block scripts %}
+    {% endblock %}
+
+</body>
+</html>

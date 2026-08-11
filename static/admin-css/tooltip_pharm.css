@@ -1,0 +1,15 @@
+.tooltip-card {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.tooltip-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #0d6efd;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 4px;
+}
+.tooltip-row {
+    cursor: pointer;
+}

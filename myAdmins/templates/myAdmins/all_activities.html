@@ -1,0 +1,365 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="h3 mb-3 text-gray-800 font-weight-bold">
+                <i class="fas fa-history"></i> All User Activities 
+                <span class="badge badge-secondary bg-style">{{ total_count }}</span>
+            </h1>
+             <!-- Export Buttons -->
+            <div style="float: right; margin-top: -45px;">
+                <button class="btn btn-success btn-sm" onclick="exportToCSV()">
+                    <i class="fas fa-file-excel"></i> Export to CSV
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="window.print()">
+                    <i class="fas fa-print"></i> Print
+                </button>
+            </div>
+            <!-- Filter Section -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h6 class="mb-0 font-weight-bold">
+                        <i class="fas fa-filter"></i> Filter Activities
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <form method="GET" class="row">
+                        <div class="col-md-3 mb-2">
+                            <label>User</label>
+                            <select name="user" class="form-control">
+                                <option value="">All Users</option>
+                                {% for user in all_users %}
+                                <option value="{{ user.id }}" {% if request.GET.user|add:"0" == user.id %}selected{% endif %}>
+                                    {{ user.fullname }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Activity Type</label>
+                            <select name="type" class="form-control">
+                                <option value="">All Activities</option>
+                                {% for value, label in activity_types %}
+                                <option value="{{ value }}" {% if current_type == value %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2 mb-2">
+                            <label>Start Date</label>
+                            <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                        </div>
+                        <div class="col-md-2 mb-2">
+                            <label>End Date</label>
+                            <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                        </div>
+                        <div class="col-md-2 mb-2">
+                            <label>&nbsp;</label>
+                            <div class="btn-group w-100">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i> Apply Filters
+                                </button>
+
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+           
+            
+            <!-- Activities Table -->
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped table-hover">
+                    <thead class="bg-dark text-white">
+                        <tr>
+                            <th>User</th>
+                            <th>Department</th>
+                            <th>Activity Type</th>
+                            <th>Description</th>
+                            <th>Browser</th>
+                            <th>OS</th>
+                            <th>Device</th>
+                            <th>IP Address</th>
+                            <th>Page Accessed</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for activity in activities %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'user_activities_detail' activity.user.id %}" class="text-decoration-none">
+                                    {{ activity.user.fullname }}
+                                </a>
+                            </td>
+                            <td>{{ activity.user.department|default:"-" }}</td>
+                            <td>
+                                {% if activity.activity_type == 'login' %}
+                                    <span class="badge badge-success bg-style">
+                                        <i class="fas fa-sign-in-alt"></i> Login
+                                    </span>
+                                {% elif activity.activity_type == 'logout' %}
+                                    <span class="badge badge-info bg-style">
+                                        <i class="fas fa-sign-out-alt"></i> Logout
+                                    </span>
+                                {% elif activity.activity_type == 'password_reset' %}
+                                    <span class="badge badge-warning bg-style">
+                                        <i class="fas fa-key"></i> Password Reset
+                                    </span>
+                                {% elif activity.activity_type == 'pin_reset' %}
+                                    <span class="badge badge-warning bg-style">
+                                        <i class="fas fa-lock"></i> PIN Reset
+                                    </span>
+                                {% elif activity.activity_type == 'deactivated' %}
+                                    <span class="badge badge-danger bg-style">
+                                        <i class="fas fa-user-slash"></i> Deactivated
+                                    </span>
+                                {% elif activity.activity_type == 'activated' %}
+                                    <span class="badge badge-success bg-style">
+                                        <i class="fas fa-user-check"></i> Activated
+                                    </span>
+                                {% elif activity.activity_type == 'profile_update' %}
+                                    <span class="badge badge-primary bg-style">
+                                        <i class="fas fa-user-edit"></i> Profile Update
+                                    </span>
+                                {% elif activity.activity_type == 'password_change' %}
+                                    <span class="badge badge-info bg-style">
+                                        <i class="fas fa-exchange-alt"></i> Password Change
+                                    </span>
+                                {% elif activity.activity_type == 'failed_login' %}
+                                    <span class="badge badge-danger bg-style">
+                                        <i class="fas fa-exclamation-triangle"></i> Failed Login
+                                    </span>
+                                {% elif activity.activity_type == 'account_accessed' %}
+                                    <span class="badge badge-secondary bg-style">
+                                        <i class="fas fa-user-shield"></i> Account Accessed
+                                    </span>
+                                {% else %}
+                                    <span class="badge badge-secondary bg-style">
+                                        {{ activity.get_activity_type_display }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small>{{ activity.description|default:"-"|truncatechars:100 }}</small>
+                            </td>
+                            <td>
+                                {% if activity.browser_name %}
+                                    <i class="fab fa-{% if 'Chrome' in activity.browser_name %}chrome{% elif 'Firefox' in activity.browser_name %}firefox{% elif 'Safari' in activity.browser_name %}safari{% elif 'Edge' in activity.browser_name %}edge{% else %}internet-explorer{% endif %}"></i>
+                                    {{ activity.browser_name }} 
+                                    <small class="text-muted">{{ activity.browser_version }}</small>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if activity.os_name %}
+                                    <i class="fab fa-{% if 'Windows' in activity.os_name %}windows{% elif 'macOS' in activity.os_name or 'Mac' in activity.os_name %}apple{% elif 'Linux' in activity.os_name or 'Ubuntu' in activity.os_name %}linux{% else %}android{% endif %}"></i>
+                                    {{ activity.os_name }} 
+                                    <small class="text-muted">{{ activity.os_version }}</small>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if activity.device_type %}
+                                    <i class="fas fa-{% if activity.device_type == 'Mobile' %}mobile-alt{% elif activity.device_type == 'Desktop' %}desktop{% else %}tablet-alt{% endif %}"></i>
+                                    {{ activity.device_type }}
+                                    {% if activity.device_brand %}
+                                        <br><small class="text-muted">({{ activity.device_brand }})</small>
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <code>{{ activity.ip_address|default:"-" }}</code>
+                            </td>
+                            <td>
+                                <small class="text-muted">{{ activity.page_accessed|default:"-" }}</small>
+                            </td>
+                            <td>
+                                <div class="text-nowrap">
+                                    <i class="far fa-calendar-alt"></i> {{ activity.timestamp|date:"Y-m-d" }}<br>
+                                    <i class="far fa-clock"></i> {{ activity.timestamp|date:"H:i:s" }}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="11" class="text-center py-5">
+                                <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                                <h5>No activities found</h5>
+                                <p class="text-muted">No user activities have been logged yet.</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            {% if activities.has_other_pages %}
+            <div class="row mt-4">
+                <div class="col-12">
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination justify-content-center">
+                            {% if activities.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page=1{{ filters_params }}" aria-label="First">
+                                    <span aria-hidden="true">&laquo;&laquo;</span>
+                                </a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ activities.previous_page_number }}{{ filters_params }}" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;</span>
+                                </a>
+                            </li>
+                            {% endif %}
+                            
+                            {% for num in activities.paginator.page_range %}
+                                {% if activities.number == num %}
+                                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                                {% elif num > activities.number|add:'-3' and num < activities.number|add:'3' %}
+                                    <li class="page-item"><a class="page-link" href="?page={{ num }}{{ filters_params }}">{{ num }}</a></li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if activities.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ activities.next_page_number }}{{ filters_params }}" aria-label="Next">
+                                    <span aria-hidden="true">&raquo;</span>
+                                </a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ activities.paginator.num_pages }}{{ filters_params }}" aria-label="Last">
+                                    <span aria-hidden="true">&raquo;&raquo;</span>
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<link href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap4.min.css" rel="stylesheet">
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap4.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    // Initialize DataTable
+    $('#dataTable').DataTable({
+        "order": [[10, "desc"]], // Order by timestamp (11th column, index 10)
+        "pageLength": 25,
+        "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+        "language": {
+            "search": "<i class='fas fa-search'></i> Search activities:",
+            "lengthMenu": "Show _MENU_ entries",
+            "info": "Showing _START_ to _END_ of _TOTAL_ entries",
+            "infoEmpty": "Showing 0 to 0 of 0 entries",
+            "emptyTable": "No activities found",
+            "paginate": {
+                "first": "First",
+                "last": "Last",
+                "next": "Next",
+                "previous": "Previous"
+            }
+        },
+        "columnDefs": [
+            { "orderable": false, "targets": [3, 4, 5, 6, 7, 8, 9] } // Disable sorting on some columns
+        ]
+    });
+});
+
+// Export to CSV function
+function exportToCSV() {
+    let csv = [];
+    let rows = document.querySelectorAll('#dataTable tr');
+    
+    for (let i = 0; i < rows.length; i++) {
+        let row = [], cols = rows[i].querySelectorAll('td, th');
+        
+        for (let j = 0; j < cols.length; j++) {
+            let text = cols[j].innerText.replace(/,/g, ';'); // Replace commas to avoid CSV issues
+            row.push('"' + text + '"');
+        }
+        
+        csv.push(row.join(','));
+    }
+    
+    // Download CSV
+    let csvFile = new Blob([csv.join('\n')], {type: 'text/csv'});
+    let downloadLink = document.createElement('a');
+    downloadLink.download = 'user_activities_' + new Date().toISOString().slice(0,19) + '.csv';
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.style.display = 'none';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+}
+
+// Auto-refresh every 30 seconds (optional)
+setInterval(function() {
+    if (confirm('Auto-refresh is disabled. Click OK to refresh manually.')) {
+        location.reload();
+    }
+}, 30000);
+</script>
+
+<style>
+    .bg-style {
+        font-size: 11px;
+        padding: 5px 10px;
+        border-radius: 3px;
+    }
+    
+    table td {
+        vertical-align: middle; 
+    }
+    
+    th{
+        font-size: 10px;
+    }
+
+    .table-hover tbody tr:hover {
+        background-color: #f5f5f5;
+    }
+    
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter {
+        margin-bottom: 15px;
+    }
+    
+    .dataTables_wrapper .dataTables_info {
+        padding-top: 15px;
+    }
+    
+    .dataTables_wrapper .dataTables_paginate {
+        padding-top: 15px;
+    }
+    
+    code {
+        background-color: #f8f9fa;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    
+    @media print {
+        .btn-group, .dataTables_filter, .dataTables_length, .dataTables_paginate, .card-header {
+            display: none !important;
+        }
+        .table {
+            font-size: 10px;
+        }
+    }
+</style>
+{% endblock %}

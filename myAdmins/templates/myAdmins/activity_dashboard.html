@@ -1,0 +1,603 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800 font-weight-bold">
+            <i class="fas fa-chart-line"></i> Activity Dashboard
+        </h1>
+        <div>
+            <a href="{% url 'all_activities' %}" class="btn btn-primary btn-sm">
+                <i class="fas fa-list"></i> View All Activities
+            </a>
+            <button onclick="window.location.reload()" class="btn btn-info btn-sm">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                <i class="fas fa-database"></i> Total Activities
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ total_activities }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-chart-line fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                <i class="fas fa-calendar"></i> Last 30 Days
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ activities_last_30_days }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-calendar-week fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                <i class="fas fa-today"></i> Today's Activities
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ today_activities }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-sun fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                <i class="fas fa-users"></i> Active Users
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ active_users|length }}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row">
+        <!-- Activity Breakdown Chart -->
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-pie"></i> Activity Breakdown by Type
+                    </h6>
+                    <div class="dropdown no-arrow">
+                        <a class="dropdown-toggle" href="#" role="button" id="dropdownMenuLink" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="fas fa-ellipsis-v fa-sm fa-fw text-gray-400"></i>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-right shadow animated--fade-in" aria-labelledby="dropdownMenuLink">
+                            <div class="dropdown-header">Options:</div>
+                            <a class="dropdown-item" href="#" onclick="exportChartAsImage()">Export as Image</a>
+                            <a class="dropdown-item" href="#" onclick="printChart()">Print Chart</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="chart-pie pt-4 pb-2">
+                        <canvas id="activityPieChart"></canvas>
+                    </div>
+                    <div class="mt-4 text-center small" id="chartLegend"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Active Users -->
+        <div class="col-xl-6 col-lg-6 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-trophy"></i> Top 5 Most Active Users
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>User</th>
+                                    <th>Activities</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in active_users %}
+                                <tr>
+                                    <td>{{ forloop.counter }}</td>
+                                    <td>
+                                        <strong>{{ user.user__fullname|default:user.user__username }}</strong>
+                                        {% if forloop.counter == 1 %}
+                                            <span class="badge badge-warning ml-2 bg-admin">
+                                                <i class="fas fa-crown"></i> Top
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-primary badge-pill bg-admin">{{ user.activity_count }}</span>
+                                        activities
+                                    </td>
+                                    <td>
+                                    {% if user.user__id %}
+                                        <a href="{% url 'user_activities_detail' user.user__id %}" class="btn btn-sm btn-info">
+                                            <i class="fas fa-eye"></i> View Activities
+                                        </a>
+                                    {% else %}
+                                        <button class="btn btn-sm btn-secondary" disabled>
+                                            <i class="fas fa-eye"></i> View Activities
+                                        </button>
+                                    {% endif %}
+                                </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center">No activities found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity Timeline and Weekly Trends -->
+    <div class="row">
+        <!-- Weekly Activity Trend -->
+        <div class="col-xl-8 col-lg-7 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-line"></i> Weekly Activity Trend (Last 7 Days)
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="chart-area">
+                        <canvas id="weeklyActivityChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="col-xl-4 col-lg-5 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-bar"></i> Activity Insights
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <div class="h4 mb-0 text-gray-800">{{ total_activities }}</div>
+                        <div class="small text-gray-500">Total Activities Logged</div>
+                    </div>
+                    <div class="progress mb-3">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: {% widthratio activities_last_30_days total_activities 100 %}%" aria-valuenow="{% widthratio activities_last_30_days total_activities 100 %}" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div class="text-center mb-4">
+                        <div class="small text-gray-500">
+                            <i class="fas fa-calendar"></i> {{ activities_last_30_days }} activities in last 30 days
+                            ({% widthratio activities_last_30_days total_activities 100 %}% of total)
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="text-center">
+                        <div class="h5 mb-2 text-gray-800">Activity Rate</div>
+                        <div class="small text-gray-500 mb-3">Average daily activities</div>
+                        <div class="h2 mb-0 font-weight-bold text-primary">
+                            {% if total_activities > 0 %}
+                                {{ total_activities|floatformat:0 }}
+                            {% else %}
+                                0
+                            {% endif %}
+                        </div>
+                        <div class="small text-gray-500">per day (overall average)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Type Breakdown Table -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-list-ol"></i> Detailed Activity Breakdown
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped" id="breakdownTable">
+                            <thead>
+                                <tr>
+                                    <th>Activity Type</th>
+                                    <th>Count</th>
+                                    <th>Percentage</th>
+                                    <th>Visual</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for activity in activity_breakdown %}
+                                <tr>
+                                    <td>
+                                        {% if activity.activity_type == 'login' %}
+                                            <span class="badge badge-success bg-admin">
+                                                <i class="fas fa-sign-in-alt"></i> Login
+                                            </span>
+                                        {% elif activity.activity_type == 'logout' %}
+                                            <span class="badge badge-info bg-admin">
+                                                <i class="fas fa-sign-out-alt"></i> Logout
+                                            </span>
+                                        {% elif activity.activity_type == 'password_reset' %}
+                                            <span class="badge badge-warning bg-admin">
+                                                <i class="fas fa-key"></i> Password Reset
+                                            </span>
+                                        {% elif activity.activity_type == 'password_change' %}
+                                            <span class="badge badge-warning bg-admin">
+                                                <i class="fas fa-exchange-alt"></i> Password Change
+                                            </span>
+                                        {% elif activity.activity_type == 'pin_reset' %}
+                                            <span class="badge badge-warning bg-admin">
+                                                <i class="fas fa-lock"></i> PIN Reset
+                                            </span>
+                                        {% elif activity.activity_type == 'pin_created' %}
+                                            <span class="badge badge-info bg-admin">
+                                                <i class="fas fa-plus-circle"></i> PIN Created
+                                            </span>
+                                        {% elif activity.activity_type == 'pin_change' %}
+                                            <span class="badge badge-info bg-admin">
+                                                <i class="fas fa-edit"></i> PIN Changed
+                                            </span>
+                                        {% elif activity.activity_type == 'deactivated' %}
+                                            <span class="badge badge-danger bg-admin">
+                                                <i class="fas fa-user-slash"></i> Deactivated
+                                            </span>
+                                        {% elif activity.activity_type == 'activated' %}
+                                            <span class="badge badge-success bg-admin">
+                                                <i class="fas fa-user-check"></i> Activated
+                                            </span>
+                                        {% elif activity.activity_type == 'profile_update' %}
+                                            <span class="badge badge-primary bg-admin">
+                                                <i class="fas fa-user-edit"></i> Profile Update
+                                            </span>
+                                        {% else %}
+                                            <span class="badge badge-secondary bg-admin">
+                                                {{ activity.activity_type|title }}
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td><strong>{{ activity.count }}</strong></td>
+                                    <td>
+                                        {% widthratio activity.count total_activities 100 %}%
+                                    </td>
+                                    <td style="width: 40%;">
+                                        <div class="progress">
+                                            <div class="progress-bar 
+                                                {% if activity.activity_type == 'login' %}bg-success
+                                                {% elif activity.activity_type == 'logout' %}bg-info
+                                                {% elif activity.activity_type == 'deactivated' %}bg-danger
+                                                {% elif activity.activity_type == 'activated' %}bg-success
+                                                {% else %}bg-primary{% endif %}" 
+                                                role="progressbar" 
+                                                style="width: {% widthratio activity.count total_activities 100 %}%" 
+                                                aria-valuenow="{% widthratio activity.count total_activities 100 %}" 
+                                                aria-valuemin="0" 
+                                                aria-valuemax="100">
+                                                {% widthratio activity.count total_activities 100 %}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+
+<script>
+// Prepare data for charts
+const activityData = {
+    labels: [
+        {% for activity in activity_breakdown %}
+            "{{ activity.activity_type|title }}",
+        {% endfor %}
+    ],
+    counts: [
+        {% for activity in activity_breakdown %}
+            {{ activity.count }},
+        {% endfor %}
+    ]
+};
+
+// Colors for different activities
+const colors = [
+    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
+    '#858796', '#5a5c69', '#2e59d9', '#17a673', '#2c9faf',
+    '#e0a800', '#c92a2a', '#6f42c1', '#fd7e14', '#20c997'
+];
+
+// Pie Chart
+const ctx = document.getElementById('activityPieChart');
+if (ctx) {
+    new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: activityData.labels,
+            datasets: [{
+                data: activityData.counts,
+                backgroundColor: colors,
+                hoverBackgroundColor: colors,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((value / total) * 100).toFixed(1);
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Weekly Activity Chart
+function getWeeklyData() {
+    // Create last 7 days labels
+    const labels = [];
+    const data = [];
+    
+    for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const monthDay = `${date.getMonth() + 1}/${date.getDate()}`;
+        labels.push(`${dayName}\n${monthDay}`);
+        
+        // Random data for demo - you should replace this with actual data from your backend
+        const randomCount = Math.floor(Math.random() * 50) + 10;
+        data.push(randomCount);
+    }
+    
+    return { labels, data };
+}
+
+const weeklyData = getWeeklyData();
+const weeklyCtx = document.getElementById('weeklyActivityChart');
+if (weeklyCtx) {
+    new Chart(weeklyCtx, {
+        type: 'line',
+        data: {
+            labels: weeklyData.labels,
+            datasets: [{
+                label: 'Activities',
+                data: weeklyData.data,
+                borderColor: '#4e73df',
+                backgroundColor: 'rgba(78, 115, 223, 0.1)',
+                borderWidth: 2,
+                pointBackgroundColor: '#4e73df',
+                pointBorderColor: '#fff',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Activities: ${context.parsed.y}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 10
+                    },
+                    title: {
+                        display: true,
+                        text: 'Number of Activities'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Date'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Export chart as image
+function exportChartAsImage() {
+    const canvas = document.getElementById('activityPieChart');
+    const link = document.createElement('a');
+    link.download = 'activity-chart.png';
+    link.href = canvas.toDataURL();
+    link.click();
+}
+
+// Print chart
+function printChart() {
+    const canvas = document.getElementById('activityPieChart');
+    const win = window.open();
+    win.document.write('<img src="' + canvas.toDataURL() + '" />');
+    win.print();
+    win.close();
+}
+
+// DataTable initialization
+$(document).ready(function() {
+    $('#breakdownTable').DataTable({
+        "pageLength": 10,
+        "order": [[1, "desc"]], // Order by count descending
+        "language": {
+            "search": "<i class='fas fa-search'></i> Search:",
+            "lengthMenu": "Show _MENU_ entries",
+            "info": "Showing _START_ to _END_ of _TOTAL_ entries"
+        }
+    });
+});
+
+// Auto-refresh every 60 seconds (optional)
+let autoRefresh = setInterval(function() {
+    if (confirm('Auto-refresh is enabled. Click OK to refresh the dashboard.')) {
+        window.location.reload();
+    }
+}, 60000);
+
+// Stop auto-refresh when page is hidden
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        clearInterval(autoRefresh);
+    } else {
+        autoRefresh = setInterval(function() {
+            if (confirm('Auto-refresh is enabled. Click OK to refresh the dashboard.')) {
+                window.location.reload();
+            }
+        }, 60000);
+    }
+});
+</script>
+
+<style>
+    .card-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .card-header h6 {
+        color: white !important;
+    }
+    
+    .border-left-primary {
+        border-left: 4px solid #4e73df !important;
+    }
+    
+    .border-left-success {
+        border-left: 4px solid #1cc88a !important;
+    }
+    
+    .border-left-info {
+        border-left: 4px solid #36b9cc !important;
+    }
+    
+    .border-left-warning {
+        border-left: 4px solid #f6c23e !important;
+    }
+    
+    .progress {
+        height: 25px;
+        border-radius: 10px;
+    }
+    
+    .progress-bar {
+        line-height: 25px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .bg-admin {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+    
+    .table td {
+        vertical-align: middle;
+    }
+    
+    canvas {
+        max-height: 300px;
+    }
+    
+    @media print {
+        .btn, .no-print, .dataTables_filter, .dataTables_length, .dataTables_paginate {
+            display: none !important;
+        }
+        .card {
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

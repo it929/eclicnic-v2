@@ -1,0 +1,1027 @@
+{% extends 'admin.html' %}
+
+{% block title %}Drug Chart - {{ patient.name }}{% endblock %}
+{% load custom_tags %}
+{% block page_title %}
+<style>
+    .admin-slot {
+    transition: all 0.2s;
+    border: none !important;
+}
+
+.admin-slot:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Ensure colors show */
+.table-warning {
+    background-color: #fff3cd !important;
+}
+</style>
+<div class="page-header">
+    <div class="row align-items-center">
+        <div class="col">
+            <h3 class="page-title">Drug Administration Chart</h3>
+            <ul class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'patient_list' %}">Patients</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'patient_detail' patient.id %}">{{ patient.name }}</a></li>
+                <li class="breadcrumb-item active">Drug Chart</li>
+            </ul>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" onclick="window.print()">
+                <i class="fas fa-print me-2"></i> Print Chart
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="drug-chart-container">
+    <!-- Patient Header Card -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="d-flex align-items-center">
+                        <div class="avatar avatar-lg bg-primary-light rounded-circle me-3">
+                            <i class="fas fa-user-injured fa-2x text-primary"></i> 
+                        </div>
+                        <div>
+                            <h4 class="mb-1">{{ patient.name }}</h4>
+                            <p class="text-muted mb-0">
+                                <span class="badge bg-primary">HG/{{ patient.hospital_number|default:"345666A" }}</span>
+                                <span class="ms-2"><i class="far fa-calendar-alt me-1"></i> DOB: {{ patient.date_of_birth|date:"d/m/Y" }}</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <div class="admission-details p-3 bg-light rounded">
+                        <small class="text-muted d-block">Admitted:</small>
+                        <strong>{{ patient.admission_date|default:"23RD JANUARY 2026" }} - {{ patient.admission_time|default:"11:05 AM" }}</strong>
+                        <br>
+                        <small class="text-muted d-block mt-2">Ward/Bed:</small>
+                        <strong>{{ patient.ward|default:"General Ward" }} / {{ patient.bed|default:"12A" }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Date Navigation Card -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-4">
+                    <button class="btn btn-outline-primary" onclick="changeWeek(-1)">
+                        <i class="fas fa-chevron-left me-2"></i> Last Week
+                    </button>
+                </div>
+                <div class="col-md-4 text-center">
+                    <h5 class="mb-0">
+                        <span class="badge bg-light text-dark p-3">
+                            <i class="far fa-calendar-alt me-2"></i> 
+                            {{ start_date|date:"d M Y" }} - {{ end_date|date:"d M Y" }}
+                        </span>
+                    </h5>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-outline-primary" onclick="changeWeek(1)">
+                        Next Week<i class="fas fa-chevron-right ms-2"></i> 
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <ul class="nav nav-tabs nav-tabs-bottom">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#" data-filter="all">
+                        <i class="fas fa-pills me-2"></i> All Medications
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-filter="regular">
+                        <i class="fas fa-clock me-2"></i> Regular Prescriptions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-filter="stat">
+                        <i class="fas fa-bolt me-2"></i> Stat Prescriptions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-filter="prn">
+                        <i class="fas fa-question-circle me-2"></i> PRN Prescriptions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-filter="glycemic">
+                        <i class="fas fa-chart-line me-2"></i> Glycemic Control
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Drug Chart Table -->
+    <!-- Replace your entire table section with this -->
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover drug-chart-table" id="drugChartTable">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width: 200px;">Drug / Dose</th>
+                        <th style="min-width: 150px;">Route / Frequency</th>
+                        <th style="min-width: 100px;">Start Date</th>
+                        {% for date in date_range %}
+                            <th class="text-center {% if date == today %}table-warning{% endif %}" style="min-width: 100px;">
+                                {{ date|date:"d/m" }}<br>
+                                <small class="text-muted">{{ date|date:"D" }}</small>
+                            </th>
+                        {% endfor %}
+                        <th style="min-width: 150px;">Signature / Stop Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ table_html|safe }}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<!-- Administration Modal -->
+<div class="modal fade" id="adminModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-syringe me-2"></i> 
+                    Administer <span id="modalDrugName">ACYCOR PLUS + PCM</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="administrationForm" class="needs-validation" novalidate>
+                    {% csrf_token %}
+                    <input type="hidden" id="administrationId" name="administration_id">
+                    <input type="hidden" id="prescriptionId" name="prescription_id">
+                    <input type="hidden" id="scheduledDate" name="scheduled_date">
+                    <input type="hidden" id="scheduledTime" name="scheduled_time">
+                    <input type="hidden" id="storeId" name="store_id">
+                    <input type="hidden" id="modelName" name="model_name">
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">From:</label>
+                            <input type="text" class="form-control" id="fromDate" value="10.01.2026" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">To:</label>
+                            <input type="text" class="form-control" id="toDate" value="23.01.2026" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Patient owned?</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="isPatientOwned" role="switch">
+                                <label class="form-check-label" for="isPatientOwned">Yes</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Action:</label>
+                            <select class="form-select" id="action" required>
+                                <option value="">-- Select One --</option>
+                                <option value="given">Given</option>
+                                <option value="refused">Refused</option>
+                                <option value="missed">Missed</option>
+                                <option value="held">Held</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Action Time:</label>
+                            <input type="time" class="form-control" id="actionTime" value="{{ now|date:'H:i' }}" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Bedside drug:</label>
+                            <input type="text" class="form-control" id="bedsideDrug" placeholder="Enter drug name">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Quantity Administered:</label>
+                            <input type="text" class="form-control" id="quantityAdministered" placeholder="e.g., 1 tab">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Batch No:</label>
+                            <input type="text" class="form-control" id="batchNo" placeholder="Batch number">
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Dose:</label>
+                            <input type="text" class="form-control" id="dose" value="500mg">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Comments:</label>
+                        <textarea class="form-control" id="comments" rows="2" placeholder="Enter any additional comments..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-primary" id="saveAdministrationBtn">
+                    <i class="fas fa-signature me-2"></i> Sign & Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Prescription Modal -->
+<div class="modal fade" id="addPrescriptionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-prescription me-2"></i> 
+                    New Prescription
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addPrescriptionForm" class="needs-validation" novalidate>
+                    {% csrf_token %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Prescription Type:</label>
+                            <select class="form-select" name="prescription_type" required>
+                                <option value="regular">Regular Prescription</option>
+                                <option value="stat">Stat Prescription</option>
+                                <option value="prn">PRN Prescription</option>
+                                <option value="glycemic">Glycemic Control Standing Order</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Drug Name:</label>
+                            <input type="text" class="form-control" name="drug_name" placeholder="e.g., Paracetamol" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Dose:</label>
+                            <input type="text" class="form-control" name="dose" placeholder="e.g., 500mg" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Quantity:</label>
+                            <input type="number" class="form-control" name="quantity" value="1" min="1" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Route:</label>
+                            <select class="form-select" name="route" required>
+                                <option value="oral">Oral</option>
+                                <option value="iv">IV</option>
+                                <option value="im">IM</option>
+                                <option value="sc">Subcutaneous</option>
+                                <option value="topical">Topical</option>
+                                <option value="inhalation">Inhalation</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Frequency:</label>
+                            <select class="form-select" name="frequency" required>
+                                <option value="od">Once Daily (OD)</option>
+                                <option value="bd">Twice Daily (BD)</option>
+                                <option value="tds">Three Times Daily (TDS)</option>
+                                <option value="qds">Four Times Daily (QDS)</option>
+                                <option value="prn">As Required (PRN)</option>
+                                <option value="stat">Stat (Immediate)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Start Date:</label>
+                            <input type="date" class="form-control" name="start_date" value="{{ today|date:'Y-m-d' }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Stop Date:</label>
+                            <input type="date" class="form-control" name="stop_date">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Notes:</label>
+                        <textarea class="form-control" name="notes" rows="2" placeholder="Additional instructions..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-primary" onclick="savePrescription()">
+                    <i class="fas fa-save me-2"></i> Save Prescription
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Floating Action Button -->
+<button class="btn btn-primary rounded-circle floating-action-btn" onclick="openAddPrescriptionModal()" 
+        data-bs-toggle="tooltip" title="Add New Prescription">
+    <i class="fas fa-plus"></i> 
+</button>
+
+<!-- Custom CSS for drug chart -->
+<style>
+.admin-slot {
+    transition: all 0.2s;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.admin-slot:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+}
+
+.admin-slot.administered {
+    background-color: #28a745 !important;
+    color: white !important;
+}
+
+.admin-slot.missed {
+    background-color: #dc3545 !important;
+    color: white !important;
+}
+
+.admin-slot.refused {
+    background-color: #ffc107 !important;
+    color: #212529 !important;
+}
+
+.admin-slot.held {
+    background-color: #17a2b8 !important;
+    color: white !important;
+}
+
+.admin-slot.pending {
+    background-color: #6c757d !important;
+    color: white !important;
+    opacity: 0.7 !important;
+}
+
+/* Override any Bootstrap button styles */
+.btn.admin-slot,
+.admin-slot {
+    background-image: none !important;
+    text-shadow: none !important;
+}
+    .status-indicator {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    margin-bottom: 4px;
+    }
+
+    .status-indicator.administered {
+        background-color: #28a745;
+    }
+
+    .status-indicator.missed {
+        background-color: #dc3545;
+    }
+
+    .status-indicator.refused {
+        background-color: #ffc107;
+    }
+
+    .status-indicator.pending {
+        background-color: #6c757d;
+    }
+    /* Add this to your CSS */
+    .administration-btn {
+        transition: all 0.2s;
+        border: none;
+        color: white;
+        font-weight: 500;
+    }
+
+    .administration-btn.administered {
+        background-color: #28a745 !important;  /* Green */
+        border-color: #28a745 !important;
+        color: white !important;
+    }
+
+    .administration-btn.missed {
+        background-color: #dc3545 !important;  /* Red */
+        border-color: #dc3545 !important;
+        color: white !important;
+    }
+
+    .administration-btn.refused {
+        background-color: #ffc107 !important;  /* Yellow */
+        border-color: #ffc107 !important;
+        color: #212529 !important;
+    }
+
+    .administration-btn.held {
+        background-color: #17a2b8 !important;  /* Teal */
+        border-color: #17a2b8 !important;
+        color: white !important;
+    }
+
+    .administration-btn.pending {
+        background-color: #6c757d !important;  /* Gray */
+        border-color: #6c757d !important;
+        color: white !important;
+        opacity: 0.7;
+    }
+
+    /* Style for the pending/scheduled buttons */
+    .pending-btn {
+        background-color: #e9ecef !important;
+        border: 1px solid #ced4da !important;
+        color: #495057 !important;
+    }
+
+    .pending-btn:hover {
+        background-color: #dee2e6 !important;
+    }
+    .drug-chart-table {
+        font-size: 0.9rem;
+    }
+    
+    .drug-chart-table th {
+        white-space: nowrap;
+        background-color: #f8f9fa;
+    }
+    
+    .administration-cell {
+        min-width: 80px;
+    }
+    
+    .administration-btn {
+        transition: all 0.2s;
+    }
+    
+    
+    
+    .administration-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .pending-btn {
+        opacity: 0.7;
+    }
+    
+    .pending-btn:hover {
+        opacity: 1;
+        background-color: #e9ecef;
+    }
+    
+    .signature-block {
+        font-size: 0.85rem;
+    }
+    
+    .signatory {
+        font-family: 'Courier New', monospace;
+    }
+    
+    .floating-action-btn {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        font-size: 24px;
+        box-shadow: 0 4px 10px rgba(0,123,255,0.3);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .floating-action-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 15px rgba(0,123,255,0.4);
+    }
+    
+    .empty-state {
+        padding: 40px 20px;
+    }
+    
+    @media print {
+        .floating-action-btn,
+        .btn,
+        .nav-tabs,
+        .breadcrumb,
+        .page-header .col-auto {
+            display: none !important;
+        }
+        
+        .card {
+            border: none !important;
+            box-shadow: none !important;
+        }
+        
+        .table {
+            border: 1px solid #000;
+        }
+        
+        .table th {
+            background-color: #f0f0f0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        
+        .administration-btn {
+            border: 1px solid #000 !important;
+            background: none !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script>
+    // Global utility function for notifications
+    window.addEventListener('error', function(e) {
+        console.error('Global error caught:', e.error);
+        showNotification('error', 'An unexpected error occurred. Please check the console.');
+    });
+    function showNotification(type, message) {
+        console.log('Notification:', type, message);
+        if (window.toastr) {
+            toastr[type](message);
+        } else if (window.Swal) {
+            Swal.fire({
+                icon: type,
+                title: type === 'success'? 'Success' : 'Error',
+                text: message,
+                timer: 3000,
+                showConfirmButton: false
+            });
+        } else {
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
+    }
+
+    // Helper function to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie!== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    async function refreshDrugChartTable() {
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const startDate = urlParams.get('start_date') || '{{ start_date|date:"Y-m-d" }}';
+            const endDate = urlParams.get('end_date') || '{{ end_date|date:"Y-m-d" }}';
+            
+            const response = await fetch(`?start_date=${startDate}&end_date=${endDate}&partial=table`);
+            const html = await response.text();
+            
+            // Update the table
+            $('#drug-chart-table-container').html(html);
+            
+            // Reinitialize tooltips and ensure buttons have correct classes
+            $('[data-bs-toggle="tooltip"]').tooltip();
+            
+            // Force a repaint to ensure colors show
+            $('#drug-chart-table-container').hide().show(0);
+            
+            console.log('Table refreshed successfully');
+        } catch (error) {
+            console.error('Error refreshing table:', error);
+            location.reload();
+        }
+    }
+
+    // Function to handle saving new prescription data
+    async function savePrescription() {
+        console.log('Saving prescription');
+        const form = $('#addPrescriptionForm')[0]; // Get the native form element
+        if (!form.checkValidity()) {
+            form.classList.add('was-validated');
+            showNotification('error', 'Please fill all required fields for the new prescription.');
+            return;
+        }
+        
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+
+        const $btn = $('#addPrescriptionModal').find('.modal-footer.btn-primary');
+        const originalText = $btn.html();
+        $btn.html('<i class="fas fa-spinner fa-spin me-2"></i>Saving...').prop('disabled', true);
+
+        try {
+            const response = await fetch(`/api/drug-charts/{{ patient.id }}/add-prescription/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json' // Explicitly send as JSON
+                },
+                body: JSON.stringify(data) // Convert data to JSON string
+            });
+
+            const responseData = await response.json();
+
+            if (response.ok && responseData.success) {
+                $('#addPrescriptionModal').modal('hide');
+                showNotification('success', 'Prescription added successfully!');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                console.error('Server responded with error:', responseData);
+                showNotification('error', responseData.error || 'Error saving prescription. Please check the console for details.');
+            }
+        } catch (error) {
+            console.error('Fetch error:', error);
+            showNotification('error', 'Network error or unable to connect to server.');
+        } finally {
+            $btn.html(originalText).prop('disabled', false);
+        }
+    }
+
+    // Functions to open modals
+
+    async function openAdminModal(adminId, date, time) {
+    console.log('Opening admin modal for ID:', adminId, date, time);
+    try {
+        const response = await fetch(`/api/drug-administration/${adminId}/`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to fetch administration details.');
+        }
+
+        console.log('Admin data loaded:', data);
+        
+        // Set the form values
+        $('#administrationId').val(data.id);
+        $('#prescriptionId').val(data.prescription.id);
+        $('#scheduledDate').val(date);
+        $('#scheduledTime').val(time);
+        $('#modalDrugName').text(data.prescription.drug_name);
+        $('#isPatientOwned').prop('checked', data.is_patient_owned);
+        
+        // IMPORTANT: Set the action dropdown based on stored status
+        let actionValue = '';
+        if (data.status === 'administered') {
+            actionValue = 'given';
+        } else if (data.status === 'refused') {
+            actionValue = 'refused';
+        } else if (data.status === 'missed') {
+            actionValue = 'missed';
+        } else if (data.status === 'held') {
+            actionValue = 'held';
+        }
+        $('#action').val(actionValue);
+        
+        $('#bedsideDrug').val(data.bedside_drug || '');
+        $('#quantityAdministered').val(data.quantity_administered || '');
+        $('#batchNo').val(data.batch_no || '');
+        $('#dose').val(data.dose_given || data.prescription.dose);
+        $('#comments').val(data.comments || '');
+
+        if (data.administered_time) {
+            const adminTime = new Date(data.administered_time);
+            $('#actionTime').val(adminTime.toTimeString().slice(0, 5));
+        } else {
+            $('#actionTime').val(new Date().toTimeString().slice(0, 5));
+        }
+
+        $('#adminModal').modal('show');
+    } catch (error) {
+        console.error('Error loading administration:', error);
+        showNotification('error', 'Error loading administration details: ' + error.message);
+    }
+}
+
+    function openScheduledModal(storeId, modelName, prescriptionId, date, time) {
+        console.log('Opening scheduled modal:', storeId, modelName, prescriptionId, date, time);
+        
+        // Get the drug name and dose from the row
+        const row = $(`tr[data-prescription-id="${prescriptionId}"][data-store="${storeId}"]`);
+        const drugName = row.find('.drug-name').text().trim();
+        
+        // Extract dose
+        let drugDose = '500mg';
+        const doseText = row.find('td:first-child small:contains("Dose:")').text();
+        if (doseText) {
+            drugDose = doseText.replace('Dose:', '').trim();
+        }
+        
+        // Reset form - Note: We need to modify create_administration to accept store/model info
+        $('#administrationForm').removeClass('was-validated');
+        $('#administrationId').val('');
+        $('#prescriptionId').val(prescriptionId);
+        $('#storeId').val(storeId);  // Add this hidden field
+        $('#modelName').val(modelName);  // Add this hidden field
+        $('#scheduledDate').val(date);
+        $('#scheduledTime').val(time);
+        $('#isPatientOwned').prop('checked', false);
+        $('#action').val('');
+        $('#bedsideDrug').val('');
+        $('#quantityAdministered').val('');
+        $('#batchNo').val('');
+        $('#dose').val(drugDose);
+        $('#comments').val('');
+        $('#actionTime').val(new Date().toTimeString().slice(0, 5));
+        $('#modalDrugName').text(drugName || 'Unknown Drug');
+        
+        $('#adminModal').modal('show');
+    }
+
+
+    async function saveAdministration() {
+    console.log('saveAdministration called');
+
+    const adminId = $('#administrationId').val();
+    const prescriptionId = $('#prescriptionId').val();
+    const storeId = $('#storeId').val();
+    const modelName = $('#modelName').val();
+    const scheduledDate = $('#scheduledDate').val();
+    const scheduledTime = $('#scheduledTime').val();
+    const actionTimeValue = $('#actionTime').val();
+    const action = $('#action').val();
+
+    if (!action) {
+        showNotification('error', 'Please select an action');
+        return;
+    }
+
+    const data = {
+        prescription_id: prescriptionId,
+        source_store: storeId,
+        source_model: modelName,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+        is_patient_owned: $('#isPatientOwned').is(':checked'),
+        action: action,
+        bedside_drug: $('#bedsideDrug').val(),
+        quantity_administered: $('#quantityAdministered').val(),
+        batch_no: $('#batchNo').val(),
+        dose: $('#dose').val(),
+        comments: $('#comments').val(),
+        administered_time: actionTimeValue
+    };
+
+    console.log('Sending data:', data);
+
+    const url = adminId ?
+        `/api/drug-administration/update/${adminId}/` :
+        '/api/drug-administration/create/';
+
+    const $btn = $('#saveAdministrationBtn');
+    const originalText = $btn.html();
+    $btn.html('<i class="fas fa-spinner fa-spin me-2"></i>Saving...').prop('disabled', true);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(data)
+        });
+
+        const responseData = await response.json();
+        console.log('Server response:', responseData);
+
+        if (response.ok && responseData.success) {
+            $('#adminModal').modal('hide');
+            showNotification('success', 'Administration recorded successfully!');
+            
+            // Update the button - PASS THE STORE_ID!
+            updateButtonAfterSave(storeId, prescriptionId, scheduledDate, scheduledTime, action, responseData.administration_id);
+        } else {
+            showNotification('error', responseData.error || 'Error saving administration record.');
+        }
+    } catch (error) {
+        console.error('Fetch error:', error);
+        showNotification('error', 'Network error: ' + error.message);
+    } finally {
+        $btn.html(originalText).prop('disabled', false);
+    }
+}
+
+
+    // function to update button without page reload
+    function updateButtonAfterSave(storeId, prescriptionId, date, time, action, newAdminId) {
+    // The button ID format from your view includes the store_id
+    const buttonId = `btn_${storeId}_${prescriptionId}_${date}_${time.replace(':', '')}`;
+    const button = document.getElementById(buttonId);
+    
+    console.log(`Looking for button with ID: ${buttonId}`);
+    
+    if (button) {
+        // Determine color based on action
+        let bgColor, icon, textColor, status;
+        
+        if (action === 'given') {
+            bgColor = '#28a745';
+            icon = 'fa-check-circle';
+            textColor = 'white';
+            status = 'administered';
+        } else if (action === 'missed') {
+            bgColor = '#dc3545';
+            icon = 'fa-times-circle';
+            textColor = 'white';
+            status = 'missed';
+        } else if (action === 'refused') {
+            bgColor = '#ffc107';
+            icon = 'fa-ban';
+            textColor = '#212529';
+            status = 'refused';
+        } else if (action === 'held') {
+            bgColor = '#17a2b8';
+            icon = 'fa-pause-circle';
+            textColor = 'white';
+            status = 'held';
+        } else {
+            bgColor = '#6c757d';
+            icon = 'fa-circle';
+            textColor = 'white';
+            status = 'pending';
+        }
+        
+        // Update button attributes and style
+        button.className = `admin-slot ${status}`;
+        button.style.backgroundColor = bgColor;
+        button.style.color = textColor;
+        button.style.opacity = '1';
+        button.setAttribute('data-status', status);
+        button.setAttribute('data-admin-id', newAdminId);
+        button.setAttribute('onclick', `openAdminModal(${newAdminId}, '${date}', '${time}')`);
+        
+        // Update icon and text (keep the same time but update icon)
+        const timeText = time;
+        button.innerHTML = `<i class="fas ${icon} me-1"></i> ${timeText}`;
+        
+        console.log(`Button ${buttonId} updated to ${status}`);
+    } else {
+        console.log(`Button ${buttonId} not found, reloading page`);
+        // Fallback to page reload if button not found
+        location.reload();
+    }
+}
+
+
+        function openAddPrescriptionModal() {
+            console.log('Opening add prescription modal');
+            // Reset form for new entry
+            $('#addPrescriptionForm')[0].reset();
+            $('#addPrescriptionForm').removeClass('was-validated');
+            $('#addPrescriptionForm [name="start_date"]').val('{{ today|date:'Y-m-d' }}'); // Set default start date
+            $('#addPrescriptionModal').modal('show');
+        }
+
+        // Function to handle week navigation
+        function changeWeek(direction) {
+            console.log('Changing week:', direction);
+            const urlParams = new URLSearchParams(window.location.search);
+            let currentStart = new Date('{{ start_date|date:"Y-m-d" }}');
+            currentStart.setDate(currentStart.getDate() + (direction * 7));
+            
+            let currentEnd = new Date(currentStart);
+            currentEnd.setDate(currentEnd.getDate() + 6);
+            
+            window.location.href = `?start_date=${currentStart.toISOString().split('T')[0]}&end_date=${currentEnd.toISOString().split('T')[0]}`;
+        }
+
+        // Function to filter prescriptions based on type
+        function filterPrescriptions(filterType) {
+            console.log('Filtering prescriptions:', filterType);
+            if (filterType === 'all') {
+                $('tr[data-prescription-id]').show();
+            } else {
+                $('tr[data-prescription-id]').hide();
+                $(`tr[data-type="${filterType}"]`).show();
+            }
+        }
+
+        // helper function
+        function setLoadingState(button, isLoading, originalText = '') {
+            if (isLoading) {
+                button.data('original-text', button.html());
+                button.html('<i class="fas fa-spinner fa-spin me-2"></i>Saving...').prop('disabled', true);
+            } else {
+                button.html(button.data('original-text')).prop('disabled', false);
+            }
+        }
+
+        // Document ready function for initial setup
+        $(document).ready(function() {
+            console.log('Drug chart JavaScript loaded');
+            
+            // Initialize tooltips
+            $('[data-bs-toggle="tooltip"]').tooltip();
+            
+            // Initialize filter tabs
+            $('.nav-tabs.nav-link').on('click', function(e) {
+                e.preventDefault();
+                $('.nav-tabs.nav-link').removeClass('active');
+                $(this).addClass('active');
+                filterPrescriptions($(this).data('filter'));
+            });
+            
+            // Bind the save button click event for administration modal
+            $('#saveAdministrationBtn').on('click', saveAdministration);
+            
+            // Bind the save button click event for add prescription modal
+            $('#savePrescriptionBtn').on('click', savePrescription);
+
+            // Debug: Check if modal elements exist
+            console.log('Admin modal exists:', $('#adminModal').length > 0);
+            console.log('Save admin button exists:', $('#saveAdministrationBtn').length > 0);
+        });
+
+        // Make key functions globally available for inline onclick attributes
+        window.openAdminModal = openAdminModal;
+        window.openScheduledModal = openScheduledModal;
+        window.openAddPrescriptionModal = openAddPrescriptionModal;
+        window.changeWeek = changeWeek;
+        window.filterPrescriptions = filterPrescriptions; // Already bound by event listener, but for safety
+        window.saveAdministration = saveAdministration; // For any direct calls
+        window.savePrescription = savePrescription; // For any direct calls
+        window.showNotification = showNotification; // For any direct calls
+        window.getCookie = getCookie; // For any direct calls
+
+        // Keyboard shortcuts
+        $(document).on('keydown', function(e) {
+            // Ctrl+N for new prescription
+            if (e.ctrlKey && e.key === 'n') {
+                e.preventDefault();
+                openAddPrescriptionModal();
+            }
+            
+            // Esc to close modal
+            if (e.key === 'Escape') {
+                $('.modal').modal('hide');
+            }
+        });
+
+    </script>
+    {% endblock %}
+    <script>
+    // Debug function to check what data the template received
+    $(document).ready(function() {
+        console.log('=== TEMPLATE DATA DEBUG ===');
+        console.log('Date range:', {{ date_range|length }} days);
+        
+        {% for prescription in chart_data %}
+        console.log('Prescription: {{ prescription.drug_name }}');
+        console.log('  Admin lookup keys:', Object.keys({{ prescription.admin_lookup|safe }}));
+            {% for date, times in prescription.admin_lookup.items %}
+            console.log('    {{ date }}:', Object.keys({{ times|safe }}));
+            {% endfor %}
+        {% endfor %}
+        
+        // Check button colors
+        setTimeout(function() {
+            $('td[data-date] button').each(function() {
+                console.log('Button:', $(this).text().trim(), 'Style:', $(this).attr('style'));
+            });
+        }, 1000);
+    });
+</script>

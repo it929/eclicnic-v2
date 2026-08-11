@@ -1,0 +1,82 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    table{
+        font-size: 13px;
+    }
+</style>
+<div class="container-fluid">
+        {% if page == 'completed_lab_result' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Lab Results marked as completed <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints lab results -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Sent By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in lab_result_complete %}
+                    <tr>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;"> {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif page == 'completed_scan_result' %}
+        <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp; Scan Results marked as completed <span id="total-count" class="badge badge-secondary">{{counts}}</span> </h1>
+        <p></p>
+        <hr style="margin-top: -5px;">
+        <div class="container">
+            <!-- Patints scan results -->
+            <table id="dataTable" class="table" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Time</th>
+                        <th>Investigations</th>
+                        <th>Sent By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for patient in scan_result_complete %}
+                    <tr>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
+                        <td><a href="{% url 'clinical_results' patient.patient.id %}" style="text-decoration: none;"> {{ patient.staff.fullname }}</a></td> 
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

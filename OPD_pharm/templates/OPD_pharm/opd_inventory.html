@@ -1,0 +1,444 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+
+  <!-- Page Heading -->
+  <!-- Content Row -->
+{% if page == 'view-opd-product' %}
+<div class="container-fluid">
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <span><a href="#"data-toggle="modal" data-target="#balanceStockModal" class="m-0 font-weight-bold text-primary">Stock Balance: </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#lowStockModal" class="m-0 font-weight-bold text-warning" style="padding-left: 20px;"><i class="fa fa-eye"></i> Low Stocks <span class="badge badge-warning">{{low_stock_products}}</span> </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#expiringStockModal" class="m-0 font-weight-bold text-warning" style="padding-left: 20px;"><i class="fa fa-eye"></i> Expiring Products <span class="badge badge-warning">{{expiring_prod.count}}</span> </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#expiredStockModal" class="m-0 font-weight-bold text-danger" style="padding-left: 20px;"><i class="fa fa-eye"></i> Expired Products <span class="badge badge-danger">{{expired_prod.count}}</span> </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#inStockModal" class="m-0 font-weight-bold text-success" style="padding-left: 20px;"><i class="fa fa-arrow-down"></i> In Stock </a>|</span>
+        <span><a href="#"data-toggle="modal" data-target="#outStockModal" class="m-0 font-weight-bold text-danger" style="padding-left: 20px;"><i class="fa fa-arrow-up"></i> Out Stock  </a>|</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                        <th>Date Added</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                        <th>Date Added</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in products %}
+                    {% if prod.status > 0 %}
+                    <tr >
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.description }}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">Normal</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.created_date}}</a></td>
+                    </tr>
+                    {% else %}
+                    <tr class="alert alert-success">
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">{{prod.description }}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">&#8358; {{prod.price | currency}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;"> {{prod.stock}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">Low</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">{{prod.created_date}}</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- ---modals--- -->
+<div class="modal fade" id="balanceStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Current Stock Balace</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div style="padding: 20px; font-family: cursive; font-size: 23px; font-weight: bold;" class="text-success">
+            &#8358; {{asset | currency}}
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="lowStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Critically low Stocks <span class="badge badge-warning">{{low_stock_products}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                        <th>Date Added</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                        <th>Date Added</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in products %}
+                    {% if not prod.status > 0 %}
+                    <tr>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.description}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                        <td style="width: 8%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">Critically Low</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.created_date|date:"M d, Y"}}</a></td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="expiringStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Expiring Products <span class="badge badge-warning">{{expiring_prod.count}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Cost Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in expiring_prod %}
+                    <tr>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.description}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                        <td style="width: 8%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                        <td style="width: 30%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">expiring in ({{prod.expiry_date | timeuntil}}) time</a></td>
+                    </tr>
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+<div class="modal fade" id="expiredStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Expired Products <span class="badge badge-warning">{{expired_prod.count}}</span></h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
+                <tbody> 
+                    
+                {% for prod in expired_prod %}
+                    <tr>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.product_name}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.description}}</a></td>
+                        <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">&#8358; {{prod.price | currency}}</a></td>
+                        <td style="width: 8%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">{{prod.stock}}</a></td>
+                        <td style="width: 30%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; ">expired ({{prod.expiry_date | timesince}}) ago</a></td>
+                    </tr>
+                {% endfor %}
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="inStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <form method="post">
+                {% csrf_token %}
+                <div>
+                    <select class="form-control" name="stock_in" id="timePeriodSelect">
+                        <option value="days">Last 24 Hours</option>
+                        <option value="weeks">Last 7 Days</option>
+                        <option value="months">Last 30 Days</option>
+                    </select>
+                </div>
+                </form>
+                <h5 class="modal-title text-primary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> In Stock: <span id="inAssetValue" class="text-success" style="font-family: cursive;">&#8358; {{in_asset | currency}}</span> 
+
+            </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Created</th>
+                        <th>Date and Time</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Created</th>
+                        <th>Date and Time</th>
+                    </tr>
+                </tfoot>
+                <tbody id="transactionsTableBody">
+            {% for prod in in_stock %}
+                <tr>
+                    <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.product_names}}</a></td>
+                    <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">&#8358; {{prod.price }}</a></td>
+                    <td style="width: 8%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.quantity}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">{{prod.created_date | timesince}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.created_date}}</a></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+
+<div class="modal fade" id="outStockModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <form method="post">
+                {% csrf_token %}
+                <div>
+                    <select class="form-control" name="stock_in" id="timePeriodSelect2">
+                        <option value="days">Last 24 Hours</option>
+                        <option value="weeks">Last 7 Days</option>
+                        <option value="months">Last 30 Days</option>
+                    </select>
+                </div>
+                </form>
+                <h5 class="modal-title text-primary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> Out Stock: <span id="inAssetValue2" class="text-danger" style="font-family: cursive;">&#8358; {{out_asset | currency}}</span> 
+
+            </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table class="table table-bordered"  width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Created</th>
+                        <th>Date and Time</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Product</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Created</th>
+                        <th>Date and Time</th>
+                    </tr>
+                </tfoot>
+                <tbody id="transactionsTableBody2">
+            {% for prod in out_stock %}
+                <tr>
+                    <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.item}}</a></td>
+                    <td><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">&#8358; {{prod.rate }}</a></td>
+                    <td style="width: 8%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.quantity}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none; color: brown;">{{prod.created_date | timesince}}</a></td>
+                    <td style="width: 25%;"><a href="{% url 'update_opd_stock' prod.id %}" style="text-decoration: none;">{{prod.created_date}}</a></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+</div>
+{% endif %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#timePeriodSelect').change(function() {
+        const timePeriod = $(this).val();
+        
+        $.ajax({
+            url: "{% url 'opd_stock' %}",
+            type: "GET",
+            data: {
+                'time_period': timePeriod
+            },
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            success: function(response) {
+                // Update the in-asset value
+                $('#inAssetValue').html('&#8358; ' + response.in_asset);
+                
+                // Update the table
+                let tableBody = $('#transactionsTableBody');
+                tableBody.empty();
+                
+                response.transactions.forEach(function(transaction) {
+                    tableBody.append(`
+                        <tr>
+                            <td><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.product_names}</a></td>
+                            <td><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">&#8358; ${transaction.price}</a></td>
+                            <td style="width: 8%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.quantity}</a></td>
+                            <td style="width: 25%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none; color: brown;">${transaction.timesince}</a></td>
+                            <td style="width: 25%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.created_date}</a></td>
+                        </tr>
+                    `);
+                });
+            },
+            error: function(xhr, status, error) {
+                console.error("Error fetching data:", error);
+            }
+        });
+    });
+});
+</script>
+
+<script>
+$(document).ready(function() {
+    $('#timePeriodSelect2').change(function() {
+        const timePeriod = $(this).val();
+        
+        $.ajax({
+            url: "{% url 'opd_out_stock' %}",
+            type: "GET",
+            data: {
+                'time_period': timePeriod
+            },
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            success: function(response) {
+                // Update the in-asset value
+                $('#inAssetValue2').html('&#8358; ' + response.out_asset);
+                
+                // Update the table
+                let tableBody = $('#transactionsTableBody2');
+                tableBody.empty();
+                
+                response.transactions.forEach(function(transaction) {
+                    tableBody.append(`
+                        <tr>
+                            <td><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.product_name}</a></td>
+                            <td><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">&#8358; ${transaction.price}</a></td>
+                            <td style="width: 8%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.quantity}</a></td>
+                            <td style="width: 25%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none; color: brown;">${transaction.timesince}</a></td>
+                            <td style="width: 25%;"><a href="/update_opd_stock/${transaction.id}" style="text-decoration: none;">${transaction.created_date}</a></td>
+                        </tr>
+                    `);
+                });
+            },
+            error: function(xhr, status, error) {
+                console.error("Error fetching data:", error);
+            }
+        });
+    });
+});
+</script>
+{% endblock content%}

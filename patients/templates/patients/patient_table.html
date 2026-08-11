@@ -1,0 +1,459 @@
+{% extends 'admin.html' %}
+{% load custom_tags %}
+{% block content %}
+{% if page == 'registered-today' %}
+<div class="container-fluid">
+<!-- Page Heading -->
+    <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} </h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        
+                        <th>Name</th>
+                        <th>Phone No.</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Time Registered</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        
+                        <th>Name</th>
+                        <th>Phone No.</th>
+                        <th>Hospital No.</th>
+                        <th>Category</th>
+                        <th>Plan</th>
+                        <th>Time Registered</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in patients %}
+                    <tr>
+                        
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|time }}</a></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No patients registered today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+{% elif page == 'all-patients' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <!-- Content Row -->
+      <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Phone No.</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date Registered</th>
+                        </tr>
+                    </thead>
+                    <tfoot>
+                        <tr>
+                            
+                            <th>Name</th>
+                            <th>Phone No.</th>
+                            <th>Hospital No.</th>
+                            <th>Category</th>
+                            <th>Plan</th>
+                            <th>Date Registered</th>
+                        </tr>
+                    </tfoot>
+                    <tbody>
+                        {% for patient in patients %}
+                        <tr>
+                            
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No registered patient</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    </div>
+    {% elif page == 'single-patients' %}
+    <div class="container-fluid">
+        <!-- Page Heading -->
+            
+    
+            <!-- Content Row -->
+          <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                        <thead>
+                            <tr>
+                                
+                                <th>Name</th>
+                                <th>Phone No.</th>
+                                <th>Hospital No.</th>
+                                <th>Category</th>
+                                <th>Plan</th>
+                                <th>Date Registered</th>
+                            </tr>
+                        </thead>
+                        <tfoot>
+                            <tr>
+                                
+                                <th>Name</th>
+                                <th>Phone No.</th>
+                                <th>Hospital No.</th>
+                                <th>Category</th>
+                                <th>Plan</th>
+                                <th>Date Registered</th>
+                            </tr>
+                        </tfoot>
+                        <tbody>
+                            {% for patient in patients %}
+                            <tr>
+                                
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center">No registered Single Plan patient</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        </div>
+        {% elif page == 'family-patients' %}
+        <div class="container-fluid">
+            <!-- Page Heading -->
+                
+        
+                <!-- Content Row -->
+              <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    
+                                    <th>Name</th>
+                                    <th>Phone No.</th>
+                                    <th>Hospital No.</th>
+                                    <th>Category</th>
+                                    <th>Plan</th>
+                                    <th>Date Registered</th>
+                                </tr>
+                            </thead>
+                            <tfoot>
+                                <tr>
+                                    
+                                    <th>Name</th>
+                                    <th>Phone No.</th>
+                                    <th>Hospital No.</th>
+                                    <th>Category</th>
+                                    <th>Plan</th>
+                                    <th>Date Registered</th>
+                                </tr>
+                            </tfoot>
+                            <tbody>
+                                {% for patient in patients %}
+                                <tr>
+                                    
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                    <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No registered Family Plan patient</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            </div>
+            {% elif page == 'anc-patients' %}
+            <div class="container-fluid">
+                <!-- Page Heading -->
+                    
+            
+                    <!-- Content Row -->
+                  <div class="card shadow mb-4">
+                    <div class="card-header py-3">
+                        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                <thead>
+                                    <tr>
+                                        
+                                        <th>Name</th>
+                                        <th>Phone No.</th>
+                                        <th>Hospital No.</th>
+                                        <th>Category</th>
+                                        <th>Plan</th>
+                                        <th>Date Registered</th>
+                                    </tr>
+                                </thead>
+                                <tfoot>
+                                    <tr>
+                                        
+                                        <th>Name</th>
+                                        <th>Phone No.</th>
+                                        <th>Hospital No.</th>
+                                        <th>Category</th>
+                                        <th>Plan</th>
+                                        <th>Date Registered</th>
+                                    </tr>
+                                </tfoot>
+                                <tbody>
+                                    {% for patient in patients %}
+                                    <tr>
+                                        
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="6" class="text-center">No registered ANC patient</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                </div>
+                {% elif page == 'hmo-patients' %}
+                <div class="container-fluid">
+                    <!-- Page Heading -->
+                        
+                
+                        <!-- Content Row -->
+                      <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                    <thead>
+                                        <tr>
+                                            
+                                            <th>Name</th>
+                                            <th>Phone No.</th>
+                                            <th>Hospital No.</th>
+                                            <th>Category</th>
+                                            <th>Plan</th>
+                                            <th>Date Registered</th>
+                                        </tr>
+                                    </thead>
+                                    <tfoot>
+                                        <tr>
+                                            
+                                            <th>Name</th>
+                                            <th>Phone No.</th>
+                                            <th>Hospital No.</th>
+                                            <th>Category</th>
+                                            <th>Plan</th>
+                                            <th>Date Registered</th>
+                                        </tr>
+                                    </tfoot>
+                                    <tbody>
+                                        {% for patient in patients %}
+                                        <tr>
+                                            
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                            <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr>
+                                            <td colspan="6" class="text-center">No registered HMO patient</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                    {% elif page == 'nhis-patients' %}
+                    <div class="container-fluid">
+                        <!-- Page Heading -->
+                            
+                    
+                            <!-- Content Row -->
+                          <div class="card shadow mb-4">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                        <thead>
+                                            <tr>
+                                                
+                                                <th>Name</th>
+                                                <th>Phone No.</th>
+                                                <th>Hospital No.</th>
+                                                <th>Category</th>
+                                                <th>Plan</th>
+                                                <th>Date Registered</th>
+                                            </tr>
+                                        </thead>
+                                        <tfoot>
+                                            <tr>
+                                                
+                                                <th>Name</th>
+                                                <th>Phone No.</th>
+                                                <th>Hospital No.</th>
+                                                <th>Category</th>
+                                                <th>Plan</th>
+                                                <th>Date Registered</th>
+                                            </tr>
+                                        </tfoot>
+                                        <tbody>
+                                            {% for patient in patients %}
+                                            <tr>
+                                                
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                            </tr>
+                                            {% empty %}
+                                            <tr>
+                                                <td colspan="6" class="text-center">No registered NHIS patient</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% elif page == 'retainership-patients' %}
+                    <div class="container-fluid">
+                        <!-- Page Heading -->
+                            
+                    
+                            <!-- Content Row -->
+                          <div class="card shadow mb-4">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} Records </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                        <thead>
+                                            <tr>
+                                                
+                                                <th>Name</th>
+                                                <th>Phone No.</th>
+                                                <th>Hospital No.</th>
+                                                <th>Category</th>
+                                                <th>Plan</th>
+                                                <th>Date Registered</th>
+                                            </tr>
+                                        </thead>
+                                        <tfoot>
+                                            <tr>
+                                                
+                                                <th>Name</th>
+                                                <th>Phone No.</th>
+                                                <th>Hospital No.</th>
+                                                <th>Category</th>
+                                                <th>Plan</th>
+                                                <th>Date Registered</th>
+                                            </tr>
+                                        </tfoot>
+                                        <tbody>
+                                            {% for patient in patients %}
+                                            <tr>
+                                                
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</a> </td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.phone_number|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.hospital_number|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.category.category|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.plan.plan|default:"-" }}</a></td>
+                                                <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                            </tr>
+                                            {% empty %}
+                                            <tr>
+                                                <td colspan="6" class="text-center">No registered Retainership patient</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+{% endif %}
+
+{% endblock content%}

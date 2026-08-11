@@ -1,0 +1,213 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .occupied { background-color: #ffcccc; }
+        .vacant { background-color: #ccffcc; }
+        .form-group { margin-bottom: 10px; }
+        label { display: inline-block; width: 100px; }
+
+        .form-grid2 {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+        width: 50%;
+        }
+    </style>
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-plus"></i> &nbsp;Add / Update Bed  </h1>
+    <p></p>
+
+    <hr style="margin-top: -5px;">
+
+<input type="hidden" id="bed_id">
+
+<div class="form-group">
+    <label for="ward">Ward:</label>
+    <select id="ward" class="form-control">
+        <option value="">Select Ward</option>
+        {% for ward in wards %}
+        <option value="{{ ward.id }}">{{ ward.ward_name }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="form-group">
+    <label for="bed_name">Bed Name:</label>
+    <input type="text" id="bed_name" placeholder="e.g., Bed 1, Bed A" class="form-control">
+</div>
+
+<!-- <div class="form-group">
+    <label for="bed_status">Status:</label>
+    <input type="number" id="bed_status" value="0" min="0">
+</div>
+
+<div class="form-group">
+    <label for="is_occupied">Occupied:</label>
+    <input type="checkbox" id="is_occupied">
+</div> -->
+
+<button onclick="saveBed()" class="btn btn-primary"><i class="fa fa-plus"></i> Save Record</button>
+<button onclick="clearForm()" id="cancelBtn" style="display:none;" class="btn btn-secondary">Cancel</button>
+
+<hr>
+
+<h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-upload"></i> &nbsp;Upload Bed from Excel </h1>
+<p>Excel format: Ward Name, Bed Name, Status (optional), Occupied (optional)</p>
+<div class="form-grid2">
+    <input type="file" id="excel_file" accept=".xlsx,.xls" class="form-control">
+    <button onclick="uploadBedExcel()" class="btn btn-info">Upload <i class="fa fa-upload"></i></button>
+</div>
+<div id="uploadMessage"></div>
+
+<hr>
+
+<h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-list"></i> &nbsp;Bed List  </h1>
+    <p></p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Ward</th>
+            <th>Bed Name</th>
+            <th>Occupied</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for bed in beds %}
+        <tr id="row{{ bed.id }}" class="{{ bed.is_occupied|yesno:'occupied,vacant' }}">
+            <td>{{ bed.ward.ward_name }}</td>
+            <td>{{ bed.bed_name }}</td>
+            <td>{{ bed.is_occupied|yesno:"Yes,No" }}</td>
+            <td>
+                <button onclick="editBed('{{ bed.id }}','{{ bed.ward.id }}','{{ bed.bed_name }}','{{ bed.bed_status }}','{{ bed.is_occupied }}')" class="btn btn-warning btn-sm">Edit <i class="fa fa-pencil"></i></button>
+                <button onclick="deleteBed('{{ bed.id }}')" class="btn btn-danger btn-sm">Delete <i class="fa fa-trash"></i></button>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="5">No beds found</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+<script>
+function saveBed() {
+    let bedName = $('#bed_name').val().trim();
+    let wardId = $('#ward').val();
+    
+    if (!bedName) {
+        alert('Please enter bed name');
+        return;
+    }
+    if (!wardId) {
+        alert('Please select ward');
+        return;
+    }
+    
+    let id = $('#bed_id').val();
+    let url = id ? `/beds/update/${id}/` : '/beds/create/';
+
+    $.post(url, {
+        ward: wardId,
+        bed_name: bedName,
+        bed_status: $('#bed_status').val(),
+        is_occupied: $('#is_occupied').is(':checked'),
+        csrfmiddlewaretoken: '{{ csrf_token }}'
+    }, function(response) {
+        if (response.status === 'error') {
+            alert(response.message);
+        } else {
+            clearForm();
+            location.reload();
+        }
+    }).fail(function() {
+        alert('Error saving bed');
+    });
+}
+
+function editBed(id, wardId, name, status, occupied) {
+    $('#bed_id').val(id);
+    $('#ward').val(wardId);
+    $('#bed_name').val(name);
+    $('#bed_status').val(status);
+    $('#is_occupied').prop('checked', occupied === 'True');
+    
+    //  Scroll to the input field or change button text
+    $('#bed_name').focus();
+
+    $('#cancelBtn').show();
+    $('button[onclick="saveBed()"]').text('Update Bed');
+}
+
+function clearForm() {
+    $('#bed_id').val('');
+    $('#ward').val('');
+    $('#bed_name').val('');
+    $('#bed_status').val('0');
+    $('#is_occupied').prop('checked', false);
+    
+    $('#cancelBtn').hide();
+    $('button[onclick="saveBed()"]').text('Save');
+}
+
+function deleteBed(id) {
+    if(confirm("Delete this bed?")){
+        $.post(`/beds/delete/${id}/`, {
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(response){
+            if(response.status === 'deleted') {
+                $('#row'+id).remove();
+            }
+        });
+    }
+}
+
+function uploadBedExcel() {
+    let fileInput = $('#excel_file')[0];
+    if (!fileInput.files.length) {
+        alert('Please select an Excel file');
+        return;
+    }
+    
+    let data = new FormData();
+    data.append('excel_file', fileInput.files[0]);
+    data.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    $('#uploadMessage').html('Uploading...').css('color', 'blue');
+    
+    $.ajax({
+        url: '/beds/upload-excel/',
+        method: 'POST',
+        data: data,
+        processData: false,
+        contentType: false,
+        success: function(response){
+            $('#uploadMessage').html(response.message || 'Upload complete!').css('color', 'green');
+            setTimeout(() => location.reload(), 1500);
+        },
+        error: function(xhr){
+            let message = xhr.responseJSON?.message || 'Upload failed';
+            $('#uploadMessage').html('Error: ' + message).css('color', 'red');
+        }
+    });
+}
+</script>
+{% endblock content %}

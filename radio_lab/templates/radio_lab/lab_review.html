@@ -1,0 +1,198 @@
+
+{% extends "admin.html" %}
+{% load custom_tags %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fas fa-adjust"></i> &nbsp;Manage Lab tests </h1>
+      <p></p>
+
+<table class="table table-bordered" id="submittedDrugs">
+    <thead>
+        <tr>
+            <th>Item (Test)</th><th>Item ID (SKU)</th><th>Rate (₦)</th><th>Created Date</th><th>Action</th><th>Action</th>
+        </tr>
+    </thead>   
+    <tbody>
+        {% for test in test_items %}
+        <tr data-id="{{ test.id }}">
+            <td class="item">{{ test.item }}</td>
+            <td class="item_id">{{ test.item_id }}</td>
+            <td class="rate" style=" width: 12%;"> &#8358; {{ test.rate | currency }}</td>
+            <td style="color: brown;">{{ test.created_date | date:"M d, Y" }}</td>
+            <td style=" width: 12%;">
+                <button class="btn btn-sm btn-warning modify-btn">Modify ✏️</button>
+            </td>
+            <td style=" width: 12%;">
+                <button class="btn btn-sm btn-danger delete-btn">Delete 🗑️ </button>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="6" class="text-center">No Test available in Lab Inventory</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+<script>
+$(document).ready(function () {
+    // Delete
+    $(".delete-btn").on("click", function () {
+        let row = $(this).closest("tr");
+        let id = row.data("id");
+
+        if (confirm("Are you sure you want to delete this lab test?")) {
+            $.post(`/lab-test/delete/${id}/`, {csrfmiddlewaretoken: '{{ csrf_token }}'}, function (response) {
+                if (response.success) {
+                    row.slideUp("slow", function () { $(this).remove(); });
+                } else {
+                    alert("Error: " + response.error);
+                }
+            });
+        }
+    });
+
+    // Modify
+     $(".modify-btn").on("click", function () {
+    let row = $(this).closest("tr");
+    let id = row.data("id");
+
+    let currentItem = row.find(".item").text().trim();
+    let currentItemId = row.find(".item_id").text().trim();
+    let currentRate = row.find(".rate").text().trim();
+
+    // Clean existing rate
+    currentRate = currentRate.replace(/[₦,]/g, "").trim();
+
+    Swal.fire({
+        title: "Modify Lab Test",
+        html: `
+            <input id="swal-item" class="swal2-input" placeholder="Item Name" value="${currentItem}">
+            <input id="swal-item-id" class="swal2-input" placeholder="Item ID" value="${currentItemId}">
+            <input id="swal-rate" class="swal2-input" placeholder="Rate" value="${currentRate}">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: "Save",
+        preConfirm: () => {
+            let item = document.getElementById("swal-item").value.trim();
+            let item_id = document.getElementById("swal-item-id").value.trim();
+            let rate = document.getElementById("swal-rate").value.replace(/[₦,]/g, "").trim();
+
+            if (!item) {
+                Swal.showValidationMessage("⚠️ Item name is required");
+                return false;
+            }
+            if (!item_id) {
+                Swal.showValidationMessage("⚠️ Item ID is required");
+                return false;
+            }
+            if (!rate || isNaN(rate) || parseFloat(rate) <= 0) {
+                Swal.showValidationMessage("⚠️ Please enter a valid rate");
+                return false;
+            }
+
+            return { item, item_id, rate };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            let { item, item_id, rate } = result.value;
+
+            $.ajax({
+                url: `/lab-test/modify/${id}/`,
+                type: "POST",
+                data: {
+                    csrfmiddlewaretoken: "{{ csrf_token }}",
+                    item: item,
+                    item_id: item_id,
+                    rate: rate
+                },
+                success: function (response) {
+                    if (response.success) {
+                        row.find(".item").text(response.item);
+                        row.find(".item_id").text(response.item_id);
+                        row.find(".rate").text("₦ " + parseFloat(response.rate).toLocaleString());
+
+                        Swal.fire("✅ Updated!", "Record updated successfully.", "success");
+                    } else {
+                        Swal.fire("❌ Error", response.error, "error");
+                    }
+                },
+                error: function (xhr) {
+                    Swal.fire("❌ Error", "Something went wrong: " + xhr.responseText, "error");
+                }
+            });
+        }
+    });
+});
+
+//    $(".modify-btn").on("click", function () {
+//     let row = $(this).closest("tr");
+//     let id = row.data("id");
+
+//     let currentItem = row.find(".item").text().trim();
+//     let currentItemId = row.find(".item_id").text().trim();
+//     let currentRate = row.find(".rate").text().trim();
+
+//     // Clean existing rate
+//     currentRate = currentRate.replace(/[₦,]/g, "").trim();
+
+//     Swal.fire({
+//         title: "Modify Lab Test",
+//         html: `
+//             <input id="swal-item" class="swal2-input" placeholder="Item Name" value="${currentItem}">
+//             <input id="swal-item-id" class="swal2-input" placeholder="Item ID" value="${currentItemId}">
+//             <input id="swal-rate" class="swal2-input" placeholder="Rate" value="${currentRate}">
+//         `,
+//         focusConfirm: false,
+//         showCancelButton: true,
+//         confirmButtonText: "Save",
+//         preConfirm: () => {
+//             return {
+//                 item: document.getElementById("swal-item").value,
+//                 item_id: document.getElementById("swal-item-id").value,
+//                 rate: document.getElementById("swal-rate").value.replace(/[₦,]/g, "").trim()
+//             }
+//         }
+//     }).then((result) => {
+//         if (result.isConfirmed) {
+//             let { item, item_id, rate } = result.value;
+
+//             $.ajax({
+//                 url: `/lab-test/modify/${id}/`,
+//                 type: "POST",
+//                 data: {
+//                     csrfmiddlewaretoken: "{{ csrf_token }}",
+//                     item: item,
+//                     item_id: item_id,
+//                     rate: rate
+//                 },
+//                 success: function (response) {
+//                     if (response.success) {
+//                         row.find(".item").text(response.item);
+//                         row.find(".item_id").text(response.item_id);
+//                         row.find(".rate").text("₦ " + parseFloat(response.rate).toLocaleString());
+
+//                         Swal.fire("Updated!", "Record updated successfully ✅", "success");
+//                     } else {
+//                         Swal.fire("Error", response.error, "error");
+//                     }
+//                 },
+//                 error: function (xhr) {
+//                     Swal.fire("Error", "Something went wrong: " + xhr.responseText, "error");
+//                 }
+//             });
+//         }
+//     });
+// });
+
+
+});
+
+
+</script>
+
+{% endblock %}

@@ -1,0 +1,51 @@
+<div class="sidebar-heading">
+    {% if request.user.department.department == 'Laboratory' %}<span>Laboratory</span>{% else %}<span class="text-warning font-weight-bold">🔬 Laboratory</span>{% endif %}
+    </div>
+    {% if request.user.department.department == 'Laboratory' %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+            aria-expanded="true" aria-controls="collapseTwo">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseOPDInventory"
+            aria-expanded="true" aria-controls="collapseOPDInventory">
+            <i class="fas fa-users"></i>
+            <span>Queue Management</span>
+        </a>
+        <div id="collapseOPDInventory" class="collapse" aria-labelledby="headingOPDInventory" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'lab_waiting' %}">Waiting List</a>
+                <a class="collapse-item" href="{% url 'lab_completed_list' %}">Completed List</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseOpdRequests"
+            aria-expanded="true" aria-controls="collapseOpdRequests">
+            <i class="fas fa-clipboard-list"></i>
+            <span>Manage Lab Inventory</span>
+        </a>
+        <div id="collapseOpdRequests" class="collapse" aria-labelledby="headingOpdRequests" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'lab_inventory' %}">Lab Inventory</a>
+                <a class="collapse-item" href="{% url 'review_lab_inventory' %}">Review Inventory</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" href="{% url 'search_page' %}">
+            <i class="fas fa-search"></i>
+            <span>Search for Patients</span>
+        </a>
+    </li>

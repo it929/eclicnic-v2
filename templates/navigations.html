@@ -1,0 +1,102 @@
+
+<!-- Admin template navigations -->
+{% if request.user.department.department == 'Admin' %}
+{% include 'nav_folder/admin_nav.html' %}
+   
+<!-- CMD template navigations -->
+{% elif request.user.department.department == 'CMD' %}
+{% include 'nav_folder/cmd_nav.html' %}
+
+<!-- Front Desk navigations -->
+{% elif request.user.department.department == 'Front Desk' %}
+{% include 'nav_folder/frontdesk_nav.html' %}
+
+
+<!-- Nursing template navigations -->
+{% elif request.user.department.department == 'Nursing' %}
+{% include 'nav_folder/nursing_nav.html' %}
+            
+
+<!-- Clinical (Doctors) template navigations -->
+{% elif request.user.department.department == 'Clinical' %}
+{% include 'nav_folder/clinical_nav.html' %}
+
+
+<!-- Inventory template navigations -->
+{% elif request.user.department.department == 'Inventory' %}
+{% include 'nav_folder/inventory_nav.html' %}
+
+
+<!-- IPD Pharmacy 1 template navigations -->
+{% elif request.user.department.department == 'IPD Pharmacy 1' %}
+{% include 'nav_folder/ipd1_nav.html' %}
+
+
+<!-- IPD Pharmacy 2 template navigations -->
+{% elif request.user.department.department == 'IPD Pharmacy 2' %}
+{% include 'nav_folder/ipd2_nav.html' %}
+    
+
+
+<!-- IPD Pharmacy 3 template navigations -->
+{% elif request.user.department.department == 'IPD Pharmacy 3' %}
+{% include 'nav_folder/ipd3_nav.html' %}
+    
+
+<!-- OPD Pharmacy 1 template navigations -->
+{% elif request.user.department.department == 'OPD Pharmacy 1' %}
+{% include 'nav_folder/opd1_nav.html' %}
+
+
+<!-- OPD Pharmacy 2 template navigations -->
+{% elif request.user.department.department == 'OPD Pharmacy 2' %}
+{% include 'nav_folder/opd2_nav.html' %}
+    
+
+<!-- Laboratory template navigations -->
+{% elif request.user.department.department == 'Laboratory' %}
+{% include 'nav_folder/laboratory_nav.html' %}
+    
+
+
+<!-- Radiology template navigations -->
+{% elif request.user.department.department == 'Radiology' %}
+{% include 'nav_folder/radiology_nav.html' %}
+
+
+<!-- Billings template navigations -->
+{% elif request.user.department.department == 'Billings' %}
+{% include 'nav_folder/billings_nav.html' %}
+
+<!-- Reporting template navigations -->
+{% elif request.user.department.department == 'Reporting' %}
+{% include 'nav_folder/reports_nav.html' %}
+    
+{% endif %}
+
+<script>
+function loadDepartment(department) {
+    // Hide all department navigation containers
+    var navs = document.getElementsByClassName('department-nav');
+    for (var i = 0; i < navs.length; i++) {
+        navs[i].style.display = 'none';
+    }
+    
+    // Show the selected department
+    var selectedNav = document.getElementById('nav-' + department);
+    if (selectedNav) {
+        selectedNav.style.display = 'block';
+    }
+    
+    // Store the selected department in localStorage
+    localStorage.setItem('selectedDepartment', department);
+}
+
+// Load last selected department on page load
+document.addEventListener('DOMContentLoaded', function() {
+    var lastDepartment = localStorage.getItem('selectedDepartment');
+    if (lastDepartment) {
+        loadDepartment(lastDepartment);
+    }
+});
+</script>

@@ -1,0 +1,87 @@
+<div id="general_medical" class="antenatal-form-section color-general-medical">
+                    <h3>General Medical <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{medical_instance.staff.fullname}}</span></h3>
+                    <form id="generalMedicalForm" method="post" data-form-type="general_medical">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="general_medical">
+                        
+                        <div class="form-group">
+                            <label for="{{ general_medical_form.known_substance_abuse.id_for_label }}">Known Substance Abuse:</label>
+                            {{ general_medical_form.known_substance_abuse }}
+                        </div>
+                        
+                        <h4>Previous Medical History:</h4>
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.severe_anaemia.id_for_label }}">Severe Anaemia:</label>
+                                    {{ general_medical_form.severe_anaemia }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.sickle_cell_disease.id_for_label }}">Sickle Cell Disease:</label>
+                                    {{ general_medical_form.sickle_cell_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.hypertension.id_for_label }}">Hypertension:</label>
+                                    {{ general_medical_form.hypertension }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.diabetes_mellitus.id_for_label }}">Diabetes Mellitus:</label>
+                                    {{ general_medical_form.diabetes_mellitus }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.cardiac_disease.id_for_label }}">Cardiac Disease:</label>
+                                    {{ general_medical_form.cardiac_disease }}
+                                </div>
+                            </div>
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.chronic_cough_tuberculosis.id_for_label }}">Chronic Cough/Tuberculosis:</label>
+                                    {{ general_medical_form.chronic_cough_tuberculosis }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.breast_cancer.id_for_label }}">Breast Cancer:</label>
+                                    {{ general_medical_form.breast_cancer }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.liver_disease_jaundice.id_for_label }}">Liver Disease/Jaundice:</label>
+                                    {{ general_medical_form.liver_disease_jaundice }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.gall_bladder_disease.id_for_label }}">Gall Bladder Disease:</label>
+                                    {{ general_medical_form.gall_bladder_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.thyroid_disease.id_for_label }}">Thyroid Disease:</label>
+                                    {{ general_medical_form.thyroid_disease }}
+                                </div>
+                            </div>
+                            
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.renal_disease.id_for_label }}">Renal Disease:</label>
+                                    {{ general_medical_form.renal_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.epilepsy.id_for_label }}">Epilepsy:</label>
+                                    {{ general_medical_form.epilepsy }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.asthma.id_for_label }}">Asthma:</label>
+                                    {{ general_medical_form.asthma }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.others_medical_history.id_for_label }}">Other Medical History:</label>
+                                    {{ general_medical_form.others_medical_history }}
+                                </div>
+                        
+                                <div class="form-group" style="margin-top: -5px;">
+                                    <label for="{{ general_medical_form.family_history.id_for_label }}">Family History:</label>
+                                    {{ general_medical_form.family_history }}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        
+                        <button type="submit" class="btn btn-primary" style="float: right;">Change Record</button>
+                    </form>
+                </div>

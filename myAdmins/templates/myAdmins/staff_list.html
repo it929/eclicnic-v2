@@ -1,0 +1,103 @@
+{% extends "admin.html" %}
+{% load custom_tags %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-upload" ></i> &nbsp;Upload Staff IDs</h1>
+      <p></p>
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                        <h5>Upload Staff ID for verification</h5>
+                    </div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data" style="margin-bottom: 20px;">
+                        {% csrf_token %}
+                        {{ form.as_p }}
+                        <button type="submit" class="btn btn-primary">Submit Data</button>
+                    </form>
+                    <hr>
+                </div>
+            </div>
+        
+            <div class="mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Excel File Requirements</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul>
+                            <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                            <li>First row must contain column headers</li>
+                            <li>Required columns: <code>staff_id</code></li>
+                            <li>Download <a href="{% url 'download_staffID_format' %}">template file</a> for reference</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                    <div class="card-header">
+                        <h5 ><span class="badge badge-primary font-weight-bold">{{counts}}</span> &nbsp;<i class="fa fa-pencil"></i> &nbsp;Manage Staff ID </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                                <thead>
+                                    <tr>
+                                        <th>Staff ID</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for staff in staff_members %}
+                                    <tr>
+                                        <td class="text-primary">{{ staff.staff_id }}</td>
+                                        <td>
+                                            {% if staff.used == 1 %}
+                                                <span class="text-info">
+                                                    <i class="fas fa-user-check"></i> Registered
+                                                </span>
+                                            {% else %}
+                                                <span class="text-secondary">
+                                                    <i class="fas fa-check-circle"></i> Available
+                                                </span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <form action="{% url 'delete_staff' staff.pk %}" method="post">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i> Del</button>
+                                            </form>
+                                        </td>
+                                        <td>
+                                            {% if staff.used == 1 %}
+                                            <a href="{% url 'registered_user' staff.staff_id  %}" class="btn btn-info btn-sm"><i class="fa fa-eye"></i> view</a>
+                                            {% else %}
+                                            <a href="{% url 'verify_staff'  %}" class="btn btn-secondary btn-sm"><i class="fa fa-pause"></i> view</a>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="2">No records found.</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+        </div>
+    </div>
+    
+</div>
+
+
+{% endblock %}

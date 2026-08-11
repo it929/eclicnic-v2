@@ -1,0 +1,52 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-file-excel" ></i> &nbsp;Patients fron Excel file </h1>
+      <p></p>
+    
+    <div class="card">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                    {{ form.excel_file.label_tag }}
+                    {{ form.excel_file }}
+                    <small class="form-text text-muted">{{ form.excel_file.help_text }}</small>
+                    {% if form.excel_file.errors %}
+                        <div class="alert alert-danger mt-2">
+                            {{ form.excel_file.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i> Upload and Import
+                </button>
+                <a href="{% url 'patient_list' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </form>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Excel File Requirements</h5>
+            </div>
+            <div class="card-body">
+                <ul>
+                    <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                    <li>First row must contain column headers</li>
+                    <li>Required columns: <code>surname</code>, <code>first_name</code>, <code>dob</code>, <code>phone_number</code></li>
+                    <li>Date format: YYYY-MM-DD or DD/MM/YYYY or MM/DD/YYYY</li>
+                    <li>Download <a href="{% url 'download_import_template' %}">template file</a> for reference</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

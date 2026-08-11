@@ -1,0 +1,326 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+
+<style>
+    .div-grid {
+        display: grid;
+        grid-template-columns: 2.5fr 1.5fr;
+        padding-bottom: -10px;
+        gap: 10px;
+    }
+ 
+        .btn-toolbar { margin-bottom: 20px; padding: 10px 0; border-bottom: 1px solid #eee;}
+        .btn-toolbar .btn { margin-right: 5px; }
+        #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+            display: block;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        #medical-module-wrapper .dropdown-menu {
+            display: block;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(15px);
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+        }
+
+    .btn-loading {
+        opacity: 0.6;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+</style>
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.get_full_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+    {% if request.user.department.department != 'Nursing' %}
+    <div id="medical-module-wrapper">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
+        <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                </li>
+
+                {% if patient.category.category == 'ANC' %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                </li>
+                {% endif %}
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        View Reports
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    {% if patient.is_admitted %}
+                    <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                    {% else %}
+                    <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                    {% endif %}
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown ">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        Prints
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
+                        <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
+                    </div>
+                </li>
+
+                <li class="nav-item active">
+                    <a class="nav-link " href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
+                </li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+    {% endif %}
+         <div class="card-body div-grid">    
+            <!-- Column 1: Printable fields         -->
+                <div class="row" style="margin: 5px -20px;">
+                    <div class="message text-left alert alert-secondary alert-dismissible fade show" role="alert" style="font-weight: bold; width: 92%; margin-left: 3%;">
+                        <span class="badge badge-pill badge-info">Info:</span>
+                        <p></p>
+                        <p>
+                            Clicking <span class="text-warning"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed</span> button, means you've seen and read the lab result for this patient, this automatically removes the result from the list, for queue management purpose
+                        </p>
+                        <p>
+                            Clicking <span class="text-success"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed</span> button, means you've seen and read the scan result for this patient, this automatically removes the result from the list, for queue management purpose
+                        </p>
+                         <p>
+                            Clicking <span class="text-info"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed</span> button, means you've seen and completed your encounter with this patient today, this automatically removes the patient from the waiting list, for queue management purpose
+                        </p>
+                        <p>
+                            This action is important and required, as it helps to clean up the waiting list, thereby preventing the doctors from the mistake of picking up an already completed test result, scan result or encounter
+                        </p>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+             <!-- Column 2: Toolbars         -->
+                <div class="table-responsive">
+                    <div style="padding: 5px; border-radius: 4px;">
+                        
+                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markLabResultsAsCompleted({{patient.id}})">
+                            <div class="message text-center alert alert-warning text-warning" role="alert" style="padding-left: 10px;">
+                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed
+                            </div>
+                        </button>
+                        
+                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markScanResultsAsCompleted({{patient.id}})">
+                            <div class="message text-center alert alert-success text-success" role="alert" style="padding-left: 10px;">
+                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed
+                            </div>
+                        </button>
+                        
+                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markEncounterAsCompleted({{patient.id}})">
+                            <div class="message text-center alert alert-info" role="alert" style="padding-left: 10px;">
+                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed
+                            </div>
+                        </button>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+<script>
+// Get CSRF token from cookies
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+const csrftoken = getCookie('csrftoken');
+
+// Generic function to show PIN prompt and make API request
+async function requestPinAndMarkComplete(patientId, actionType, apiUrl, successMessage) {
+    try {
+        // Show PIN input dialog
+        const { value: pin } = await Swal.fire({
+            title: 'Enter Your PIN',
+            html: `
+                <div style="text-align: left;">
+                    <label for="pin-input" style="display: block; margin-bottom: 3px; font-weight: 500;">Security PIN:</label>
+                    <input type="password" id="pin-input" class="form-control" placeholder="Enter 4-6 digit PIN" maxlength="6" autocomplete="off" style="font-size: 18px; letter-spacing: 2px;">
+                </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Confirm',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            preConfirm: () => {
+                const pin = document.getElementById('pin-input').value;
+                if (!pin) {
+                    Swal.showValidationMessage('Please enter your PIN');
+                    return false;
+                }
+                if (!/^\d+$/.test(pin)) {
+                    Swal.showValidationMessage('PIN must contain only numbers');
+                    return false;
+                }
+                return pin;
+            }
+        });
+
+        if (pin) {
+            // Show loading state
+            Swal.fire({
+                title: 'Processing...',
+                text: 'Please wait while we update the records',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            // Make AJAX request
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken,
+                },
+                body: JSON.stringify({
+                    pin: pin,
+                    action_type: actionType
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                // Success notification
+                Swal.fire({
+                    title: 'Success!',
+                    text: data.message || successMessage,
+                    icon: 'success',
+                    confirmButtonColor: '#3085d6',
+                    timer: 3000,
+                    timerProgressBar: true
+                }).then(() => {
+                    // Optional: Reload page or update UI
+                    location.reload();
+                });
+            } else {
+                // Error notification
+                Swal.fire({
+                    title: 'Error!',
+                    text: data.message || 'An error occurred while processing your request.',
+                    icon: 'error',
+                    confirmButtonColor: '#d33'
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        Swal.fire({
+            title: 'Error!',
+            text: 'Network error occurred. Please check your connection and try again.',
+            icon: 'error',
+            confirmButtonColor: '#d33'
+        });
+    }
+}
+
+// Function to mark lab results as completed
+function markLabResultsAsCompleted(patientId) {
+    const apiUrl = `/api/mark-lab-results/${patientId}/`;
+    requestPinAndMarkComplete(
+        patientId, 
+        'lab_results', 
+        apiUrl, 
+        'Lab results have been marked as completed successfully!'
+    );
+}
+
+// Function to mark scan results as completed
+function markScanResultsAsCompleted(patientId) {
+    const apiUrl = `/api/mark-scan-results/${patientId}/`;
+    requestPinAndMarkComplete(
+        patientId, 
+        'scan_results', 
+        apiUrl, 
+        'Scan results have been marked as completed successfully!'
+    );
+}
+
+// Function to mark encounter as completed
+function markEncounterAsCompleted(patientId) {
+    const apiUrl = `/api/mark-encounter/${patientId}/`;
+    requestPinAndMarkComplete(
+        patientId, 
+        'encounter', 
+        apiUrl, 
+        'Encounter has been marked as completed successfully!'
+    );
+}
+
+// Optional: Add keyboard event listener for Enter key
+document.addEventListener('DOMContentLoaded', function() {
+    // You can add any initialization code here
+    console.log('Page loaded with patient ID: {{patient.id}}');
+});
+</script>
+
+{% endblock %}

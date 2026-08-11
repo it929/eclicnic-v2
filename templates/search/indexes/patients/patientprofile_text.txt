@@ -1,0 +1,7 @@
+{{ object.surname }}
+{{ object.first_name }}
+{{ object.other_name }}
+{{ object.get_full_name }}
+{{ object.hospital_number }}
+{{ object.phone_number }}
+{{ object.category.category }}

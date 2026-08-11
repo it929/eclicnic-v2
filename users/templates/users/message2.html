@@ -1,0 +1,22 @@
+{% if messages %}
+        <div class="row  mt-3">
+            {% for message in messages %}
+                {% if message.tags == 'error' %}
+                <div style="padding-inline:10px;font-weight: bold; background: rgb(245, 126, 146); color: brown; width: 93%; height: 50px;  border-radius: 5px; margin-left: 3.5%; display: flex;
+                    align-items: center; justify-content: center; font-family: 'pacifico', cursive;">{{ message }}
+                    </div>
+                {% elif message.tags == 'info' %}
+                    <div style="padding-inline:10px; font-weight: bold; background: rgb(116, 116, 164); color: rgb(3, 3, 73); width: 93%; height: 50px;  border-radius: 5px; margin-left: 3.5%; display: flex;
+                    align-items: center; justify-content: center; font-family: 'pacifico', cursive;">
+                        {{ message }}
+                    </div>
+                {% elif message.tags == 'success' %}
+                <div style="padding-inline:10px; font-weight: bold; background: rgb(159, 235, 159); color: rgb(2, 67, 2); width: 93%; height: 50px;  border-radius: 5px; margin-left: 3.5%; display: flex;
+                    align-items: center; justify-content: center; font-family: 'pacifico', cursive;">                        
+                    {{ message }}
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>  
+    {% endif %}
+    <!-- background: rgb(223, 107, 107); color: rgb(244, 25, 25); -->

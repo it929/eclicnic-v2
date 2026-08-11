@@ -1,0 +1,624 @@
+{% extends 'admin.html' %}
+{% block content %}
+<style>
+    #anc-booking-form .container { 
+        max-width: 1000px; 
+        margin: auto; 
+        background: #fff; 
+        padding: 20px; 
+        border-radius: 8px; 
+        box-shadow: 0 0 10px rgba(0,0,0,0.1); 
+    }
+
+    #anc-booking-form .nav-tabs-container {
+        display: flex;
+        justify-content: space-between;
+        gap: 1px;
+        margin-bottom: 20px;
+        list-style: none;
+        padding: 0;
+        background: #f5f5f5;
+        border-radius: 10px;
+        overflow: hidden;
+        width: 80%;
+    }
+
+    #anc-booking-form .nav-item {
+        flex: 1;
+        text-align: center;
+        padding: 15px 5px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.3s ease;
+        position: relative;
+        background: #f5f5f5;
+        color: #333;
+        border-right: 1px solid #ddd;
+    }
+
+    #anc-booking-form .nav-item:last-child {
+        border-right: none;
+    }
+
+    /* Stage-specific bottom borders for inactive */
+    #anc-booking-form .nav-item[data-tab="obstetric_history"] {
+        border-bottom: 4px solid #4CAF50;
+    }
+
+    #anc-booking-form .nav-item[data-tab="current_pregnancy"] {
+        border-bottom: 4px solid #2196F3;
+    }
+
+    #anc-booking-form .nav-item[data-tab="general_medical"] {
+        border-bottom: 4px solid #FF9800;
+    }
+
+    #anc-booking-form .nav-item[data-tab="tests"] {
+        border-bottom: 4px solid #9C27B0;
+    }
+
+    /* Active state - full background color */
+    #anc-booking-form .nav-item.active[data-tab="obstetric_history"] {
+        background-color: #4CAF50 !important;
+        color: white !important;
+        border-bottom-color: transparent !important;
+    }
+
+    #anc-booking-form .nav-item.active[data-tab="current_pregnancy"] {
+        background-color: #2196F3 !important;
+        color: white !important;
+        border-bottom-color: transparent !important;
+    }
+
+    #anc-booking-form .nav-item.active[data-tab="general_medical"] {
+        background-color: #FF9800 !important;
+        color: white !important;
+        border-bottom-color: transparent !important;
+    }
+
+    #anc-booking-form .nav-item.active[data-tab="tests"] {
+        background-color: #9C27B0 !important;
+        color: white !important;
+        border-bottom-color: transparent !important;
+    }
+
+    /* Content Tab Panes Styling */
+    #anc-booking-form .tab-pane {
+        display: none;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+    }
+    
+    #anc-booking-form .tab-pane.active {
+        display: block;
+    }
+
+    #anc-booking-form .form-group { 
+        margin-bottom: 15px; 
+    }
+    
+    #anc-booking-form .form-group label { 
+        display: block; 
+        margin-bottom: 5px; 
+        font-weight: bold;
+        font-size: 13px;
+    }
+    
+    #anc-booking-form .form-group input[type="text"],
+    #anc-booking-form .form-group input[type="date"],
+    #anc-booking-form .form-group input[type="number"],
+    #anc-booking-form .form-group select,
+    #anc-booking-form .form-group textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    #anc-booking-form .form-group input[readonly] { 
+        background-color: #f0f0f0; 
+    }
+    
+    #anc-booking-form .btn-group { 
+        margin-top: 20px; 
+        display: flex; 
+        justify-content: space-between; 
+    }
+    
+    #anc-booking-form .btn { 
+        padding: 10px 20px; 
+        border: none; 
+        border-radius: 5px; 
+        cursor: pointer; 
+        font-size: 14px;
+    }
+    
+    #anc-booking-form .btn-primary { 
+        background-color: #007bff; 
+        color: white; 
+    }
+    
+    #anc-booking-form .btn-info { 
+        background-color: #256fad; 
+        color: white; 
+    }
+
+    /* Stage Color Captions */
+    #anc-booking-form .color-obstetric { 
+        background-color: #e6f7ff; 
+    }
+    
+    #anc-booking-form .color-current-pregnancy { 
+        background-color: #fffbe6; 
+    }
+    
+    #anc-booking-form .color-general-medical { 
+        background-color: #e6ffe6; 
+    }
+    
+    #anc-booking-form .color-tests { 
+        background-color: #ffe6f7; 
+    }
+
+    #anc-booking-form .antenatal-form-section {
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    #anc-booking-form .antenatal-form-section h3 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        color: #333;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 10px;
+    }
+    
+    #anc-booking-form .antenatal-form-section h4 {
+        margin: 15px 0 10px;
+        color: #555;
+        font-size: 16px;
+    }
+    
+    #anc-booking-form .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-bottom: 15px;
+    }
+    
+    #anc-booking-form .form-col {
+        flex: 1 1 calc(50% - 20px);
+        min-width: 250px;
+    }
+    
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 20px;
+    }
+    
+ 
+    
+   
+
+    .errorlist {
+        color: red;
+        font-size: 12px;
+        margin: 5px 0 0;
+        padding-left: 0;
+        list-style: none;
+    }
+</style>
+
+<div class="container" id="anc-booking-form">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">
+            {{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) 
+                <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category] </span>
+            </span>
+        </h3>
+    </div>
+    <p style="font-size:32px; font-weight: bold; font-family: cursive; color: #2c4c68;">
+        First Antenatal Visit on {{ antenatal_visit.visit_date|date:"jS F, Y" }}
+    </p>
+
+    <ul class="nav-tabs-container">
+        <li class="nav-item {% if obstetric_done %}active{% endif %}" data-tab="obstetric_history"><a href="#"data-toggle="modal" data-target="#ObstetricHistoryModal" style="text-decoration: none; color: {% if obstetric_done %} #fff; {% else %} #333; {% endif %}">Obstetric History &nbsp; {% if obstetric_done %}<i class="fa fa-check"></i>{% endif %}</a></li>
+        <li class="nav-item {% if pregnancy_done %}active{% endif %}" data-tab="current_pregnancy" data-stage="2"><a href="#"data-toggle="modal" data-target="#CurrentPregnancyModal" style="text-decoration: none; color: {% if pregnancy_done %} #fff; {% else %} #333; {% endif %}">Current Pregnancy &nbsp; {% if pregnancy_done %}<i class="fa fa-check"></i>{% endif %}</a></li>
+        <li class="nav-item {% if medical_done %}active{% endif %}" data-tab="general_medical" data-stage="3"><a href="#"data-toggle="modal" data-target="#GeneralMedicalModal" style="text-decoration: none; color: {% if medical_done %} #fff; {% else %} #333; {% endif %}">General Medical &nbsp; {% if medical_done %}<i class="fa fa-check"></i>{% endif %}</a></li>
+        <li class="nav-item {% if tests_done %}active{% endif %}" data-tab="tests" data-stage="4"><a href="#"data-toggle="modal" data-target="#TestsModal" style="text-decoration: none; color: {% if tests_done %} #fff; {% else %} #333; {% endif %}">Tests &nbsp; {% if tests_done %}<i class="fa fa-check"></i>{% endif %}</a></li>
+    </ul>
+
+    <!-- Obstetric History Modal -->
+    <div class="modal fade" id="ObstetricHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+                    <div id="obstetric_history" class="tab-pane active antenatal-form-section color-obstetric">
+                        <h3>Obstetric History</h3>
+                        <form id="obstetricForm" method="post" data-form-type="obstetric">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_type" value="obstetric">
+                            
+                            <div class="form-grid">
+                                <div class="form-col-1">
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.is_first_pregnancy.id_for_label }}">First Pregnancy:</label>
+                                        {{ obstetric_form.is_first_pregnancy }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.history_spontaneous_abortions.id_for_label }}">History of 3+ Spontaneous Abortions:</label>
+                                        {{ obstetric_form.history_spontaneous_abortions }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.birthweight_gt_4500g.id_for_label }}">Last Baby Weight > 4500g:</label>
+                                        {{ obstetric_form.birthweight_gt_4500g }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.previous_caesarean_section.id_for_label }}">Previous Caesarean Section:</label>
+                                        {{ obstetric_form.previous_caesarean_section }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.previous_surgery_reproductive_tract.id_for_label }}">Previous Surgery on Reproductive Tract:</label>
+                                        {{ obstetric_form.previous_surgery_reproductive_tract }}
+                                    </div>
+                                    <div class="form-group" style="margin-top: 35px;">
+                                        <label for="{{ obstetric_form.age_gt_40_years.id_for_label }}">Age > 40 Years:</label>
+                                        {{ obstetric_form.age_gt_40_years }}
+                                    </div>
+                                </div>
+                                <div class="form-col-2">
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.vaginal_bleeding.id_for_label }}">Vaginal Bleeding:</label>
+                                        {{ obstetric_form.vaginal_bleeding }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.diastolic_bp_gt_90.id_for_label }}">Diastolic BP ≥ 90 mmHg:</label>
+                                        {{ obstetric_form.diastolic_bp_gt_90 }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.family_history_twins.id_for_label }}">Family History of Twins:</label>
+                                        {{ obstetric_form.family_history_twins }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.previous_stillbirth_neonatal_loss.id_for_label }}">Previous Stillbirth/Neonatal Loss:</label>
+                                        {{ obstetric_form.previous_stillbirth_neonatal_loss }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.birthweight_lt_2500g.id_for_label }}">Last Baby Weight < 2500g:</label>
+                                        {{ obstetric_form.birthweight_lt_2500g }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.last_pregnancy_hospital_admission.id_for_label }}">Last Pregnancy Hospital Admission for HTN/Preeclampsia:</label>
+                                        {{ obstetric_form.last_pregnancy_hospital_admission }}
+                                    </div>
+                                </div>
+                                <div class="form-col-3">
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.multiple_pregnancy.id_for_label }}">Multiple Pregnancy:</label>
+                                        {{ obstetric_form.multiple_pregnancy }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.age_lt_16_years.id_for_label }}">Age < 16 Years:</label>
+                                        {{ obstetric_form.age_lt_16_years }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.isoimmunization_rh.id_for_label }}">Isoimmunization Rh:</label>
+                                        {{ obstetric_form.isoimmunization_rh }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.pelvic_mass.id_for_label }}">Pelvic Mass:</label>
+                                        {{ obstetric_form.pelvic_mass }}
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="{{ obstetric_form.insulin_dependent_diabetes.id_for_label }}">Insulin Dependent Diabetes:</label>
+                                        {{ obstetric_form.insulin_dependent_diabetes }}
+                                    </div>
+                                    <div class="form-group" style="margin-top: 58px;">
+                                        <button type="submit" class="btn btn-primary" >Save Obstetric History</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Pregnancy Modal -->
+    <div class="modal fade" id="CurrentPregnancyModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+                <div id="current_pregnancy" class=" antenatal-form-section color-current-pregnancy">
+                    <h3>Current Pregnancy</h3>
+                    <form id="currentPregnancyForm" method="post" data-form-type="current_pregnancy">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="current_pregnancy">
+                        
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.last_menstrual_period.id_for_label }}">Last Menstrual Period:</label>
+                                    {{ current_pregnancy_form.last_menstrual_period }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.gestational_age_weeks.id_for_label }}">Gestational Age (weeks):</label>
+                                    {{ current_pregnancy_form.gestational_age_weeks }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.bleeding.id_for_label }}">Bleeding:</label>
+                                    {{ current_pregnancy_form.bleeding }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.blurred_vision.id_for_label }}">Blurred Vision:</label>
+                                    {{ current_pregnancy_form.blurred_vision }}
+                                </div>
+                            </div>
+
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.oedema.id_for_label }}">Oedema:</label>
+                                    {{ current_pregnancy_form.oedema }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.expected_date_of_delivery.id_for_label }}">Expected Date of Delivery:</label>
+                                    {{ current_pregnancy_form.expected_date_of_delivery }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.number_of_foetus.id_for_label }}">Number of Foetus:</label>
+                                    {{ current_pregnancy_form.number_of_foetus }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.vomiting.id_for_label }}">Vomiting:</label>
+                                    {{ current_pregnancy_form.vomiting }}
+                                </div>
+                            </div>
+                        
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.breathlessness.id_for_label }}">Breathlessness:</label>
+                                    {{ current_pregnancy_form.breathlessness }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.placenta_previa.id_for_label }}">Placenta Previa:</label>
+                                    {{ current_pregnancy_form.placenta_previa }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ current_pregnancy_form.discharge.id_for_label }}">Discharge:</label>
+                                    {{ current_pregnancy_form.discharge }}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ current_pregnancy_form.history_of_present_pregnancy.id_for_label }}">History of Present Pregnancy:</label>
+                            {{ current_pregnancy_form.history_of_present_pregnancy }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" style="float: right;">Save Current Pregnancy</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- General Medical Modal -->
+    <div class="modal fade" id="GeneralMedicalModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+                <div id="general_medical" class="antenatal-form-section color-general-medical">
+                    <h3>General Medical</h3>
+                    <form id="generalMedicalForm" method="post" data-form-type="general_medical">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="general_medical">
+                        
+                        <div class="form-group">
+                            <label for="{{ general_medical_form.known_substance_abuse.id_for_label }}">Known Substance Abuse:</label>
+                            {{ general_medical_form.known_substance_abuse }}
+                        </div>
+                        
+                        <h4>Previous Medical History:</h4>
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.severe_anaemia.id_for_label }}">Severe Anaemia:</label>
+                                    {{ general_medical_form.severe_anaemia }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.sickle_cell_disease.id_for_label }}">Sickle Cell Disease:</label>
+                                    {{ general_medical_form.sickle_cell_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.hypertension.id_for_label }}">Hypertension:</label>
+                                    {{ general_medical_form.hypertension }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.diabetes_mellitus.id_for_label }}">Diabetes Mellitus:</label>
+                                    {{ general_medical_form.diabetes_mellitus }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.cardiac_disease.id_for_label }}">Cardiac Disease:</label>
+                                    {{ general_medical_form.cardiac_disease }}
+                                </div>
+                            </div>
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.chronic_cough_tuberculosis.id_for_label }}">Chronic Cough/Tuberculosis:</label>
+                                    {{ general_medical_form.chronic_cough_tuberculosis }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.breast_cancer.id_for_label }}">Breast Cancer:</label>
+                                    {{ general_medical_form.breast_cancer }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.liver_disease_jaundice.id_for_label }}">Liver Disease/Jaundice:</label>
+                                    {{ general_medical_form.liver_disease_jaundice }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.gall_bladder_disease.id_for_label }}">Gall Bladder Disease:</label>
+                                    {{ general_medical_form.gall_bladder_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.thyroid_disease.id_for_label }}">Thyroid Disease:</label>
+                                    {{ general_medical_form.thyroid_disease }}
+                                </div>
+                            </div>
+                            
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.renal_disease.id_for_label }}">Renal Disease:</label>
+                                    {{ general_medical_form.renal_disease }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.epilepsy.id_for_label }}">Epilepsy:</label>
+                                    {{ general_medical_form.epilepsy }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.asthma.id_for_label }}">Asthma:</label>
+                                    {{ general_medical_form.asthma }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ general_medical_form.others_medical_history.id_for_label }}">Other Medical History:</label>
+                                    {{ general_medical_form.others_medical_history }}
+                                </div>
+                        
+                                <div class="form-group" style="margin-top: -5px;">
+                                    <label for="{{ general_medical_form.family_history.id_for_label }}">Family History:</label>
+                                    {{ general_medical_form.family_history }}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        
+                        <button type="submit" class="btn btn-primary" style="float: right;">Save General Medical</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tests Modal -->
+    <div class="modal fade" id="TestsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+                <div id="tests" class="antenatal-form-section color-tests">
+                    <h3>Tests</h3>
+                    <form id="testsForm" method="post" data-form-type="tests">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" value="tests">
+                        
+                        <div class="form-grid">
+                            <div class="form-col-1">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.vdrl.id_for_label }}">VDRL:</label>
+                                    {{ tests_form.vdrl }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hiv.id_for_label }}">HIV:</label>
+                                    {{ tests_form.hiv }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.blood_group.id_for_label }}">Blood Group:</label>
+                                    {{ tests_form.blood_group }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.genotype.id_for_label }}">Genotype:</label>
+                                    {{ tests_form.genotype }}
+                                </div>
+                            </div>
+                            <div class="form-col-2">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hepatitis_b.id_for_label }}">Hepatitis B:</label>
+                                    {{ tests_form.hepatitis_b }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hepatitis_c.id_for_label }}">Hepatitis C:</label>
+                                    {{ tests_form.hepatitis_c }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.rhesus_factor.id_for_label }}">Rhesus Factor:</label>
+                                    {{ tests_form.rhesus_factor }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.hb.id_for_label }}">Hb:</label>
+                                    {{ tests_form.hb }}
+                                </div>
+                            </div>
+                            
+                            <div class="form-col-3">
+                                <div class="form-group">
+                                    <label for="{{ tests_form.urine_protein.id_for_label }}">Urine Protein:</label>
+                                    {{ tests_form.urine_protein }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.urine_glucose.id_for_label }}">Urine Glucose:</label>
+                                    {{ tests_form.urine_glucose }}
+                                </div>
+                                <div class="form-group">
+                                    <label for="{{ tests_form.pregnancy_test.id_for_label }}">Pregnancy Test:</label>
+                                    {{ tests_form.pregnancy_test }}
+                                </div>
+                                <div class="btn-group" style="margin-top: 35px;">
+                                    <button type="submit" class="btn btn-primary">Save Tests</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const lmpField = document.getElementById("id_last_menstrual_period");
+    const gaField  = document.getElementById("id_gestational_age_weeks");
+    const eddField = document.getElementById("id_expected_date_of_delivery");
+
+    if(!lmpField) return;
+
+    function calculatePregnancyDates(){
+
+        if(!lmpField.value) return;
+
+        const lmp = new Date(lmpField.value);
+        const today = new Date();
+
+        // -------- Gestational Age --------
+        const diffTime = today - lmp;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const weeks = Math.floor(diffDays / 7);
+
+        if(gaField){
+            gaField.value = weeks;
+        }
+
+        // -------- Expected Delivery Date --------
+        const edd = new Date(lmp);
+        edd.setDate(edd.getDate() + 280);
+
+        if(eddField){
+            eddField.value = edd.toISOString().split('T')[0];
+        }
+    }
+
+    // Run when date changes
+    lmpField.addEventListener("change", calculatePregnancyDates);
+
+    // Run automatically if editing existing record
+    calculatePregnancyDates();
+
+});
+</script>
+
+{% endblock %}

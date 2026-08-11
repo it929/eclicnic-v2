@@ -1,0 +1,156 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    #medical-module-wrapper .dropdown-menu {
+        display: block;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(15px);
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+    }
+</style>
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+    <!-- Navbar -->
+    <div id="medical-module-wrapper">
+            <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
+                <div class="collapse navbar-collapse" id="navbarText">
+                    <ul class="navbar-nav mr-auto">
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                        </li>
+                        {% if patient.category.category == 'ANC' %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
+                        </li>
+                        <li class="nav-item dropdown hover-dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            View Reports
+                        </a>
+                            <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                                <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                            <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                            <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                            <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                            </div>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests and Results</a>
+                        </li>
+                        <li class="nav-item">
+                            {% if patient.is_admitted %}
+                            <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                            {% else %}
+                            <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}" class="text-danger">Admit Patient</a>
+                            {% endif %}
+                        </li>
+
+                        <li class="nav-item active">
+                            <a class="nav-link" href="{% url 'icd11_search' patient.id %}">ICD-11</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </div>
+    <div class="row">
+        <div class="col-md-12">
+            <h2>ICD-11 Code Search</h2>
+            
+            <div class="card">
+                <div class="card-body">
+                    <form method="get" id="icd11-search-form">
+                        <div class="row">
+                            <div class="col-md-6">
+                                {{ form.search_term.label_tag }}
+                                {{ form.search_term }}
+                            </div>
+                            <div class="col-md-4">
+                                {{ form.category.label_tag }}
+                                {{ form.category }}
+                            </div>
+                            <div class="col-md-2">
+                                <label>&nbsp;</label>
+                                <button type="submit" class="btn btn-primary form-control">Search</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                {% if codes %}
+                    <div class="list-group">
+                        {% for code in codes %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">{{ code.code }} - {{ code.title }}</h5>
+                                    <button class="btn btn-sm btn-outline-primary use-code-btn" 
+                                            data-code="{{ code.code }}"
+                                            data-title="{{ code.title }}">
+                                        Use Code
+                                    </button>
+                                </div>
+                                {% if code.description %}
+                                    <p class="mb-1">{{ code.description }}</p>
+                                {% endif %}
+                                <small>Category: {{ code.category.title }}</small>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p>No codes found. Try a different search term.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle "Use Code" button clicks
+    document.querySelectorAll('.use-code-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const code = this.getAttribute('data-code');
+            const title = this.getAttribute('data-title');
+            
+            // You can implement what happens when a code is selected
+            // For example, populate a form field or open a diagnosis form
+            alert(`Selected code: ${code} - ${title}`);
+            
+            // Example: Send to parent window if opened in popup
+            if (window.opener) {
+                window.opener.document.getElementById('icd11-code').value = code;
+                window.opener.document.getElementById('icd11-description').value = title;
+                window.close();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

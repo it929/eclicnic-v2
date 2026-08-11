@@ -1,0 +1,900 @@
+{% extends 'admin.html' %}
+{% load static %}
+{% load custom_tags %}
+
+
+{% block content %}
+<style>
+    th, td{
+        font-size: 12px;
+    }
+
+    .total{
+       background: none; border: none; width: 90px;
+    }
+    .discount{
+        width: 60px; text-align: right; background: none; border: none; color: grey;
+    }
+    input[type='text']{
+        width: 80px; border: none; border-bottom: 1px solid #ccc; background: none;
+    }
+    select{
+        border: none; background: none; color: grey;
+    }
+</style>
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+
+    <!-- Navbar -->
+    <div id="billing-module-wrapper" style="margin-top: -15px;">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+        <div class="collapse navbar-collapse" id="navbarText">
+        <ul class="navbar-nav mr-auto">
+            
+            <li class="nav-item dropdown hover-dropdown actives">
+            <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                Invoices
+            </a>
+            <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+            </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+                    Receipts
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+                    <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+                </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                    Transactions
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                    <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                </div>
+            </li>
+            
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+                Deposits & Refunds
+            </a>
+            </li>
+        </ul>
+        </div>
+    </nav>
+</div>
+  <div class="card-body">
+    <div class="table-responsive">
+        {% csrf_token %}
+            <table class="table" cellpadding="0" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th style="width: 22%;">Service Item</th>
+                        <th>Qty.</th>
+                        <th>Rate(₦)</th>
+                        <th>Discount(%)</th>
+                        <th>Total (₦)</th>
+                        <th style="width: 150px;">Payment Option</th>
+                        <th style="width: 100px;">Bill? <input type="checkbox" id="bill_all"></th>
+                        <th>Type</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody> 
+                <!-- registration fee charges -->
+                {% if registration_fee %}    
+                <tr><td><span class="text-primary font-weight-bold">Registration fee</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                    {% for transact in registration_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}"  data-original-id="{{ transact.id }}" data-original-model="GetRegistrationFee">
+                            <td class="product-name">Registration fee</td>
+                            <td class="qty-display">1</td> 
+                            <td class="rate-display">{{ transact.price }}</td> 
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- consultation fee charges -->
+                {% if consultation_fee %}    
+                <tr><td><span class="text-primary font-weight-bold">Consultation fee</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                    {% for transact in consultation_fee %}
+                    <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" 
+                        data-original-id="{{ transact.id }}" 
+                        data-original-model="NurseWaitingList">
+                        <td class="product-name">
+                            {{ transact.purpose }}
+                        </td>
+                        <td class="qty-display">1</td>
+                        <td class="rate-display">{{ transact.price }}</td>
+                        <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" 
+                            {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                        <td><input type="number" readonly class="total" value="0"></td>
+                        <td>
+                            <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                <option value="Claim">Claim</option>
+                                <option value="Capitation">Capitation</option>
+                                <option value="Cash">Cash</option>
+                            </select>
+                        </td>
+                        <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                        </td>
+                        <td>
+                            <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                        </td>
+                        <td>
+                            {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                        </td>
+
+                    </tr>
+                    {% endfor %}
+                {% endif %}
+                {% if laboratory_fee or radiology_fee%} 
+                    <tr><td><span class="text-primary font-weight-bold">Investigations fee</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                {% endif %}
+                <!-- laboratory fee charges -->
+                {% if laboratory_fee %}    
+                    {% for transact in laboratory_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="RadiologyLab">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">1</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- radiology fee charges -->
+                {% if radiology_fee %}    
+                    {% for transact in radiology_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="RadiologyLab">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">1</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+                
+                {% if ipdmedication_fee or ipd2medication_fee or ipd3medication_fee or opdmedication_fee or opd2medication_fee%}  
+                    <tr><td><span class="text-primary font-weight-bold">Medications fee</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr> 
+                {% endif %}  
+                <!-- ipd pharmacy-1 medication fee charges -->
+                {% if ipdmedication_fee %}   
+                    {% for transact in ipdmedication_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="IPDAdministeredDrugs">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">{{ transact.quantity }}</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- ipd pharmacy-2 medication fee charges -->
+                {% if ipd2medication_fee %}    
+                    {% for transact in ipd2medication_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="IPD2AdministeredDrugs">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">{{ transact.quantity }}</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- ipd pharmacy-3 medication fee charges -->
+                {% if ipd3medication_fee %}    
+                    {% for transact in ipd3medication_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="IPD3AdministeredDrugs">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">{{ transact.quantity }}</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- opd pharmacy-1 medication fee charges -->
+                {% if opdmedication_fee %}    
+                    {% for transact in opdmedication_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="OPDAdministeredDrugs">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">{{ transact.quantity }}</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- opd pharmacy-2 medication fee charges -->
+                {% if opd2medication_fee %}    
+                    {% for transact in opd2medication_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="OPD2AdministeredDrugs">
+                            <td class="product-name">{{ transact.item }}</td>
+                            <td class="qty-display">{{ transact.quantity }}</td>
+                            <td class="rate-display">{{ transact.rate }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- other services fee charges -->
+                {% if other_services_fee %}    
+                <tr><td><span class="text-primary font-weight-bold">Other Service charges</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                    {% for transact in other_services_fee %}
+                        <tr class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}" data-original-id="{{ transact.id }}" data-original-model="OtherService">
+                            <td class="product-name">{{ transact.purpose }}</td>
+                            <td class="qty-display">1</td>
+                            <td class="rate-display">{{ transact.price }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                            {% if not transact|is_invoiced:invoiced_set %}
+                                <input type="checkbox" class="bill">
+                            {% endif %}
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- admission fee charges -->
+                {% if admission_fee %}    
+                <tr><td><span class="text-primary font-weight-bold">Admission fee</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                    {% for transact in admission_fee %}
+                        <tr {% if transact.num_of_days == 0 %}class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %} bg bg-warning text-white"{% else %}class="bill-row {% if transact|is_invoiced:invoiced_set %}invoiced-row{% endif %}"{% endif %} data-original-id="{{ transact.id }}" data-original-model="AdmissionFee">
+                            <td class="product-name">{{ transact.ward.ward_name }}</td>
+                            <td class="qty-display">{{ transact.num_of_days }}</td>
+                            <td class="rate-display">{{ transact.price }}</td>
+                            <td><input type="number" class="discount" value="0" min="0" max="100" placeholder="%" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}></td>
+                            <td><input type="number" readonly class="total" value="0"></td>
+                            <td>
+                                <select class="payment_option" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                                    <option value="Claim">Claim</option>
+                                    <option value="Capitation">Capitation</option>
+                                    <option value="Cash">Cash</option>
+                                </select>
+                            </td>
+                            <td>
+                                {% if not transact|is_invoiced:invoiced_set %}
+                                    {% if transact.num_of_days != 0 %}<input type="checkbox" class="bill">{% endif %}</td>
+                                {% endif %}
+                            <td>
+                            </td>
+                            <td>
+                                <input type="text" class="amount_or_pacode" placeholder="PA Code" {% if transact|is_invoiced:invoiced_set %}disabled{% endif %}>
+                            </td>
+                            <td>
+                                {% if transact|is_invoiced:invoiced_set %}<span class="invoiced-badge">INVOICED</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+
+                </tbody>
+            </table>
+            <!-- Calculate the sum total from the checked record -->
+             <hr>
+            <div id="total_sum" style="margin-left: 45%;">Total: ₦0.00</div>
+            <span>Balance: ₦ {{ total_deposits | currency }}</span> 
+            <button type="button" class="btn btn-primary" id="open_invoice_modal_btn" data-toggle="modal" data-target="#pinInvoiceModal" style="float: right;"><i class="fa fa-plus"></i> Create Invoice</button>
+            <button type="button" class="btn btn-warning" id="open_clear_transaction_modal_btn" data-toggle="modal" data-target="#pinClearTransactionModal" style="float: right; margin-right: 10px;"><i class="fa fa-save"></i> Clear Transactions</button>        
+            
+            {% if can_reset_invoice %}
+            <button type="button" class="btn btn-danger" id="open_reset_invoice_modal_btn" data-toggle="modal" data-target="#pinResetInvoiceModal" style="float: right; margin-right: 10px;"><i class="fa fa-undo"></i> Reset Invoice</button>        
+            {% endif %}
+
+            <!-- pinInvoiceModal modal -->
+            <div class="modal fade" id="pinInvoiceModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+            aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div>
+                            <div style="padding-inline: 30px; padding-block: 20px;">
+                                <input type="password" id="pin_code_input_invoice" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                            </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-primary" id="create_invoice_with_pin"><i class="fa fa-plus"></i> Create Invoice</button>
+                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                </div>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+
+            <!-- pinClearTransactionModal modal -->
+            <div class="modal fade" id="pinClearTransactionModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+            aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h6 class="modal-title font-weight-bold text-warning" id="myModalLabel2">Warning!: <span class="text-secondary">Clearing transactions is an irreversible action</span></h6>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div>
+                            <div style="padding-inline: 30px; padding-block: 20px;">
+                                <input type="password" id="pin_code_input_clear" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                            </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-warning" id="clear_transaction_with_pin"><i class="fa fa-save"></i> Clear Transactions</button>
+                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                </div>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+
+            <div class="modal fade" id="pinResetInvoiceModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+            aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h6 class="modal-title font-weight-bold text-danger" id="myModalLabel2">Warning!: <span class="text-secondary">You're just about to reset the Invoice... continue?</span></h6>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div>
+                            <div style="padding-inline: 30px; padding-block: 20px;">
+                                <input type="password" id="pin_code_input_reset" name="pin_code" placeholder="Enter PIN code" class="form-control" required/>       
+                            </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-danger" id="reset_invoice_with_pin"><i class="fa fa-undo"></i> Reset Invoice</button>
+                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                                </div>
+                        </div>
+                    </div> 
+                </div>
+            </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const billAllCheckbox = document.getElementById('bill_all');
+    const billCheckboxes = document.querySelectorAll('.bill');
+    const totalSumDisplay = document.getElementById('total_sum');
+    const billRows = document.querySelectorAll('.bill-row');
+    
+    const createInvoiceWithPinBtn = document.getElementById('create_invoice_with_pin'); 
+    const pinCodeInputInvoice = document.getElementById('pin_code_input_invoice'); 
+
+    const clearTransactionWithPinBtn = document.getElementById('clear_transaction_with_pin');
+    const pinCodeInputClear = document.getElementById('pin_code_input_clear');
+
+    const resetInvoiceWithPinBtn = document.getElementById('reset_invoice_with_pin');
+    const pinCodeInputReset = document.getElementById('pin_code_input_reset');
+    
+    const patientId = "{{ patient.id }}"; 
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value; 
+    const patientCategory = "{{ patient_category_name }}"; 
+
+    function calculateRowTotal(row) {
+        const qtyEl = row.querySelector('.qty-display');
+        const rateEl = row.querySelector('.rate-display');
+        const discountInput = row.querySelector('.discount');
+        const totalInput = row.querySelector('.total');
+        
+        if (!qtyEl || !rateEl || !discountInput || !totalInput) return 0;
+
+        const qty = parseFloat(qtyEl.textContent) || 0;
+        const rate = parseFloat(rateEl.textContent) || 0;
+        let discount = parseFloat(discountInput.value) || 0;
+        discount = Math.max(0, Math.min(100, discount)); 
+        discountInput.value = discount; 
+
+        let rowTotal = (qty * rate);
+        rowTotal -= (discount / 100) * rowTotal;
+        
+        totalInput.value = rowTotal.toFixed(2);
+        return rowTotal;
+    }
+
+    function updateTotalSum() {
+        let grandTotal = 0;
+        billRows.forEach(row => {
+            const billCheckbox = row.querySelector('.bill');
+            const rowTotalInput = row.querySelector('.total');
+            // KEY FIX: Check if billCheckbox exists before reading .checked
+            if (billCheckbox && billCheckbox.checked && rowTotalInput) {
+                grandTotal += parseFloat(rowTotalInput.value) || 0;
+            }
+        });
+        totalSumDisplay.textContent = `Total: ₦${grandTotal.toFixed(2)}`;
+    }
+
+    // 1. "Bill All" checkbox functionality
+    if (billAllCheckbox) {
+        billAllCheckbox.addEventListener('change', function() {
+            billCheckboxes.forEach(checkbox => {
+                if (checkbox) checkbox.checked = billAllCheckbox.checked;
+            });
+            updateTotalSum(); 
+        });
+    }
+
+    billCheckboxes.forEach(checkbox => {
+        if (checkbox) checkbox.addEventListener('change', updateTotalSum); 
+    });
+
+    // Loop through each row to attach event listeners and perform initial calculations
+    billRows.forEach(row => {
+        const paymentOptionSelect = row.querySelector('.payment_option');
+        const amountOrPaCodeInput = row.querySelector('.amount_or_pacode');
+        const discountInput = row.querySelector('.discount');
+        
+        calculateRowTotal(row);
+
+        if (patientCategory === 'HMO') {
+            if (paymentOptionSelect) paymentOptionSelect.value = 'Claim'; 
+            if (amountOrPaCodeInput) amountOrPaCodeInput.placeholder = 'PA Code';
+        } else {
+            if (paymentOptionSelect) paymentOptionSelect.value = 'Cash'; 
+            if (amountOrPaCodeInput) amountOrPaCodeInput.placeholder = 'Amount';
+        }
+
+        if (paymentOptionSelect) {
+            paymentOptionSelect.addEventListener('change', function() {
+                if (this.value === 'Cash' || this.value === 'Capitation') {
+                    if (amountOrPaCodeInput) amountOrPaCodeInput.placeholder = 'Amount';
+                } else {
+                    if (amountOrPaCodeInput) amountOrPaCodeInput.placeholder = 'PA Code';
+                }
+            });
+        }
+
+        if (discountInput) {
+            discountInput.addEventListener('input', function() {
+                calculateRowTotal(row);
+                updateTotalSum();
+            });
+        }
+    });
+
+    // --- Create Invoice Logic ---
+    if (createInvoiceWithPinBtn) {
+        createInvoiceWithPinBtn.addEventListener('click', function(event) {
+            event.preventDefault(); 
+
+            const selectedItems = [];
+            billRows.forEach(row => {
+                const billCheckbox = row.querySelector('.bill');
+                if (billCheckbox && billCheckbox.checked) {
+                    selectedItems.push({
+                        product: row.querySelector('.product-name')?.textContent.trim(),
+                        qty: parseFloat(row.querySelector('.qty-display')?.textContent) || 0,
+                        rate: parseFloat(row.querySelector('.rate-display')?.textContent) || 0,
+                        discount: parseFloat(row.querySelector('.discount')?.value) || 0, 
+                        total: parseFloat(row.querySelector('.total')?.value) || 0,
+                        payment_option: row.querySelector('.payment_option')?.value, 
+                        original_id: row.dataset.originalId, 
+                        original_model: row.dataset.originalModel 
+                    });
+                }
+            });
+
+            if (selectedItems.length === 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'No Items Selected',
+                    text: 'Please select at least one item to create an invoice.',
+                    confirmButtonColor: '#3085d6'
+                });
+                $('#pinInvoiceModal').modal('hide'); 
+                return;
+            }
+
+            const pinCode = pinCodeInputInvoice.value; 
+            if (!pinCode) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'PIN Required',
+                    text: 'Please enter your PIN code for invoicing.',
+                    confirmButtonColor: '#3085d6'
+                });
+                return;
+            }
+
+            fetch(`/patient/${patientId}/create_invoice/`, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken 
+                },
+                body: JSON.stringify({ 
+                    selected_items: selectedItems,
+                    pin_code: pinCode 
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorData => {
+                        throw new Error(errorData.message || 'Server error.');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success!',
+                        text: data.message,
+                        confirmButtonColor: '#3085d6'
+                    }).then(() => {
+                        $('#pinInvoiceModal').modal('hide');
+                        location.reload(); 
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error!',
+                        text: data.message,
+                        confirmButtonColor: '#d33'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Fetch Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Operation Failed!',
+                    text: error.message || 'An unexpected error occurred. Please try again.',
+                    confirmButtonColor: '#d33'
+                });
+            })
+            .finally(() => {
+                if (pinCodeInputInvoice) pinCodeInputInvoice.value = ''; 
+            });
+        });
+    }
+
+    // --- Clear Transactions Logic ---
+    if (clearTransactionWithPinBtn) {
+        clearTransactionWithPinBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+
+            const uncheckedItems = [];
+            billRows.forEach(row => {
+                const billCheckbox = row.querySelector('.bill');
+                if (billCheckbox && !billCheckbox.checked) { 
+                    uncheckedItems.push({
+                        original_id: row.dataset.originalId, 
+                        original_model: row.dataset.originalModel 
+                    });
+                }
+            });
+
+            const pinCode = pinCodeInputClear.value; 
+            if (!pinCode) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'PIN Required',
+                    text: 'Please enter your PIN code to clear transactions.',
+                    confirmButtonColor: '#3085d6'
+                });
+                return;
+            }
+
+            fetch(`/patient/${patientId}/clear_transactions/`, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken 
+                },
+                body: JSON.stringify({ 
+                    unchecked_items: uncheckedItems, 
+                    pin_code: pinCode 
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorData => {
+                        throw new Error(errorData.message || 'Server error.');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success!',
+                        text: data.message,
+                        confirmButtonColor: '#3085d6'
+                    }).then(() => {
+                        $('#pinClearTransactionModal').modal('hide');
+                        location.reload(); 
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error!',
+                        text: data.message,
+                        confirmButtonColor: '#d33'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Fetch Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Operation Failed!',
+                    text: error.message || 'An unexpected error occurred. Please try again.',
+                    confirmButtonColor: '#d33'
+                });
+            })
+            .finally(() => {
+                if (pinCodeInputClear) pinCodeInputClear.value = ''; 
+            });
+        });
+    }
+
+    // --- Reset Invoice Logic ---
+    if (resetInvoiceWithPinBtn) {
+        resetInvoiceWithPinBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+
+            const pinCode = pinCodeInputReset.value; 
+            if (!pinCode) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'PIN Required',
+                    text: 'Please enter your PIN code to reset the invoice.',
+                    confirmButtonColor: '#3085d6'
+                });
+                return;
+            }
+
+            fetch(`/patient/${patientId}/reset_invoice/`, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken 
+                },
+                body: JSON.stringify({ 
+                    pin_code: pinCode 
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorData => {
+                        throw new Error(errorData.message || 'Server error.');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success!',
+                        text: data.message,
+                        confirmButtonColor: '#3085d6'
+                    }).then(() => {
+                        $('#pinResetInvoiceModal').modal('hide');
+                        location.reload(); 
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error!',
+                        text: data.message,
+                        confirmButtonColor: '#d33'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Fetch Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Operation Failed!',
+                    text: error.message || 'An unexpected error occurred. Please try again.',
+                    confirmButtonColor: '#d33'
+                });
+            })
+            .finally(() => {
+                if (pinCodeInputReset) pinCodeInputReset.value = ''; 
+            });
+        });
+    }
+
+    // Initial call to update the sum
+    updateTotalSum(); 
+});
+</script>
+{% endblock content %}

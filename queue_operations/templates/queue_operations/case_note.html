@@ -1,0 +1,2966 @@
+{% extends 'admin.html' %}
+{% load static %}
+
+{% block content %}
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+            display: block;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #medical-module-wrapper .dropdown-menu {
+            display: block;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(15px);
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+        }
+        .patient-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .date-filter {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .filter-controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-controls input, .filter-controls select {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        .filter-controls button {
+            background-color: #2c3e50;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .filter-controls button:hover {
+            background-color: #1a252f;
+        }
+
+        .comp{
+            margin-top: -10px;
+            font-size: 14px;
+            /* margin-left: 10px; */
+        }
+        .comp2{
+            margin-top: -15px;
+            font-size: 14px;
+        }
+        strong{
+            text-decoration: underline;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            padding-bottom: -10px;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .form-grid-inner {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            padding-bottom: -10px;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .form-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            padding-bottom: -10px;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .ref-label{
+            text-decoration: underline;
+        }
+        .ref-value{
+            margin-top: -10px;
+            font-family: cursive;
+        }
+        .print-btn:hover {
+            background-color: #218838;
+        }
+        .section {
+            margin-bottom: 5px;
+        }
+        .section-title {
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 3px;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        .vital-signs-container {
+            margin-bottom: 15px;
+        }
+        .vital-signs-date-group {
+            margin-bottom: 20px;
+            padding: 5px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background-color: #fafafa;
+            font-size: 12px;
+        }
+        .vital-signs-date-header {
+            font-weight: bold;
+            font-family: cursive;
+            color: brown;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .vital-signs-provider {
+            font-weight: bold;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .vital-signs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 10px;
+        }
+        .vital-item {
+            padding: 8px;
+            background-color: #f1f1f1;
+            border-radius: 3px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+            font-size: 12px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .timestamp {
+            font-size: 0.9em;
+            color: #666;
+            text-align: right;
+            margin-top: 20px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 10px;
+            color: #2c3e50;
+        }
+        .no-data {
+            text-align: center;
+            padding: 0px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            color: #6c757d;
+        }
+        .date-range-controls {
+            display: none;
+            gap: 10px;
+            align-items: center;
+        }
+        .date-filter .filter-controls > div {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .date-filter .filter-controls label {
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        #singleDateControl {
+            display: block;
+        }
+        .date-range-controls {
+            display: none;
+            gap: 10px;
+            align-items: center;
+        }
+        .date-range-controls > div {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        /* Styles for dynamically generated content in case note */
+        #caseNoteContent .date-section {
+            margin-bottom: 30px;
+            border: 2px solid #2c3e50;
+            border-radius: 8px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            page-break-inside: avoid;
+        }
+
+        #caseNoteContent .date-section h3 {
+            color: #2c3e50;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #caseNoteContent .section {
+            margin-bottom: 25px;
+        }
+
+        #caseNoteContent .section-title {
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        #caseNoteContent .vital-signs-container {
+            margin-bottom: 15px;
+        }
+
+        #caseNoteContent .vital-signs-date-group {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background-color: #fafafa;
+            font-size: 12px;
+        }
+
+        #caseNoteContent .vital-signs-date-header {
+            font-weight: bold;
+            font-family: cursive;
+            color: brown;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #caseNoteContent .vital-signs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 10px;
+        }
+
+        #caseNoteContent .vital-item {
+            padding: 8px;
+            background-color: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        #caseNoteContent table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+
+        #caseNoteContent th, 
+        #caseNoteContent td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+            font-size: 12px;
+        }
+
+        #caseNoteContent th {
+            background-color: #f2f2f2;
+        }
+
+        #caseNoteContent .comp {
+            margin-top: -10px;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+
+        #caseNoteContent .comp2 {
+            margin-top: -15px;
+            font-size: 14px;
+        }
+
+        #caseNoteContent .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        #caseNoteContent .form-grid-inner {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        #caseNoteContent .form-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        #caseNoteContent .ref-label {
+            text-decoration: underline;
+        }
+
+        #caseNoteContent .ref-value {
+            margin-top: -10px;
+            font-family: cursive;
+        }
+
+        #caseNoteContent .no-data {
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            color: #6c757d;
+            margin: 10px 0;
+        }
+
+        #caseNoteContent > .container-fluid {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        @media print {
+            body {
+                background-color: white;
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                margin: 0;
+                padding: 10px;
+            }
+            .date-filter, .print-btn {
+                display: none;
+            }
+            .header {
+                border-bottom: 2px solid #000;
+            }
+            .section-title {
+                background-color: #000 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact;
+                font-family: cursive;
+            }
+            .vital-signs-date-group {
+                border: 1px solid #000;
+                page-break-inside: avoid;
+            }
+            table {
+                page-break-inside: auto;
+            }
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+        }
+        /* Export to excel and pdf */
+        .export-btn {
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+        }
+
+        .pdf-btn {
+            background-color: #dc3545;
+        }
+
+        .pdf-btn:hover {
+            background-color: #c82333;
+        }
+
+        .excel-btn {
+            background-color: #28a745;
+        }
+
+        .excel-btn:hover {
+            background-color: #218838;
+        }
+
+        .export-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        /* Speech synthesis */
+        .speech-btn {
+    background-color: #9c27b0;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+}
+
+.speech-btn:hover {
+    background-color: #7b1fa2;
+}
+
+.speech-btn.playing {
+    background-color: #f44336;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.speech-highlight {
+    background-color: #fff3cd;
+    border-left: 4px solid #ffc107;
+    padding: 2px 8px;
+    margin: 2px 0;
+    transition: all 0.3s ease;
+}
+
+.speech-reading {
+    background-color: #d4edda;
+    border-left: 4px solid #28a745;
+}
+    </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <div class="container-fluid">
+        <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+<!-- Navbar -->
+
+    {% if request.user.department.department != 'Nursing' %}
+        {% include 'queue_operations/crumbs/doctors_general_nav2.html' %}
+    {% else %}
+    <div id="medical-module-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+            <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'vital_signs' patient.id %}">Collect Vital Signs</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'modify_vital_signs' patient.id %}">Modify Vital Signs</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'background_health' patient.id %}">Background Health</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-toggle="modal" data-target="#allergyUpdateModal">Update Allergies</a>
+                </li>
+                <li class="nav-item">
+                    {% if patient.is_admitted %}
+                    <a class="nav-link active" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                    {% endif %}
+                </li>
+            </ul>
+            </div>
+        </nav>
+    </div>
+    {% endif %}
+        <div class="header">
+            <div>
+                <h2 style="margin-top: 10px; font-weight: bold;">MEDICAL CASE NOTE</h2>
+                <p><strong>Healthcare Facility:</strong> [Isalu Hospital]</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="export-btn pdf-btn" id="printBtn">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 5px;">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                    </svg>
+                    Export PDF
+                </button>
+                <button class="export-btn excel-btn" id="exportExcelBtn">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 5px;">
+                        <path d="M5.884 6.68a.5.5 0 0 0-.772.63L8 11.154l2.888-3.844a.5.5 0 0 0-.772-.63L8 9.846l-2.116-2.166z"/>
+                        <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
+                    </svg>
+                    Export Excel
+                </button>
+                
+<button class="speech-btn" id="speechBtn" title="Read Case Note Aloud">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 5px;">
+        <path d="M11.536 14.01A8.473 8.473 0 0 0 14.026 8a8.473 8.473 0 0 0-2.49-6.01l-.708.707A7.476 7.476 0 0 1 13.025 8c0 2.071-.84 3.946-2.197 5.303l.708.707z"/>
+        <path d="M10.121 12.596A6.48 6.48 0 0 0 12.025 8a6.48 6.48 0 0 0-1.904-4.596l-.707.707A5.483 5.483 0 0 1 11.025 8a5.483 5.483 0 0 1-1.61 3.89l.706.706z"/>
+        <path d="M8.707 11.182A4.486 4.486 0 0 0 10.025 8a4.486 4.486 0 0 0-1.318-3.182L8 5.525A3.489 3.489 0 0 1 9.025 8 3.49 3.49 0 0 1 8 10.475l.707.707zM6.717 3.55A.5.5 0 0 1 7.43 4.084L5.49 6.823l-1.773-1.826a.5.5 0 1 1 .722-.693l2.1 2.165 3.239-3.846a.5.5 0 1 1 .759.65l-3.5 4.15a.5.5 0 0 1-.756.049l-2.5-2.5a.5.5 0 0 1 .708-.708l1.743 1.752 1.95-2.254z"/>
+    </svg>
+    Read Aloud
+</button>
+
+<!-- speech controls (initially hidden) -->
+<div id="speechControls" style="display: none; background: #e3f2fd; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center;">
+    <div style="display: flex; justify-content: center; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <button id="playPauseBtn" style="background: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">
+            ⏸️ Pause
+        </button>
+        <button id="stopBtn" style="background: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">
+            ⏹️ Stop
+        </button>
+        <button id="resumeBtn" style="background: #17a2b8; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">
+            ▶️ Resume
+        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label for="rateControl" style="font-weight: bold;">Speed:</label>
+            <input type="range" id="rateControl" min="0.5" max="2" step="0.1" value="1" style="width: 100px;">
+            <span id="rateValue">1.0x</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label for="voiceSelect" style="font-weight: bold;">Voice:</label>
+            <select id="voiceSelect" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;"></select>
+        </div>
+    </div>
+    <div id="speechProgress" style="margin-top: 10px;">
+        <div style="background: #ddd; border-radius: 10px; height: 8px;">
+            <div id="progressBar" style="background: #007bff; width: 0%; height: 100%; border-radius: 10px; transition: width 0.3s;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #666; margin-top: 5px;">
+            <span id="currentTime">0:00</span>
+            <span id="totalTime">0:00</span>
+        </div>
+    </div>
+</div>
+            </div>
+        </div>
+        <div class="date-filter">
+            <h3>FILTER CASE NOTE BY DATE</h3>
+            <div class="filter-controls">
+                <div>
+                    <!-- <label for="dateFilterType">Filter Type:</label> -->
+                    <select id="dateFilterType">
+                        <option value="single">Single Date</option>
+                        <option value="range">Date Range</option>
+                        <option value="all">All Records</option>
+                    </select>
+                </div>
+                
+                <div id="singleDateControl">
+                    <label for="selectedDate">Select Date:</label>
+                    <input type="date" id="selectedDate" value="{{ current_date|date:'Y-m-d' }}">
+                </div>
+                
+                <div id="dateRangeControls" class="date-range-controls">
+                    <div>
+                        <label for="startDate">From:</label>
+                        <input type="date" id="startDate">
+                    </div>
+                    <div>
+                        <label for="endDate">To:</label>
+                        <input type="date" id="endDate">
+                    </div>
+                </div>
+                
+                <button id="applyFilter">Apply Filter</button>
+                <button id="resetFilter">Reset Filter</button>
+            </div>
+        </div>
+
+        
+
+        <div class="loading" id="loadingIndicator">
+            Loading case note data...
+        </div>
+
+        <div id="caseNoteContent">
+            <!-- This section will be dynamically updated via AJAX -->
+            <div class="section">
+                <div class="section-title">VITAL SIGNS</div>
+                <div id="vitalSignsSection">
+                    <div class="vital-signs-container">
+                        {% if vital_signs %}
+                        <div class="vital-signs-date-group">
+                            {% for vitals in vital_signs %}
+                            <div class="vital-signs-date-header">
+                                <span>Date: {{ vitals.created_date|date:"F j, Y" }} &nbsp;&nbsp;<span style="color: rgb(72, 63, 63);">Provider: {{bg_health_last_modified_by}} {{ vitals.staff.fullname }}</span></span>
+                            </div>
+                            <div class="vital-signs-grid">
+                                {% if vitals.height %}<div class="vital-item"><strong>Height:</strong> {{ vitals.height }} (cm)</div>{% endif %}
+                                {% if vitals.weight %}<div class="vital-item"><strong>Weight:</strong> {{ vitals.weight }} (kg)</div>{% endif %}
+                                {% if vitals.bmi %}<div class="vital-item"><strong>BMI:</strong> {{ vitals.bmi }} (kg/m&sup2)</div>{% endif %}
+                                {% if vitals.bp %}<div class="vital-item"><strong>BP:</strong> {{ vitals.bp }} (mmHg)</div>{% endif %}
+                                {% if vitals.pulse %}<div class="vital-item"><strong>Pulse:</strong> {{ vitals.pulse }} (BPM)</div>{% endif %}
+                                {% if vitals.temperature %}<div class="vital-item"><strong>Temperature:</strong> {{ vitals.temperature }} (&deg;C)</div>{% endif %}
+                                {% if vitals.respiratory_rate %}<div class="vital-item"><strong>Respiratory Rate:</strong> {{ vitals.respiratory_rate }} (cpm)</div>{% endif %}
+                                {% if vitals.sp_02 %}<div class="vital-item"><strong>SpO2:</strong> {{ vitals.sp_02 }} (%)</div>{% endif %}
+                                {% if vitals.oxygen_volume %}<div class="vital-item"><strong>Oxygen Volume:</strong> {{ vitals.oxygen_volume }} (L/min)</div>{% endif %}
+                                {% if vitals.urine_ph %}<div class="vital-item"><strong>Urine PH:</strong> {{ vitals.urine_ph }}</div>{% endif %}
+                                {% if vitals.blood_glucose %}<div class="vital-item"><strong>Blood Glucose:</strong> {{ vitals.blood_glucose }} (mg/dl)</div>{% endif %}
+                                {% if vitals.urine_glucose %}<div class="vital-item"><strong>Urine Glucose:</strong> {{ vitals.urine_glucose }} (mg/dl)</div>{% endif %}
+                                {% if vitals.urine_protein %}<div class="vital-item"><strong>Urine Protein:</strong> {{ vitals.urine_protein }} (mg/dl)</div>{% endif %}
+                            </div>
+                            {% if vitals.comment %}
+                                <p style="margin-top: 10px;"><strong>Clinical Comments:</strong> {{ vitals.comment }}</p>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                            <div class="no-data">No vital signs recorded for selected date.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">PRESENTING COMPLAINTS & DIAGNOSIS</div>
+                <div id="encountersSection">
+                    {% if patient_encounters %}
+                        {% for encounter in patient_encounters %}
+                            <p class="comp" style="margin-top: 10px;"><strong>Chief Complaint:</strong> {{ encounter.chief_complaint }}</p>
+                            <p class="comp"><strong>History of Present Illness:</strong> {{ encounter.history_of_present_illness }}</p>
+                            <p class="comp"><strong>Diagnosis:</strong> {{ encounter.diagnosis }}</p>
+                            <p class="comp"><strong>Comments on Diagnosis:</strong> {{ encounter.comments_on_diagnosis }}</p>
+                            <p class="comp"><strong>Provider:</strong> Dr. {{ encounter.provider.fullname }}</p>
+                            <p class="comp"><strong>Date/Time:</strong> {{ encounter.created_at }}</p>
+                            {% if not forloop.last %}<hr>{% endif %}
+                        {% endfor %}
+                    {% else %}
+                        <div class="no-data">No encounter data available for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">MEDICATIONS ADMINISTERED</div>
+                <div id="medicationsSection">
+                    {% if administered_drugs %}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Store</th>
+                                    <th>Item</th>
+                                    <th>UoM</th>
+                                    <th>Route</th>
+                                    <th>Freq.</th>
+                                    <th>Dose</th>
+                                    <th>Duration</th>
+                                    <th>Start Date</th>
+                                    <th>Request Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in administered_drugs %}
+                                    <tr data-id="{{ drug.id }}" data-store-id="{{ drug.store_id }}">
+                                        <td>
+                                            <span class="badge badge-{{ drug.store_color|default:'secondary' }}">
+                                                {{ drug.store_name }}
+                                            </span>
+                                        </td>
+                                        <td>{{ drug.item }}</td>
+                                        <td>{{ drug.quantity }} {{ drug.UoM }}</td>
+                                        <td>{{ drug.route }}</td>
+                                        <td>{{ drug.frequency }}</td>
+                                        <td>{{ drug.dose }}</td>
+                                        <td>{{ drug.duration }}</td>
+                                        <td>{{ drug.start_date }}</td>
+                                        <td style="color: brown;">{{ drug.created_date|timesince }} ago</td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted">
+                                            No requested drugs found
+                                        </td>
+                                    </tr>
+                                    {% endfor %}                                
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <div class="no-data">No medications administered for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">WRITTEN/TYPED PRESCRIPTIONS</div>
+                <div id="prescriptionsSection">
+                    {% if written_prescriptions %}
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Medications</th>
+                                            <th>Instructions</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for prescription in written_prescriptions %}
+                                        <tr>
+                                            <td>{{ prescription.quantity }} units of {{ prescription.item }}</td>
+                                            <td>{{ prescription.instruction }}</td>
+                                            <td>Dr. {{ prescription.provider.fullname }}</td>
+                                            <td>{{ prescription.created_date }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                    {% else %}
+                        <div class="no-data">No written prescriptions for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">LABORATORY INVESTIGATIONS</div>
+                <div id="laboratorySection">
+                    {% if laboratory_lab %}
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Test</th>
+                                            <th>Samples</th>
+                                            <th>Emergency</th>
+                                            <th>Comments</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for test in laboratory_lab %}
+                                        <tr>
+                                            <td>{{ test.item }}</td>
+                                            <td>{{ test.samples }}</td>
+                                            <td>{{ test.emergency }}</td>
+                                            <td>{{ test.comment }}</td>
+                                            <td>Dr. {{ test.staff.fullname }}</td>
+                                            <td>{{ test.created_date }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                    {% else %}
+                        <div class="no-data">No laboratory tests for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">RADIOLOGY INVESTIGATIONS</div>
+                <div id="radiologySection">
+                    {% if radiology_scan %}
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Scan/Procedure</th>
+                                            <th>Mobility</th>
+                                            <th>Emergency</th>
+                                            <th>Comments</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for test in radiology_scan %}
+                                        <tr>
+                                            <td>{{ test.item }}</td>
+                                            <td>{{ test.samples }}</td>
+                                            <td>{{ test.emergency }}</td>
+                                            <td>{{ test.comment }}</td>
+                                            <td>Dr. {{ test.staff.fullname }}</td>
+                                            <td>{{ test.created_date }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                    {% else %}
+                        <div class="no-data">No radiology investigations for selected date.</div>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Other services and Appointments section -->
+            <div class="form-grid2">
+                <div class="section">
+                    <div class="section-title">APPOINTMENTS</div>
+                        <div id="appointmentsSection">
+                            <p></p>
+                            {% if appointments %}
+                                {% for appointment in appointments %}
+                                <p class="comp2" style="margin-top: 5px;"><strong>Clinician's Name:</strong> [{{appointment.clinician}}]</p>
+                                <p class='comp2'><strong>Arrival Date:</strong> <span>{{appointment.arrival_date}} By {{appointment.arrival_time}}</span></p>
+                                <p class='comp2'><strong>Purpose of the appointment:</strong> <span>{{appointment.purpose}}</span></p>
+                                <p class='comp2'><strong>Visit Type:</strong> <span>{{appointment.visit_type}}</span></p>
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{appointment.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{appointment.created_date}}</span></p>
+                                {% endfor %}
+                            {% else %}
+                            <p>No Appointment found recorded</p>
+                            {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Referral Informatiom section -->
+                <div class="section">
+                    <div class="section-title">OTHER SERVICES INFORMATION</div>
+                        <div id="otherServicesSection">
+                            {% if other_services %}
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Services</th>
+                                            <th>Provider</th>
+                                            <th>Date/Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for service in other_services %}
+                                        <tr>
+                                            <td>{{ service.purpose }}</td>
+                                            <td>Dr. {{ service.provider.fullname }}</td>
+                                            <td>{{ service.created_date }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                        {% else %}
+                        <span>No Other services found for this patient</span>
+                        {% endif %}   
+                    </div>
+                </div>
+            </div>
+            <!-- Assesment/Plan and Follow up section -->
+            <div class="form-grid">
+                <div>
+                    <div class="section">
+                    <div class="section-title">CLINICAL ASSESSMENT/PLAN & FOLLOW UP</div>
+                        <div id="followupsSection">
+                            <p></p>
+                            {% if followups %}
+                                {% for followup in followups %}
+                                <p class="comp2" style="margin-top: 5px;"><strong>Clinical Assessment & Treatment Plan:</strong> [{{followup.summary_notes}}]</p>
+
+                                {% if followup.visit_type == 'new-case' %}
+                                <p class="comp2"><strong>Visit type:</strong> [{{followup.visit_type}}]</p>
+                                {% else %}
+                                <p class="comp2"><strong>Visit type:</strong> [{{followup.visit_type}}]</p>
+                                <p class="comp2"><strong>Treatment progress:</strong> [{{followup.treatment_progress}}]</p>
+                                <p class="comp2"><strong>Drugs compliance:</strong> [{{followup.drugs_compliance}}]</p>
+                                {% endif %}
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{followup.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{followup.created_at}}</span></p>
+                                {% endfor %}
+                            {% else %}
+                            <p>No Clinical Assessment and treatment plan or follow up recorded</p>
+                            {% endif %}
+                    </div>
+                </div>
+                <!-- Patient Other Details -->
+                 <div class="section">
+                    <div class="section-title">ADDITIONAL DETAILS</div>
+                        <div id="otherDetailsSection">
+                            <p></p>
+                            {% if patient_other_details %}
+                                {% for other_detail in patient_other_details %}
+                                <p class="comp2" style="margin-top: 5px;"><strong>Patient's Condition Status:</strong> [{{other_detail.condition_status}}]</p>
+                                <p class="comp2"><strong>To be Admitted?:</strong> [{{other_detail.to_be_admitted}}]</p>
+                                <p class="comp2"><strong>Assigned Doctor?:</strong> [{{other_detail.assigned_doctor}}]</p>
+                                <p class="comp2"><strong>To be referred out?:</strong> [{{other_detail.be_referred_out}}]</p>
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{other_detail.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{other_detail.created_at}}</span></p>
+                                {% endfor %}
+                            {% else %}
+                            <p>No other details recorded</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Referral Informatiom section -->
+                <div class="section">
+                    <div class="section-title">REFERRAL INFORMATION</div>
+                        <div id="referralsSection">
+                            <div class="form-grid-inner" style="margin-top: 10px;">
+                            {% if referrals_information %}
+                                {% for referral in referrals_information %}
+                                <div class="form-group">
+                                    <label for="referring_clinic" class="ref-label">Referring Clinic</label>
+                                    <p class="ref-value">{{referral.referring_clinic}}</p class="ref-value">
+                                </div>
+                                <div class="form-group">
+                                    <label for="referrer_phone" class="ref-label">Referrer's Phone</label>
+                                    <p class="ref-value">{{referral.referrer_phone}}</p>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="referrer_address" class="ref-label">Referrer's Address</label>
+                                    <p class="ref-value">{{referral.referrer_address}}</p>
+                                </div>
+                                <div class="form-group" style="margin-top: -35px;">
+                                    <label for="referring_physician" class="ref-label">Referring Physician</label>
+                                    <p class="ref-value">{{referral.referring_physician}}</p>
+                                </div>
+                                <div class="form-group"  style="margin-top: -35px;">
+                                    <label for="referrer_email" class="ref-label">Referrer's Email</label>
+                                    <p class="ref-value">{{referral.referrer_email}}</p>
+                                </div>
+                            </div>
+                            <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);"> 
+                            <div class="form-grid-inner" style="margin-top: 10px;">
+                                <div class="form-group">
+                                    <label for="clinic_referred_to" class="ref-label">Clinic Referred To</label>
+                                    <p class="ref-value">{{referral.clinic_referred_to}}</p class="ref-value">
+                                </div>
+                                <div class="form-group">
+                                    <label for="referred_to_phone" class="ref-label">Referred To Phone</label>
+                                    <p class="ref-value">{{referral.referred_to_phone}}</p>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="referred_to_address" class="ref-label">Referred To Address</label>
+                                    <p class="ref-value">{{referral.referred_to_address}}</p>
+                                </div>
+                                <div class="form-group" style="margin-top: -35px;">
+                                    <label for="physician_referred_to" class="ref-label">Physician Referred To</label>
+                                    <p class="ref-value">{{referral.physician_referred_to}}</p>
+                                </div>
+                                <div class="form-group"  style="margin-top: -35px;">
+                                    <label for="referred_to_email" class="ref-label">Referred To Email</label>
+                                    <p class="ref-value">{{referral.referred_to_email}}</p>
+                                </div>
+                            </div>
+                            <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">
+                            <div class="form-grid-inner" style="margin-top: 10px;">
+                                <div class="form-group">
+                                    <label for="referred_department_clinic" class="ref-label">Referred Department/Clinic</label>
+                                    <p class="ref-value">{{referral.referred_department_clinic}}</p class="ref-value">
+                                </div>
+                                <div class="form-group">
+                                    <label for="refer_to_clinician" class="ref-label">Refer to Clinician</label>
+                                    <p class="ref-value">{{referral.refer_to_clinician}}</p>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="reason_for_referring" class="ref-label">Reason for Referring</label>
+                                    <p class="ref-value">{{referral.reason_for_referring}}</p>
+                                </div>
+                            </div>
+                            <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
+                            <p class='comp2'><strong>Provider:</strong> <span>Dr. {{referral.provider.fullname}}</span></p>
+                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{referral.created_at}}</span></p>   
+                            {% endfor %}
+                        {% else %}
+                        <span>No Referral Informatiom found for this patient</span>
+                        {% endif %}   
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="timestamp">
+            <p>Case Note Generated: <span id="generationTime">{% now "F j, Y, g:i a" %}</span></p>
+            <p>Generated by: Dr. {{ request.user.fullname }}</p>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const dateFilterType = document.getElementById('dateFilterType');
+        const singleDateControl = document.getElementById('singleDateControl');
+        const dateRangeControls = document.getElementById('dateRangeControls');
+        const applyFilterBtn = document.getElementById('applyFilter');
+        const resetFilterBtn = document.getElementById('resetFilter');
+        const printBtn = document.getElementById('printBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const caseNoteContent = document.getElementById('caseNoteContent');
+        const generationTime = document.getElementById('generationTime');
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+        
+        // Set default dates for both filters
+        const today = new Date();
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(today.getDate() - 7);
+        
+        if (document.getElementById('selectedDate')) {
+            document.getElementById('selectedDate').valueAsDate = today;
+        }
+        if (document.getElementById('startDate')) {
+            document.getElementById('startDate').valueAsDate = oneWeekAgo;
+        }
+        if (document.getElementById('endDate')) {
+            document.getElementById('endDate').valueAsDate = today;
+        }
+        
+        // Initialize filter type display
+        updateFilterTypeDisplay();
+        
+        // Event listeners
+        if (dateFilterType) {
+            dateFilterType.addEventListener('change', function() {
+                updateFilterTypeDisplay();
+            });
+        }
+        
+        if (applyFilterBtn) {
+            applyFilterBtn.addEventListener('click', function() {
+                loadCaseNoteData();
+            });
+        }
+        
+        if (resetFilterBtn) {
+            resetFilterBtn.addEventListener('click', function() {
+                document.getElementById('dateFilterType').value = 'single';
+                document.getElementById('selectedDate').valueAsDate = today;
+                document.getElementById('startDate').valueAsDate = oneWeekAgo;
+                document.getElementById('endDate').valueAsDate = today;
+                
+                updateFilterTypeDisplay();
+                loadCaseNoteData();
+            });
+        }
+        
+        if (printBtn) {
+            printBtn.addEventListener('click', function() {
+                window.print();
+            });
+        }
+        
+        
+        if (exportExcelBtn) {
+            exportExcelBtn.addEventListener('click', exportToExcel);
+        }
+        
+        // Helper function to get CSRF token
+        function getCSRFToken() {
+            const name = 'csrftoken';
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        // Function to update filter type display
+        function updateFilterTypeDisplay() {
+            const filterType = dateFilterType.value;
+            if (filterType === 'single') {
+                singleDateControl.style.display = 'block';
+                dateRangeControls.style.display = 'none';
+            } else if (filterType === 'range') {
+                singleDateControl.style.display = 'none';
+                dateRangeControls.style.display = 'flex';
+            } else { // 'all'
+                singleDateControl.style.display = 'none';
+                dateRangeControls.style.display = 'none';
+            }
+        }
+        
+        // Function to load case note data via AJAX
+        function loadCaseNoteData() {
+            // Show loading indicator
+            loadingIndicator.style.display = 'block';
+            caseNoteContent.style.opacity = '0.5';
+            
+            // Prepare filter parameters
+            const filterType = dateFilterType.value;
+            let startDate, endDate;
+            
+            if (filterType === 'single') {
+                startDate = document.getElementById('selectedDate').value;
+                endDate = startDate;
+            } else if (filterType === 'range') {
+                startDate = document.getElementById('startDate').value;
+                endDate = document.getElementById('endDate').value;
+                
+                // Validate date range
+                if (new Date(startDate) > new Date(endDate)) {
+                    alert('Start date cannot be after end date.');
+                    loadingIndicator.style.display = 'none';
+                    caseNoteContent.style.opacity = '1';
+                    return;
+                }
+            } else { // 'all'
+                startDate = '';
+                endDate = '';
+            }
+            
+            // Validate dates for single and range filters
+            if (filterType !== 'all' && !startDate) {
+                alert('Please select valid dates.');
+                loadingIndicator.style.display = 'none';
+                caseNoteContent.style.opacity = '1';
+                return;
+            }
+            
+            // Create AJAX request
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `/filtered_case_note/{{ patient.id }}/`, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.setRequestHeader('X-CSRFToken', getCSRFToken());
+            
+            xhr.onload = function() {
+                console.log('Status:', xhr.status);
+                console.log('Response:', xhr.responseText);
+                
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        console.log('Parsed response:', response);
+                        
+                        if (response.error) {
+                            alert('Error: ' + response.error);
+                            console.error('Server error:', response.error);
+                        } else {
+                            updateCaseNoteContent(response);
+                            
+                            // Update generation time
+                            const now = new Date();
+                            generationTime.textContent = formatDate(now);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing response:', e);
+                        console.error('Raw response:', xhr.responseText);
+                        alert('Error processing response. Please check console for details.');
+                    }
+                } else {
+                    console.error('HTTP Error:', xhr.status, xhr.statusText);
+                    console.error('Response text:', xhr.responseText);
+                    alert('Error loading case note data. Please try again.');
+                }
+                
+                // Hide loading indicator
+                loadingIndicator.style.display = 'none';
+                caseNoteContent.style.opacity = '1';
+            };
+            
+            xhr.onerror = function() {
+                alert('Error loading case note data. Please check your connection.');
+                loadingIndicator.style.display = 'none';
+                caseNoteContent.style.opacity = '1';
+            };
+            
+            // Send the request
+            const params = new URLSearchParams();
+            params.append('start_date', startDate);
+            params.append('end_date', endDate);
+            params.append('filter_type', filterType);
+            
+            xhr.send(params.toString());
+        }
+        
+        function updateCaseNoteContent(data) {
+            console.log('Updating content with:', data);
+            
+            // Check if data is in new grouped format or old flat format
+            if (data.grouped_by_date) {
+                console.log('Grouped dates:', data.sorted_dates);
+                // Log written prescriptions for each date
+                if (data.sorted_dates) {
+                    data.sorted_dates.forEach(date => {
+                        const dateData = data.grouped_by_date[date];
+                        if (dateData.written_prescriptions && dateData.written_prescriptions.length > 0) {
+                            console.log(`Date ${date} has ${dateData.written_prescriptions.length} written prescriptions:`, dateData.written_prescriptions);
+                        }
+                    });
+                }
+                renderGroupedByDate(data.grouped_by_date, data.sorted_dates || Object.keys(data.grouped_by_date).sort());
+            } else {
+                // Fall back to old rendering for backward compatibility
+                console.log('Using flat data format');
+                renderFlatData(data);
+            }
+        }
+        
+       // Function to render data grouped by date using CSS classes
+    function renderGroupedByDate(groupedData, sortedDates) {
+        const container = document.getElementById('caseNoteContent');
+        
+        if (!groupedData || Object.keys(groupedData).length === 0) {
+            container.innerHTML = '<div class="no-data">No data found for selected date range.</div>';
+            return;
+        }
+        
+        let html = `
+            <div class="container-fluid">
+                <div style="background-color: white; padding: 0px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        `;
+        
+        sortedDates.forEach(dateStr => {
+            const dateData = groupedData[dateStr];
+            const date = new Date(dateStr);
+            const formattedDate = date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            html += `
+                <div class="date-section">
+                    <h3>📅 ${formattedDate}</h3>
+            `;
+            
+            // Vital Signs
+            if (dateData.vital_signs && dateData.vital_signs.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-title">VITAL SIGNS</div>
+                        <div class="vital-signs-container">
+                `;
+                
+                dateData.vital_signs.forEach(vitals => {
+                    html += `
+                        <div class="vital-signs-date-group">
+                            <div class="vital-signs-date-header">
+                                <span>🕒 Time: ${vitals.created_date || 'N/A'} &nbsp;&nbsp; 👨‍⚕️ Provider: ${vitals.staff || 'Unknown'}</span>
+                            </div>
+                            <div class="vital-signs-grid">
+                    `;
+                    
+                    // Add vital items
+                    if (vitals.height && vitals.height !== 'None' && vitals.height !== 'null') 
+                        html += `<div class="vital-item"><strong>Height:</strong> ${vitals.height} (cm)</div>`;
+                    if (vitals.weight && vitals.weight !== 'None' && vitals.weight !== 'null') 
+                        html += `<div class="vital-item"><strong>Weight:</strong> ${vitals.weight} (kg)</div>`;
+                    if (vitals.bmi && vitals.bmi !== 'None' && vitals.bmi !== 'null') 
+                        html += `<div class="vital-item"><strong>BMI:</strong> ${vitals.bmi} (kg/m²)</div>`;
+                    if (vitals.bp && vitals.bp !== 'None' && vitals.bp !== 'null') 
+                        html += `<div class="vital-item"><strong>BP:</strong> ${vitals.bp} (mmHg)</div>`;
+                    if (vitals.pulse && vitals.pulse !== 'None' && vitals.pulse !== 'null') 
+                        html += `<div class="vital-item"><strong>Pulse:</strong> ${vitals.pulse} (BPM)</div>`;
+                    if (vitals.temperature && vitals.temperature !== 'None' && vitals.temperature !== 'null') 
+                        html += `<div class="vital-item"><strong>Temperature:</strong> ${vitals.temperature} (°C)</div>`;
+                    if (vitals.respiratory_rate && vitals.respiratory_rate !== 'None' && vitals.respiratory_rate !== 'null') 
+                        html += `<div class="vital-item"><strong>Respiratory Rate:</strong> ${vitals.respiratory_rate} (cpm)</div>`;
+                    if (vitals.sp_02 && vitals.sp_02 !== 'None' && vitals.sp_02 !== 'null') 
+                        html += `<div class="vital-item"><strong>SpO2:</strong> ${vitals.sp_02} (%)</div>`;
+                    if (vitals.oxygen_volume && vitals.oxygen_volume !== 'None' && vitals.oxygen_volume !== 'null') 
+                        html += `<div class="vital-item"><strong>Oxygen Volume:</strong> ${vitals.oxygen_volume} (L/min)</div>`;
+                    if (vitals.urine_ph && vitals.urine_ph !== 'None' && vitals.urine_ph !== 'null') 
+                        html += `<div class="vital-item"><strong>Urine PH:</strong> ${vitals.urine_ph}</div>`;
+                    if (vitals.blood_glucose && vitals.blood_glucose !== 'None' && vitals.blood_glucose !== 'null') 
+                        html += `<div class="vital-item"><strong>Blood Glucose:</strong> ${vitals.blood_glucose} (mg/dl)</div>`;
+                    if (vitals.urine_glucose && vitals.urine_glucose !== 'None' && vitals.urine_glucose !== 'null') 
+                        html += `<div class="vital-item"><strong>Urine Glucose:</strong> ${vitals.urine_glucose} (mg/dl)</div>`;
+                    if (vitals.urine_protein && vitals.urine_protein !== 'None' && vitals.urine_protein !== 'null') 
+                        html += `<div class="vital-item"><strong>Urine Protein:</strong> ${vitals.urine_protein} (mg/dl)</div>`;
+                    
+                    html += `</div>`;
+                    
+                    if (vitals.comment && vitals.comment !== 'None' && vitals.comment !== 'null') {
+                        html += `<p style="margin-top: 10px;"><strong>📝 Clinical Comments:</strong> ${vitals.comment}</p>`;
+                    }
+                    
+                    html += `</div>`;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Patient Encounters
+            if (dateData.patient_encounters && dateData.patient_encounters.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-title">PRESENTING COMPLAINTS & DIAGNOSIS</div>
+                        <div style="padding: 10px;">
+                `;
+                
+                dateData.patient_encounters.forEach((encounter, index) => {
+                    html += `
+                        <p class="comp" style="margin-left:0px"><strong>Chief Complaint:</strong> ${encounter.chief_complaint || 'Not specified'}</p>
+                        <p class="comp" style="margin-left:0px"><strong>History of Present Illness:</strong> ${encounter.history_of_present_illness || 'Not specified'}</p>
+                        <p class="comp" style="margin-left:0px"><strong>Diagnosis:</strong> ${encounter.diagnosis || 'Not specified'}</p>
+                        <p class="comp" style="margin-left:0px"><strong>Comments on Diagnosis:</strong> ${encounter.comments_on_diagnosis || 'Not specified'}</p>
+                        <p class="comp" style="margin-left:0px"><strong>Provider 👨‍⚕️:</strong> ${encounter.provider_name || 'Unknown'}</p>
+                        <p class="comp" style="margin-left:0px"><strong>Time 🕒:</strong> ${encounter.created_at || 'Unknown'}</p>
+                        ${index < dateData.patient_encounters.length - 1 ? '<hr>' : ''}
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Medications
+            if (dateData.administered_drugs && dateData.administered_drugs.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-title">MEDICATIONS ADMINISTERED</div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Dosage</th>
+                                    <th>Route</th>
+                                    <th>Dose</th>
+                                    <th>Freq.</th>
+                                    <th>Duration</th>
+                                    <th>Qty</th>
+                                    <th>Start Date</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                dateData.administered_drugs.forEach(drug => {
+                    html += `
+                        <tr>
+                            <td>${drug.item || 'Unknown'}</td>
+                            <td>${drug.quantity || ''} ${drug.UoM || ''}</td>
+                            <td>${drug.route || ''}</td>
+                            <td>${drug.dose || ''}</td>
+                            <td>${drug.frequency || ''}</td>
+                            <td>${drug.duration || ''}</td>
+                            <td>${drug.quantity || ''}</td>
+                            <td>${drug.start_date || '' }</td>
+                            <td>${drug.provider || 'Unknown'}</td>
+                            <td>${drug.created_date || 'Unknown'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            // Written Prescriptions
+            const writtenPrescriptions = dateData.written_prescriptions || [];
+            if (writtenPrescriptions.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-title">WRITTEN PRESCRIPTIONS</div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Medication</th>
+                                    <th>Instructions</th>
+                                    <th>Provider</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                dateData.written_prescriptions.forEach(prescription => {
+                    html += `
+                        <tr>
+                            <td>${prescription.quantity || 0} units of ${prescription.item || 'Unknown'}</td>
+                            <td>${prescription.instruction || ''}</td>
+                            <td>${prescription.provider || 'Unknown'}</td>
+                            <td>${prescription.created_date || 'Unknown'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Investigations for this date
+                    if (dateData.investigations && dateData.investigations.length > 0) {
+                        const labTests = dateData.investigations.filter(test => test.item_type === 'L');
+                        const radiologyTests = dateData.investigations.filter(test => test.item_type === 'R');
+                        
+                        // Laboratory tests
+                        if (labTests.length > 0) {
+                            html += `
+                                <div class="section" style="margin-bottom: 25px;">
+                                    <div class="section-title">LABORATORY INVESTIGATIONS</div>
+                                    <div style="overflow-x: auto;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Test</th>
+                                                    <th>Samples</th>
+                                                    <th>Emergency</th>
+                                                    <th>Comments</th>
+                                                    <th>Provider</th>
+                                                    <th>Time</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                            `;
+                            
+                            labTests.forEach((test, testIndex) => {
+                                html += `
+                                    <tr style="background-color: ${testIndex % 2 === 0 ? 'white' : '#f8f9fa'}">
+                                        <td>${test.item || 'Unknown'}</td>
+                                        <td>${test.samples || ''}</td>
+                                        <td>${test.emergency || ''}</td>
+                                        <td>${test.comment || ''}</td>
+                                        <td>${test.provider || 'Unknown'}</td>
+                                        <td>${test.created_date || 'Unknown'}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            html += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                        
+                        // Radiology tests
+                        if (radiologyTests.length > 0) {
+                            html += `
+                                <div class="section" style="margin-bottom: 25px;">
+                                    <div class="section-title">RADIOLOGY INVESTIGATIONS</div>
+                                    <div style="overflow-x: auto;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Scan/Procedure</th>
+                                                    <th>Mobility</th>
+                                                    <th>Emergency</th>
+                                                    <th>Comments</th>
+                                                    <th>Provider</th>
+                                                    <th>Time</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                            `;
+                            
+                            radiologyTests.forEach((test, testIndex) => {
+                                html += `
+                                    <tr style="background-color: ${testIndex % 2 === 0 ? 'white' : '#f8f9fa'}">
+                                        <td>${test.item || 'Unknown'}</td>
+                                        <td>${test.samples || ''}</td>
+                                        <td>${test.emergency || ''}</td>
+                                        <td>${test.comment || ''}</td>
+                                        <td>${test.provider || 'Unknown'}</td>
+                                        <td>${test.created_date || 'Unknown'}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            html += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    // Other Services for this date
+                    if (dateData.other_services && dateData.other_services.length > 0) {
+                        html += `
+                            <div class="section" style="margin-bottom: 25px;">
+                                <div class="section-title">OTHER SERVICES INFORMATION</div>
+                                <div style="overflow-x: auto;">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Services</th>
+                                                <th>Provider</th>
+                                                <th>Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                        `;
+                        
+                        dateData.other_services.forEach(service => {
+                            html += `
+                                <tr style="background-color: ${service === dateData.other_services[0] ? 'white' : '#f8f9fa'}">
+                                    <td>${service.purpose || 'Unknown'}</td>
+                                    <td>${service.provider || 'Unknown'}</td>
+                                    <td>${service.created_date || 'Unknown'}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // Referrals for this date
+                    if (dateData.referrals && dateData.referrals.length > 0) {
+                        html += `
+                            <div class="section" style="margin-bottom: 25px;">
+                                <div class="section-title">REFERRAL INFORMATION</div>
+                                <div style="background-color: #fff; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6;">
+                        `;
+                        
+                        dateData.referrals.forEach((referral, index) => {
+                            html += `
+                                <div class="form-grid-inner" style="margin-top: 10px;">
+                                    <div class="form-group">
+                                        <label for="referring_clinic" class="ref-label">Referring Clinic</label>
+                                        <p class="ref-value">${referral.referring_clinic || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="referrer_phone" class="ref-label">Referrer's Phone</label>
+                                        <p class="ref-value">${referral.referrer_phone || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="referrer_address" class="ref-label">Referrer's Address</label>
+                                        <p class="ref-value">${referral.referrer_address || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group" style="margin-top: -35px;">
+                                        <label for="referring_physician" class="ref-label">Referring Physician</label>
+                                        <p class="ref-value">${referral.referring_physician || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group" style="margin-top: -35px;">
+                                        <label for="referrer_email" class="ref-label">Referrer's Email</label>
+                                        <p class="ref-value">${referral.referrer_email || 'Not specified'}</p>
+                                    </div>
+                                </div>
+                                <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);"> 
+                                <div class="form-grid-inner" style="margin-top: 10px;">
+                                    <div class="form-group">
+                                        <label for="clinic_referred_to" class="ref-label">Clinic Referred To</label>
+                                        <p class="ref-value">${referral.clinic_referred_to || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="referred_to_phone" class="ref-label">Referred To Phone</label>
+                                        <p class="ref-value">${referral.referred_to_phone || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="referred_to_address" class="ref-label">Referred To Address</label>
+                                        <p class="ref-value">${referral.referred_to_address || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group" style="margin-top: -35px;">
+                                        <label for="physician_referred_to" class="ref-label">Physician Referred To</label>
+                                        <p class="ref-value">${referral.physician_referred_to || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group" style="margin-top: -35px;">
+                                        <label for="referred_to_email" class="ref-label">Referred To Email</label>
+                                        <p class="ref-value">${referral.referred_to_email || 'Not specified'}</p>
+                                    </div>
+                                </div>
+                                <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">
+                                <div class="form-grid-inner" style="margin-top: 10px;">
+                                    <div class="form-group">
+                                        <label for="referred_department_clinic" class="ref-label">Referred Department/Clinic</label>
+                                        <p class="ref-value">${referral.referred_department_clinic || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="refer_to_clinician" class="ref-label">Refer to Clinician</label>
+                                        <p class="ref-value">${referral.refer_to_clinician || 'Not specified'}</p>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="reason_for_referring" class="ref-label">Reason for Referring</label>
+                                        <p class="ref-value">${referral.reason_for_referring || 'Not specified'}</p>
+                                    </div>
+                                </div>
+                                <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
+                                <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span>${referral.provider || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time: 🕒</strong> <span style="color: brown;">${referral.created_at || 'Unknown'}</span></p>
+                                ${index < dateData.referrals.length - 1 ? '<hr style="margin: 20px 0; border-color: #ccc;">' : ''}
+                            `;
+                        });
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // Followups for this date
+                    if (dateData.followups && dateData.followups.length > 0) {
+                        html += `
+                            <div class="section" style="margin-bottom: 25px;">
+                                <div class="section-title">CLINICAL ASSESSMENT/PLAN & FOLLOW UP</div>
+                                <div style="background-color: #fff; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6;">
+                        `;
+                        
+                        dateData.followups.forEach((followup, index) => {
+                            html += `
+                                <p class="comp2" style="margin-top: 5px;"><strong>Clinical Assessment & Treatment Plan:</strong> [${followup.summary_notes || 'Not specified'}]</p>
+                            `;
+                            
+                            if (followup.visit_type === 'new-case') {
+                                html += `<p class="comp2"><strong>Visit type:</strong> [${followup.visit_type || 'Not specified'}]</p>`;
+                            } else {
+                                html += `
+                                    <p class="comp2"><strong>Visit type:</strong> [${followup.visit_type || 'Not specified'}]</p>
+                                    <p class="comp2"><strong>Treatment progress:</strong> [${followup.treatment_progress || 'Not specified'}]</p>
+                                    <p class="comp2"><strong>Drugs compliance:</strong> [${followup.drugs_compliance || 'Not specified'}]</p>
+                                `;
+                            }
+                            
+                            html += `
+                                <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${followup.provider || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${followup.created_at || 'Unknown'}</span></p>
+                                ${index < dateData.followups.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
+                            `;
+                        });
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // Appointments or other details available for this date
+                    if ((dateData.appointments && dateData.appointments.length > 0) || (dateData.other_details && dateData.other_details.length > 0)) {
+                        html += `
+                        <div class="form-grid2">
+                            `;
+                        // Appointments for this date
+                        if (dateData.appointments && dateData.appointments.length > 0) {
+                            html += `
+                                <div class="section" style="margin-bottom: 25px;">
+                                    <div class="section-title">APPOINTMENTS</div>
+                                    <div style="background-color: #fff; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6;">
+                            `;
+                            dateData.appointments.forEach((appointment, index) => {
+                                html += `
+                                    <p class="comp2" style="margin-top: 5px;"><strong>Clinician:</strong> [${appointment.clinician || 'Not specified'}]</p>
+                                    <p class="comp2"><strong>Arrival Date:</strong> [${appointment.arrival_date || 'Not specified'} By ${appointment.arrival_time || 'Not specified'}]</p>
+                                    <p class="comp2"><strong>Purpose of the appointment:</strong> [${appointment.purpose || 'Not specified'}]</p>
+                                    <p class="comp2"><strong>Visit type:</strong> [${appointment.visit_type || 'Not specified'}]</p>
+                                    <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${appointment.provider || 'Unknown'}</span></p>
+                                    <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${appointment.created_date || 'Unknown'}</span></p>
+                                    ${index < dateData.appointments.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
+                                `;
+                            });
+                            
+                            html += `
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    // Other Details for this date
+                    if (dateData.other_details && dateData.other_details.length > 0) {
+                        html += `
+                            <div class="section" style="margin-bottom: 25px;">
+                                <div class="section-title">ADDITIONAL DETAILS</div>
+                                <div style="background-color: #fff; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6;">
+                        `;
+                        
+                        dateData.other_details.forEach((detail, index) => {
+                            html += `
+                                <p class="comp2" style="margin-top: 5px;"><strong>Patient's Condition Status:</strong> [${detail.condition_status || 'Not specified'}]</p>
+                                <p class="comp2"><strong>To be Admitted?:</strong> [${detail.to_be_admitted || 'Not specified'}]</p>
+                                <p class="comp2"><strong>Assigned Doctor?:</strong> [${detail.assigned_doctor || 'Not specified'}]</p>
+                                <p class="comp2"><strong>To be referred out?:</strong> [${detail.be_referred_out || 'Not specified'}]</p>
+                                <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${detail.provider || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${detail.created_at || 'Unknown'}</span></p>
+                                ${index < dateData.other_details.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
+                            `;
+                        });
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    }
+                    html += `</div>`;
+
+                }
+            
+            html += `</div>`; // Close date-section
+        });
+        
+        html += `
+                </div> <!-- Close inner container -->
+            </div> <!-- Close container-fluid -->
+        `;
+        
+        container.innerHTML = html;
+    }
+        
+        // Function to render flat data
+        function renderFlatData(data) {
+            // Updating each section individually
+            updateVitalSignsSection(data.vital_signs || []);
+            updateEncountersSection(data.patient_encounters || []);
+            updateMedicationsSection(data.administered_drugs || []);
+            updatePrescriptionsSection(data.written_prescriptions || []);  
+            updateInvestigationsSections(data.radiology_labs || []);
+            updateOtherDetailsSection(data.other_details || []);
+            updateFollowupsSection(data.followups || []);
+            updateReferralsSection(data.referrals || []);
+            updateAppointmentsSection(data.appointments || []);
+            updateotherServicesSection(data.other_services || []);
+        }
+        
+        
+        function updateVitalSignsSection(vitalSignsData) {
+                const vitalSignsSection = document.getElementById('vitalSignsSection');
+                
+                if (vitalSignsData && vitalSignsData.length > 0) {
+                    let vitalSignsHTML = '<div class="vital-signs-container">';
+                    
+                    vitalSignsData.forEach((vitalGroup, index) => {
+                        vitalSignsHTML += `
+                            <div class="vital-signs-date-group">
+                                <div class="vital-signs-date-header">
+                                    <span>Date: ${vitalGroup.date || 'Unknown Date'} &nbsp;&nbsp;<span style='color: rgb(72, 63, 63);'>Provider: ${vitalGroup.staff}</span></span>
+                                </div>
+                                <div class="vital-signs-grid">
+                        `;
+                        
+                        // Helper function to add vital item if value exists
+                        const addVitalItem = (label, value, unit) => {
+                            if (value && value !== 'None' && value !== 'null' && value !== '') {
+                                vitalSignsHTML += `<div class="vital-item"><strong>${label}:</strong> ${value} (${unit})</div>`;
+                            }
+                        };
+                        
+                        addVitalItem('Height', vitalGroup.height, 'cm');
+                        addVitalItem('Weight', vitalGroup.weight, 'kg');
+                        addVitalItem('BMI', vitalGroup.bmi, 'kg/m&sup2');
+                        addVitalItem('BP', vitalGroup.bp, 'mmHg');
+                        addVitalItem('Pulse', vitalGroup.pulse, 'BPM');
+                        addVitalItem('Temperature', vitalGroup.temperature, '&deg;C');
+                        addVitalItem('Respiratory Rate', vitalGroup.respiratory_rate, 'cpm');
+                        addVitalItem('SpO2', vitalGroup.sp_02, '%');
+                        addVitalItem('Oxygen Volume', vitalGroup.oxygen_volume, 'L/min');
+                        addVitalItem('Urine PH', vitalGroup.urine_ph, '');
+                        addVitalItem('Blood Glucose', vitalGroup.blood_glucose, 'mg/dl');
+                        addVitalItem('Urine Glucose', vitalGroup.urine_glucose, 'mg/dl');
+                        addVitalItem('Urine Protein', vitalGroup.urine_protein,'mg/dl');
+                        
+                        vitalSignsHTML += `</div>`;
+                        
+                        if (vitalGroup.comment && vitalGroup.comment !== 'None' && vitalGroup.comment !== 'null') {
+                            vitalSignsHTML += `<p style="margin-top: 10px;"><strong>Clinical Comments:</strong> ${vitalGroup.comment}</p>`;
+                        }
+                        
+                        vitalSignsHTML += `</div>`;
+                    });
+                    
+                    vitalSignsHTML += '</div>';
+                    vitalSignsSection.innerHTML = vitalSignsHTML;
+                } else {
+                    vitalSignsSection.innerHTML = '<div class="no-data">No vital signs recorded for selected date range.</div>';
+                }
+            }
+        
+        // Function to update encounters section
+            function updateEncountersSection(encountersData) {
+                const encountersSection = document.getElementById('encountersSection');
+                if (encountersData && encountersData.length > 0) {
+                    let encountersHTML = '';
+                    encountersData.forEach((encounter, index) => {
+                        encountersHTML += `<p class='comp' style='margin-top:10px'><strong>Chief Complaint:</strong> ${encounter.chief_complaint || 'Not specified'}</p>`;
+                        encountersHTML += `<p class='comp'><strong>History of Present Illness:</strong> ${encounter.history_of_present_illness || 'Not specified'}</p>`;
+                        encountersHTML += `<p class='comp'><strong>Diagnosis:</strong> ${encounter.diagnosis || 'Not specified'}</p>`;
+                        encountersHTML += `<p class='comp'><strong>Comment on Diagnosis:</strong> ${encounter.comments_on_diagnosis || 'Not specified'}</p>`;
+                        encountersHTML += `<p class='comp'><strong>Provider:</strong> ${encounter.provider_name || 'Unknown'}</p>`;
+                        encountersHTML += `<p class='comp'><strong>Date/Time:</strong> ${encounter.created_at || 'Unknown'}</p>`;
+                        if (index < encountersData.length - 1) {
+                            encountersHTML += '<hr>';
+                        }
+                    });
+                    encountersSection.innerHTML = encountersHTML;
+                } else {
+                    encountersSection.innerHTML = '<div class="no-data">No encounter data available for selected date range.</div>';
+                }
+            }
+            
+
+        // Function to update other details section
+        function updateOtherDetailsSection(otherDetailsData) {
+            const otherDetailsSection = document.getElementById('otherDetailsSection');
+            
+            if (otherDetailsData && otherDetailsData.length > 0) {
+                let otherDetailsHTML = '';
+                
+                otherDetailsData.forEach((detail, index) => {
+                    otherDetailsHTML += `
+                        <p class="comp2" style="margin-top: 5px;"><strong>Patient's Condition Status:</strong> [${detail.condition_status || 'Not specified'}]</p>
+                        <p class="comp2"><strong>To be Admitted?:</strong> [${detail.to_be_admitted || 'Not specified'}]</p>
+                        <p class="comp2"><strong>Assigned Doctor?:</strong> [${detail.assigned_doctor || 'Not specified'}]</p>
+                        <p class="comp2"><strong>To be referred out?:</strong> [${detail.be_referred_out || 'Not specified'}]</p>
+                        <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${detail.provider || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${detail.created_at || 'Unknown'}</span></p>
+                    `;
+                    
+                    if (index < otherDetailsData.length - 1) {
+                        otherDetailsHTML += '<hr>';
+                    }
+                });
+                
+                otherDetailsSection.innerHTML = otherDetailsHTML;
+            } else {
+                otherDetailsSection.innerHTML = '<p>No additional details recorded for selected date range.</p>';
+            }
+        }
+
+        // Function to update followups section
+        function updateFollowupsSection(followupsData) {
+            const followupsSection = document.getElementById('followupsSection');
+            
+            if (followupsData && followupsData.length > 0) {
+                let followupsHTML = '';
+                
+                followupsData.forEach((followup, index) => {
+                    followupsHTML += `
+                        <p class="comp2" style="margin-top: 5px;"><strong>Clinical Assessment & Treatment Plan:</strong> [${followup.summary_notes || 'Not specified'}]</p>
+                    `;
+                    
+                    if (followup.visit_type === 'new-case') {
+                        followupsHTML += `<p class="comp2"><strong>Visit type:</strong> [${followup.visit_type || 'Not specified'}]</p>`;
+                    } else {
+                        followupsHTML += `
+                            <p class="comp2"><strong>Visit type:</strong> [${followup.visit_type || 'Not specified'}]</p>
+                            <p class="comp2"><strong>Treatment progress:</strong> [${followup.treatment_progress || 'Not specified'}]</p>
+                            <p class="comp2"><strong>Drugs compliance:</strong> [${followup.drugs_compliance || 'Not specified'}]</p>
+                        `;
+                    }
+                    
+                    followupsHTML += `
+                        <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${followup.provider || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${followup.created_at || 'Unknown'}</span></p>
+                    `;
+                    
+                    if (index < followupsData.length - 1) {
+                        followupsHTML += '<hr>';
+                    }
+                });
+                
+                followupsSection.innerHTML = followupsHTML;
+            } else {
+                followupsSection.innerHTML = '<p>No follow up data available for selected date range.</p>';
+            }
+        }
+
+        // Function to update referrals section
+        function updateReferralsSection(referralsData) {
+            const referralsSection = document.getElementById('referralsSection');
+            
+            if (referralsData && referralsData.length > 0) {
+                let referralsHTML = '';
+                
+                referralsData.forEach((referral, index) => {
+                    referralsHTML += `
+                        <div class="form-grid-inner" style="margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="referring_clinic" class="ref-label">Referring Clinic</label>
+                                <p class="ref-value">${referral.referring_clinic || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="referrer_phone" class="ref-label">Referrer's Phone</label>
+                                <p class="ref-value">${referral.referrer_phone || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="referrer_address" class="ref-label">Referrer's Address</label>
+                                <p class="ref-value">${referral.referrer_address || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group" style="margin-top: -35px;">
+                                <label for="referring_physician" class="ref-label">Referring Physician</label>
+                                <p class="ref-value">${referral.referring_physician || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group" style="margin-top: -35px;">
+                                <label for="referrer_email" class="ref-label">Referrer's Email</label>
+                                <p class="ref-value">${referral.referrer_email || 'Not specified'}</p>
+                            </div>
+                        </div>
+                        <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);"> 
+                        <div class="form-grid-inner" style="margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="clinic_referred_to" class="ref-label">Clinic Referred To</label>
+                                <p class="ref-value">${referral.clinic_referred_to || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="referred_to_phone" class="ref-label">Referred To Phone</label>
+                                <p class="ref-value">${referral.referred_to_phone || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="referred_to_address" class="ref-label">Referred To Address</label>
+                                <p class="ref-value">${referral.referred_to_address || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group" style="margin-top: -35px;">
+                                <label for="physician_referred_to" class="ref-label">Physician Referred To</label>
+                                <p class="ref-value">${referral.physician_referred_to || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group" style="margin-top: -35px;">
+                                <label for="referred_to_email" class="ref-label">Referred To Email</label>
+                                <p class="ref-value">${referral.referred_to_email || 'Not specified'}</p>
+                            </div>
+                        </div>
+                        <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">
+                        <div class="form-grid-inner" style="margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="referred_department_clinic" class="ref-label">Referred Department/Clinic</label>
+                                <p class="ref-value">${referral.referred_department_clinic || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="refer_to_clinician" class="ref-label">Refer to Clinician</label>
+                                <p class="ref-value">${referral.refer_to_clinician || 'Not specified'}</p>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="reason_for_referring" class="ref-label">Reason for Referring</label>
+                                <p class="ref-value">${referral.reason_for_referring || 'Not specified'}</p>
+                            </div>
+                        </div>
+                        <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
+                        <p class='comp2'><strong>Provider:</strong> <span>${referral.provider || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${referral.created_at || 'Unknown'}</span></p>
+                    `;
+                    
+                    if (index < referralsData.length - 1) {
+                        referralsHTML += '<hr style="margin: 20px 0; border-color: #ccc;">';
+                    }
+                });
+                
+                referralsSection.innerHTML = referralsHTML;
+            } else {
+                referralsSection.innerHTML = '<span>No referral information found for selected date range</span>';
+            }
+        }
+            // Function to update medications section
+            function updateMedicationsSection(medicationsData) {
+                const medicationsSection = document.getElementById('medicationsSection');
+                if (medicationsData && medicationsData.length > 0) {
+                    let medicationsHTML = '<table><thead><tr><th>Medication</th><th>Dosage</th><th>Route</th><th>Frequency</th><th>Quantity</th><th>Provider</th><th>Date/Time</th></tr></thead><tbody>';
+                    
+                    medicationsData.forEach(drug => {
+                        medicationsHTML += `<tr>
+                            <td>${drug.item || 'Unknown'}</td>
+                            <td>${drug.quantity || ''} ${drug.UoM || ''}</td>
+                            <td>${drug.route || ''}</td>
+                            <td>${drug.dose || ''}</td>
+                            <td>${drug.frequency || ''}</td>
+                            <td>${drug.duration || ''}</td>
+                            <td>${drug.quantity || ''}</td>
+                            <td>${drug.provider || 'Unknown'}</td>
+                            <td>${drug.created_date || 'Unknown'}</td>
+                        </tr>`;
+                    });
+                    
+                    medicationsHTML += '</tbody></table>';
+                    medicationsSection.innerHTML = medicationsHTML;
+                } else {
+                    medicationsSection.innerHTML = '<div class="no-data">No medications administered for selected date range.</div>';
+                }
+            }
+            
+
+             // Function to update written prescriptions section
+            function updatePrescriptionsSection(prescriptionsData) {
+                const prescriptionsSection = document.getElementById('prescriptionsSection');
+                if (prescriptionsData && prescriptionsData.length > 0) {
+                    let prescriptionsHTML = '<table><thead><tr><th>Medication</th><th>Instructions</th><th>Provider</th><th>Date/Time</th></tr></thead><tbody>';
+                    
+                    prescriptionsData.forEach(prescription => {
+                        prescriptionsHTML += `<tr>
+                            <td>${prescription.quantity || ''} units of ${prescription.item || 'Unknown'}</td>
+                            <td>${prescription.instruction || ''}</td>
+                            <td>${prescription.provider || 'Unknown'}</td>
+                            <td>${prescription.created_date || 'Unknown'}</td>
+                        </tr>`;
+                    });
+                    
+                    prescriptionsHTML += '</tbody></table>';
+                    prescriptionsSection.innerHTML = prescriptionsHTML;
+                } else {
+                    prescriptionsSection.innerHTML = '<div class="no-data">No written prescriptions for selected date range.</div>';
+                }
+            }
+
+            // Function to update laboratory and radiology sections
+            function updateInvestigationsSections(investigationsData) {
+                const laboratorySection = document.getElementById('laboratorySection');
+                const radiologySection = document.getElementById('radiologySection');
+                
+                // Filter laboratory tests (item_type = "L")
+                const labTests = investigationsData ? investigationsData.filter(test => test.item_type === 'L') : [];
+                // Filter radiology tests (item_type = "R")
+                const radiologyTests = investigationsData ? investigationsData.filter(test => test.item_type === 'R') : [];
+                
+                // Update laboratory section
+                if (labTests.length > 0) {
+                    let laboratoryHTML = '<table><thead><tr><th>Test</th><th>Samples</th><th>Emergency</th><th>Comments</th><th>Provider</th><th>Date/Time</th></tr></thead><tbody>';
+                    
+                    labTests.forEach(test => {
+                        laboratoryHTML += `<tr>
+                            <td>${test.item || 'Unknown'}</td>
+                            <td>${test.samples || ''}</td>
+                            <td>${test.emergency || ''}</td>
+                            <td>${test.comment || ''}</td>
+                            <td>${test.provider || 'Unknown'}</td>
+                            <td>${test.created_date || 'Unknown'}</td>
+                        </tr>`;
+                    });
+                    
+                    laboratoryHTML += '</tbody></table>';
+                    laboratorySection.innerHTML = laboratoryHTML;
+                } else {
+                    laboratorySection.innerHTML = '<div class="no-data">No laboratory tests for selected date range.</div>';
+                }
+                
+                // Update radiology section
+                if (radiologyTests.length > 0) {
+                    let radiologyHTML = '<table><thead><tr><th>Scan/Procedure</th><th>Mobility</th><th>Emergency</th><th>Comments</th><th>Provider</th><th>Date/Time</th></tr></thead><tbody>';
+                    
+                    radiologyTests.forEach(test => {
+                        radiologyHTML += `<tr>
+                            <td>${test.item || 'Unknown'}</td>
+                            <td>${test.samples || ''}</td>
+                            <td>${test.emergency || ''}</td>
+                            <td>${test.comment || ''}</td>
+                            <td>${test.provider || 'Unknown'}</td>
+                            <td>${test.created_date || 'Unknown'}</td>
+                        </tr>`;
+                    });
+                    
+                    radiologyHTML += '</tbody></table>';
+                    radiologySection.innerHTML = radiologyHTML;
+                } else {
+                    radiologySection.innerHTML = '<div class="no-data">No radiology investigations for selected date range.</div>';
+                }
+            }
+            
+             // Function to update other service section
+            function updateotherServicesSection(servicesData) {
+                const otherServicesSection = document.getElementById('otherServicesSection');
+                if (servicesData && servicesData.length > 0) {
+                    let servicesHTML = '<table><thead><tr><th>Services</th><th>Provider</th><th>Date/Time</th></tr></thead><tbody>';
+                    
+                    servicesData.forEach(service => {
+                        servicesHTML += `<tr>
+                            <td>${service.purpose || 'Unknown'}</td>
+                            <td>${service.provider || 'Unknown'}</td>
+                            <td>${service.created_date || 'Unknown'}</td>
+                        </tr>`;
+                    });
+                    
+                    servicesHTML += '</tbody></table>';
+                    otherServicesSection.innerHTML = servicesHTML;
+                } else {
+                    otherServicesSection.innerHTML = '<div class="no-data">No other services recorded for selected date range.</div>';
+                }
+            }
+
+            // Function to update appointments section
+            function updateAppointmentsSection(appointmentsData) {
+                const appointmentsSection = document.getElementById('appointmentsSection');
+                
+                if (appointmentsData && appointmentsData.length > 0) {
+                    let appointmentsHTML = '';
+                    
+                    appointmentsData.forEach((appointment, index) => {
+                        appointmentsHTML += `
+                            <p class="comp2" style="margin-top: 5px;"><strong>Clinician:</strong> [${appointment.clinician || 'Not specified'}]</p>
+                            <p class="comp2"><strong>Arrival Date:</strong> [${appointment.arrival_date || 'Not specified'} By ${appointment.arrival_time || 'Not specified'}]</p>
+                            <p class="comp2"><strong>Purpose of the appointment:</strong> [${appointment.purpose || 'Not specified'}]</p>
+                            <p class="comp2"><strong>Visit type:</strong> [${appointment.visit_type || 'Not specified'}]</p>
+                            <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${appointment.provider || 'Unknown'}</span></p>
+                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${appointment.created_date || 'Unknown'}</span></p>
+                        `;
+                        
+                        if (index < appointmentsData.length - 1) {
+                            appointmentsHTML += '<hr>';
+                        }
+                    });
+                    
+                    appointmentsSection.innerHTML = appointmentsHTML;
+                } else {
+                    appointmentsSection.innerHTML = '<p>No appointments recorded for selected date range.</p>';
+                }
+            }
+
+        
+        // Helper function to format date
+        function formatDate(date) {
+            const options = { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+            };
+            return date.toLocaleDateString('en-US', options);
+        }
+        
+        // Initialize speech synthesis after DOM is loaded
+        setTimeout(initializeSpeechSynthesis, 500);
+
+        
+        // Export to excel
+        function exportToExcel() {
+                try {
+                    // Check if XLSX library is available
+                    if (typeof XLSX === 'undefined') {
+                        alert('Excel export library not loaded. Please refresh the page and try again.');
+                        return;
+                    }
+
+                    // Create workbook
+                    const workbook = XLSX.utils.book_new();
+                    
+                    // Patient Information Sheet
+                    const patientData = [
+                        ['MEDICAL CASE NOTE - ISALU HOSPITAL'],
+                        [],
+                        ['Patient Information'],
+                        ['Name', '{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}'],
+                        ['Hospital Number', '{{ patient.hospital_number }}'],
+                        ['Age', '{{ patient.get_age }} years'],
+                        ['Gender', '{{ patient.gender }}'],
+                        ['Plan', '{{ patient.plan }}'],
+                        ['Generated on', new Date().toLocaleDateString()],
+                        []
+                    ];
+                    
+                    const patientWS = XLSX.utils.aoa_to_sheet(patientData);
+                    XLSX.utils.book_append_sheet(workbook, patientWS, 'Patient Info');
+
+                    // Get current filtered data
+                    const vitalSignsData = collectVitalSignsForExcel();
+                    const encountersData = collectEncountersForExcel();
+                    const medicationsData = collectMedicationsForExcel();
+                    const prescriptionsData = collectPrescriptionsForExcel();
+                    const labData = collectLaboratoryForExcel();
+                    const radiologyData = collectRadiologyForExcel();
+                    const followupsData = collectFollowupsForExcel();
+                    const otherDetailsData = collectOtherDetailsForExcel();
+                    const referralsData = collectReferralsForExcel();
+
+                    // Add sheets only if they have data
+                    if (vitalSignsData.length > 1) {
+                        const vitalWS = XLSX.utils.aoa_to_sheet(vitalSignsData);
+                        XLSX.utils.book_append_sheet(workbook, vitalWS, 'Vital Signs');
+                    }
+
+                    if (encountersData.length > 1) {
+                        const encountersWS = XLSX.utils.aoa_to_sheet(encountersData);
+                        XLSX.utils.book_append_sheet(workbook, encountersWS, 'Encounters');
+                    }
+
+                    if (medicationsData.length > 1) {
+                        const medicationsWS = XLSX.utils.aoa_to_sheet(medicationsData);
+                        XLSX.utils.book_append_sheet(workbook, medicationsWS, 'Medications');
+                    }
+
+                    if (prescriptionsData.length > 1) {
+                        const prescriptionsWS = XLSX.utils.aoa_to_sheet(prescriptionsData);
+                        XLSX.utils.book_append_sheet(workbook, prescriptionsWS, 'Prescriptions');
+                    }
+
+                    if (labData.length > 1) {
+                        const labWS = XLSX.utils.aoa_to_sheet(labData);
+                        XLSX.utils.book_append_sheet(workbook, labWS, 'Laboratory');
+                    }
+
+                    if (radiologyData.length > 1) {
+                        const radiologyWS = XLSX.utils.aoa_to_sheet(radiologyData);
+                        XLSX.utils.book_append_sheet(workbook, radiologyWS, 'Radiology');
+                    }
+
+                    if (followupsData.length > 1) {
+                        const followupsWS = XLSX.utils.aoa_to_sheet(followupsData);
+                        XLSX.utils.book_append_sheet(workbook, followupsWS, 'Followups');
+                    }
+
+                    if (otherDetailsData.length > 1) {
+                        const otherDetailsWS = XLSX.utils.aoa_to_sheet(otherDetailsData);
+                        XLSX.utils.book_append_sheet(workbook, otherDetailsWS, 'Other Details');
+                    }
+
+                    if (referralsData.length > 1) {
+                        const referralsWS = XLSX.utils.aoa_to_sheet(referralsData);
+                        XLSX.utils.book_append_sheet(workbook, referralsWS, 'Referrals');
+                    }
+
+                    // Save the Excel file
+                    const fileName = `CaseNote_{{ patient.hospital_number }}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                    XLSX.writeFile(workbook, fileName);
+                    
+                } catch (error) {
+                    console.error('Excel export error:', error);
+                    alert('Error exporting to Excel: ' + error.message);
+                }
+            }
+
+            // Data Collection Functions
+            function collectVitalSignsForExcel() {
+                const data = [['Date', 'Provider', 'Height (cm)', 'Weight (kg)', 'BMI', 'BP (mmHg)', 'Pulse (BPM)', 'Temperature (°C)', 'Respiratory Rate (cpm)', 'SpO2 (%)', 'Oxygen Volume (L/min)', 'Urine PH', 'Blood Glucose (mg/dl)', 'Urine Glucose (mg/dl)', 'Urine Protein (mg/dl)', 'Comments']];
+                
+                const vitalGroups = document.querySelectorAll('.vital-signs-date-group');
+                
+                vitalGroups.forEach(group => {
+                    try {
+                        const dateHeader = group.querySelector('.vital-signs-date-header');
+                        if (!dateHeader) return;
+                        
+                        const headerText = dateHeader.textContent || '';
+                        const dateMatch = headerText.match(/Date:\s*([^&]+)/);
+                        const providerMatch = headerText.match(/Provider:\s*(.+)/);
+                        
+                        const dateText = dateMatch ? dateMatch[1].trim() : 'Unknown Date';
+                        const providerText = providerMatch ? providerMatch[1].trim() : 'Unknown Provider';
+                        
+                        const vitalItems = group.querySelectorAll('.vital-item');
+                        const vitalMap = {};
+                        
+                        // Extract values from vital items
+                        vitalItems.forEach(item => {
+                            const text = item.textContent || '';
+                            if (text.includes('Height:')) vitalMap.height = extractValue(text, 'Height:');
+                            if (text.includes('Weight:')) vitalMap.weight = extractValue(text, 'Weight:');
+                            if (text.includes('BMI:')) vitalMap.bmi = extractValue(text, 'BMI:');
+                            if (text.includes('BP:')) vitalMap.bp = extractValue(text, 'BP:');
+                            if (text.includes('Pulse:')) vitalMap.pulse = extractValue(text, 'Pulse:');
+                            if (text.includes('Temperature:')) vitalMap.temperature = extractValue(text, 'Temperature:');
+                            if (text.includes('Respiratory Rate:')) vitalMap.respiratory = extractValue(text, 'Respiratory Rate:');
+                            if (text.includes('SpO2:')) vitalMap.spo2 = extractValue(text, 'SpO2:');
+                            if (text.includes('Oxygen Volume:')) vitalMap.oxygen = extractValue(text, 'Oxygen Volume:');
+                            if (text.includes('Urine PH:')) vitalMap.ph = extractValue(text, 'Urine PH:');
+                            if (text.includes('Blood Glucose:')) vitalMap.glucose = extractValue(text, 'Blood Glucose:');
+                            if (text.includes('Urine Glucose:')) vitalMap.urine = extractValue(text, 'Urine Glucose:');
+                            if (text.includes('Urine Protein:')) vitalMap.protein = extractValue(text, 'Urine Protein:');
+                        });
+                        
+                        // Get comments
+                        let comment = '';
+                        const commentElem = group.querySelector('p');
+                        if (commentElem && commentElem.textContent.includes('Clinical Comments:')) {
+                            comment = commentElem.textContent.replace('Clinical Comments:', '').trim();
+                        }
+                        
+                        // Add row to data
+                        data.push([
+                            dateText,
+                            providerText,
+                            vitalMap.height || '',
+                            vitalMap.weight || '',
+                            vitalMap.bmi || '',
+                            vitalMap.bp || '',
+                            vitalMap.pulse || '',
+                            vitalMap.temperature || '',
+                            vitalMap.respiratory || '',
+                            vitalMap.spo2 || '',
+                            vitalMap.oxygen || '',
+                            vitalMap.ph || '',
+                            vitalMap.glucose || '',
+                            vitalMap.urine || '',
+                            vitalMap.protein || '',
+                            comment
+                        ]);
+                        
+                    } catch (error) {
+                        console.error('Error processing vital signs group:', error);
+                    }
+                });
+                
+                return data;
+            }
+
+            // Helper function to extract values from text
+            function extractValue(text, label) {
+                const regex = new RegExp(`${label}\\s*([^(]+)`);
+                const match = text.match(regex);
+                return match ? match[1].trim() : '';
+            }
+
+            function collectEncountersForExcel() {
+                const data = [['Chief Complaint', 'History of Present Illness', 'Diagnosis', 'Comments on Diagnosis', 'Provider', 'Date/Time']];
+                
+                const encountersSection = document.getElementById('encountersSection');
+                if (!encountersSection) return data;
+                
+                const paragraphs = encountersSection.querySelectorAll('p');
+                let currentEncounter = {};
+                
+                paragraphs.forEach(p => {
+                    const text = p.textContent || '';
+                    
+                    if (text.includes('Chief Complaint:')) {
+                        // Save previous encounter if exists
+                        if (currentEncounter.chiefComplaint) {
+                            data.push([
+                                currentEncounter.chiefComplaint,
+                                currentEncounter.history || '',
+                                currentEncounter.diagnosis || '',
+                                currentEncounter.comments || '',
+                                currentEncounter.provider || '',
+                                currentEncounter.date || ''
+                            ]);
+                        }
+                        // Start new encounter
+                        currentEncounter = {
+                            chiefComplaint: text.replace('Chief Complaint:', '').trim()
+                        };
+                    } 
+                    else if (text.includes('History of Present Illness:')) {
+                        currentEncounter.history = text.replace('History of Present Illness:', '').trim();
+                    }
+                    else if (text.includes('Diagnosis:')) {
+                        currentEncounter.diagnosis = text.replace('Diagnosis:', '').trim();
+                    }
+                    else if (text.includes('Comments on Diagnosis:')) {
+                        currentEncounter.comments = text.replace('Comments on Diagnosis:', '').trim();
+                    }
+                    else if (text.includes('Provider:')) {
+                        currentEncounter.provider = text.replace('Provider:', '').trim();
+                    }
+                    else if (text.includes('Date/Time:')) {
+                        currentEncounter.date = text.replace('Date/Time:', '').trim();
+                    }
+                });
+                
+                // Push the last encounter
+                if (currentEncounter.chiefComplaint) {
+                    data.push([
+                        currentEncounter.chiefComplaint,
+                        currentEncounter.history || '',
+                        currentEncounter.diagnosis || '',
+                        currentEncounter.comments_on_diagnosis || '',
+                        currentEncounter.provider || '',
+                        currentEncounter.date || ''
+                    ]);
+                }
+                
+                return data;
+            }
+
+            function collectMedicationsForExcel() {
+                const data = [['Medication', 'Dosage', 'Route', 'Frequency', 'Quantity', 'Provider', 'Date/Time']];
+                
+                const medicationsSection = document.getElementById('medicationsSection');
+                if (!medicationsSection) return data;
+                
+                const table = medicationsSection.querySelector('table');
+                if (table) {
+                    const rows = table.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length > 0) {
+                            const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+                            data.push(rowData);
+                        }
+                    });
+                }
+                
+                return data;
+            }
+
+            function collectPrescriptionsForExcel() {
+                const data = [['Medications', 'Instructions', 'Provider', 'Date/Time']];
+                
+                const prescriptionsSection = document.getElementById('prescriptionsSection');
+                if (!prescriptionsSection) return data;
+                
+                const table = prescriptionsSection.querySelector('table');
+                if (table) {
+                    const rows = table.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length > 0) {
+                            const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+                            data.push(rowData);
+                        }
+                    });
+                }
+                
+                return data;
+            }
+
+            function collectLaboratoryForExcel() {
+                const data = [['Test', 'Samples', 'Emergency', 'Comments', 'Provider', 'Date/Time']];
+                
+                const laboratorySection = document.getElementById('laboratorySection');
+                if (!laboratorySection) return data;
+                
+                const table = laboratorySection.querySelector('table');
+                if (table) {
+                    const rows = table.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length > 0) {
+                            const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+                            data.push(rowData);
+                        }
+                    });
+                }
+                
+                return data;
+            }
+
+            function collectRadiologyForExcel() {
+                const data = [['Scan/Procedure', 'Mobility', 'Emergency', 'Comments', 'Provider', 'Date/Time']];
+                
+                const radiologySection = document.getElementById('radiologySection');
+                if (!radiologySection) return data;
+                
+                const table = radiologySection.querySelector('table');
+                if (table) {
+                    const rows = table.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length > 0) {
+                            const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+                            data.push(rowData);
+                        }
+                    });
+                }
+                
+                return data;
+            }
+
+            // Simplified version for other sections
+            function collectFollowupsForExcel() {
+                const data = [['Clinical Assessment & Treatment Plan', 'Visit Type', 'Treatment Progress', 'Drugs Compliance', 'Provider', 'Date']];
+                
+                const followupsSection = document.getElementById('followupsSection');
+                if (!followupsSection) return data;
+                
+                // a simple row with basic info
+                const text = followupsSection.textContent || '';
+                if (text.trim() && !text.includes('No follow up data')) {
+                    data.push([
+                        extractSimpleValue(text, 'Clinical Assessment & Treatment Plan:'),
+                        extractSimpleValue(text, 'Visit type:'),
+                        extractSimpleValue(text, 'Treatment progress:'),
+                        extractSimpleValue(text, 'Drugs compliance:'),
+                        extractSimpleValue(text, 'Provider:'),
+                        extractSimpleValue(text, 'Date:')
+                    ]);
+                }
+                
+                return data;
+            }
+
+            function collectOtherDetailsForExcel() {
+                const data = [['Condition Status', 'To Be Admitted', 'Assigned Doctor', 'To Be Referred Out', 'Provider', 'Date']];
+                
+                const otherDetailsSection = document.getElementById('otherDetailsSection');
+                if (!otherDetailsSection) return data;
+                
+                const text = otherDetailsSection.textContent || '';
+                if (text.trim() && !text.includes('No additional details')) {
+                    data.push([
+                        extractSimpleValue(text, "Patient's Condition Status:"),
+                        extractSimpleValue(text, 'To be Admitted?:'),
+                        extractSimpleValue(text, 'Assigned Doctor?:'),
+                        extractSimpleValue(text, 'To be referred out?:'),
+                        extractSimpleValue(text, 'Provider:'),
+                        extractSimpleValue(text, 'Date:')
+                    ]);
+                }
+                
+                return data;
+            }
+
+            function collectReferralsForExcel() {
+                const data = [['Field', 'Value', 'Provider', 'Date']];
+                
+                const referralsSection = document.getElementById('referralsSection');
+                if (!referralsSection) return data;
+                
+                const formGroups = referralsSection.querySelectorAll('.form-group');
+                
+                formGroups.forEach(group => {
+                    const label = group.querySelector('.ref-label');
+                    const value = group.querySelector('.ref-value');
+                    
+                    if (label && value) {
+                        data.push([
+                            label.textContent.trim(),
+                            value.textContent.trim(),
+                            '', // Provider will be filled below
+                            ''  // Date will be filled below
+                        ]);
+                    }
+                });
+                
+                // extract provider and date
+                const providerElem = Array.from(referralsSection.querySelectorAll('p')).find(p => 
+                    p.textContent.includes('Provider:')
+                );
+                const dateElem = Array.from(referralsSection.querySelectorAll('p')).find(p => 
+                    p.textContent.includes('Date:')
+                );
+                
+                const provider = providerElem ? providerElem.textContent.replace('Provider:', '').trim() : '';
+                const date = dateElem ? dateElem.textContent.replace('Date:', '').trim() : '';
+                
+                // Update provider and date for all rows (skip header)
+                for (let i = 1; i < data.length; i++) {
+                    data[i][2] = provider;
+                    data[i][3] = date;
+                }
+                
+                return data;
+            }
+
+            // Helper function for simple text extraction
+            function extractSimpleValue(text, label) {
+                if (!text.includes(label)) return '';
+                const parts = text.split(label);
+                if (parts.length < 2) return '';
+                const afterLabel = parts[1].split(/\[|\n|Provider:|Date:/)[0];
+                return afterLabel.trim();
+            }
+
+        
+        // Speech synthesis initialization
+        class CaseNoteSpeech {
+            constructor() {
+                this.synth = window.speechSynthesis;
+                this.utterance = null;
+                this.isPlaying = false;
+                this.isPaused = false;
+                this.currentText = '';
+                this.voices = [];
+                this.currentVoice = null;
+                this.rate = 1.0;
+                
+                this.initializeSpeech();
+            }
+            
+            initializeSpeech() {
+                // Load available voices
+                this.loadVoices();
+                
+                // Re-load voices when they become available
+                if (speechSynthesis) {
+                    speechSynthesis.onvoiceschanged = () => {
+                        this.loadVoices();
+                    };
+                }
+            }
+            
+            loadVoices() {
+                if (!this.synth) return;
+                
+                this.voices = this.synth.getVoices();
+                const voiceSelect = document.getElementById('voiceSelect');
+                
+                if (voiceSelect && this.voices.length > 0) {
+                    voiceSelect.innerHTML = '';
+                    
+                    this.voices.forEach((voice, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.textContent = `${voice.name} (${voice.lang})`;
+                        voiceSelect.appendChild(option);
+                        
+                        // Prefer English voices
+                        if (voice.lang.includes('en') && !this.currentVoice) {
+                            this.currentVoice = voice;
+                            voiceSelect.value = index;
+                        }
+                    });
+                    
+                    if (!this.currentVoice && this.voices.length > 0) {
+                        this.currentVoice = this.voices[0];
+                    }
+                }
+            }
+            
+            // Get all case note text
+            getCaseNoteText() {
+                let fullText = '';
+                
+                // Patient information
+                const patientInfo = `Patient: {{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}. Hospital Number: {{ patient.hospital_number }}. Age: {{ patient.get_age }} years. Gender: {{ patient.gender }}. Plan: {{ patient.plan }}.`;
+                fullText += patientInfo + ' ';
+                
+                // Get text from all sections
+                const sections = [
+                    'vitalSignsSection',
+                    'encountersSection', 
+                    'medicationsSection',
+                    'prescriptionsSection',
+                    'laboratorySection',
+                    'radiologySection',
+                    'followupsSection',
+                    'otherDetailsSection',
+                    'referralsSection'
+                ];
+                
+                sections.forEach(sectionId => {
+                    const section = document.getElementById(sectionId);
+                    if (section) {
+                        // Remove table formatting and clean text
+                        let sectionText = section.textContent
+                            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+                            .replace(/([.,!?])([A-Z])/g, '$1 $2') // Add space after punctuation
+                            .trim();
+                        
+                        if (sectionText) {
+                            fullText += sectionText + '. ';
+                        }
+                    }
+                });
+                
+                return fullText;
+            }
+            
+            // Format text for better speech
+            formatTextForSpeech(text) {
+                return text
+                    .replace(/([0-9]+)([a-zA-Z])/g, '$1 $2') // Add space between numbers and letters
+                    .replace(/([a-zA-Z])([0-9]+)/g, '$1 $2') // Add space between letters and numbers
+                    .replace(/BP:\s*([0-9]+)\/([0-9]+)/g, 'Blood Pressure: $1 over $2') // Read BP properly
+                    .replace(/SpO2/g, 'S P O 2') // Spell out SpO2
+                    .replace(/BMI/g, 'B M I') // Spell out BMI
+                    .replace(/BPM/g, 'beats per minute')
+                    .replace(/cpm/g, 'cycles per minute')
+                    .replace(/L\/min/g, 'liters per minute')
+                    .replace(/mg\/dl/g, 'milligrams per deciliter')
+                    .replace(/mmHg/g, 'millimeters of mercury')
+                    .replace(/kg\/m²/g, 'kilograms per square meter')
+                    .replace(/&deg;C/g, 'degrees Celsius')
+                    .replace(/cm/g, 'centimeters')
+                    .replace(/kg/g, 'kilograms');
+            }
+            
+            // Start reading
+            startReading() {
+                // Check if speech synthesis is supported
+                if (!this.synth) {
+                    alert('Speech synthesis is not supported in your browser.');
+                    return;
+                }
+                
+                if (this.isPlaying && !this.isPaused) {
+                    this.pauseReading();
+                    return;
+                }
+                
+                if (this.isPaused) {
+                    this.resumeReading();
+                    return;
+                }
+                
+                this.currentText = this.formatTextForSpeech(this.getCaseNoteText());
+                
+                if (!this.currentText.trim()) {
+                    alert('No case note content available to read.');
+                    return;
+                }
+                
+                // Cancel any ongoing speech
+                this.synth.cancel();
+                
+                this.utterance = new SpeechSynthesisUtterance(this.currentText);
+                
+                // Set voice properties
+                if (this.currentVoice) {
+                    this.utterance.voice = this.currentVoice;
+                }
+                
+                this.utterance.rate = this.rate;
+                this.utterance.pitch = 1;
+                this.utterance.volume = 1;
+                
+                // Event listeners
+                this.utterance.onstart = () => {
+                    this.isPlaying = true;
+                    this.isPaused = false;
+                    this.updateUI();
+                    this.startProgressTracking();
+                };
+                
+                this.utterance.onend = () => {
+                    this.isPlaying = false;
+                    this.isPaused = false;
+                    this.updateUI();
+                    this.resetProgress();
+                };
+                
+                this.utterance.onerror = (event) => {
+                    console.error('Speech synthesis error:', event);
+                    this.isPlaying = false;
+                    this.isPaused = false;
+                    this.updateUI();
+                    this.resetProgress();
+                    alert('Error reading case note. Please try again.');
+                };
+                
+                this.utterance.onpause = () => {
+                    this.isPaused = true;
+                    this.updateUI();
+                };
+                
+                this.utterance.onresume = () => {
+                    this.isPaused = false;
+                    this.updateUI();
+                };
+                
+                // Start speaking
+                this.synth.speak(this.utterance);
+                this.showSpeechControls();
+            }
+            
+            // Pause reading
+            pauseReading() {
+                if (this.synth.speaking && !this.isPaused) {
+                    this.synth.pause();
+                    this.isPaused = true;
+                    this.updateUI();
+                }
+            }
+            
+            // Resume reading
+            resumeReading() {
+                if (this.synth.speaking && this.isPaused) {
+                    this.synth.resume();
+                    this.isPaused = false;
+                    this.updateUI();
+                }
+            }
+            
+            // Stop reading
+            stopReading() {
+                if (this.synth) {
+                    this.synth.cancel();
+                }
+                this.isPlaying = false;
+                this.isPaused = false;
+                this.updateUI();
+                this.resetProgress();
+            }
+            
+            // Update UI based on speech state
+            updateUI() {
+                const speechBtn = document.getElementById('speechBtn');
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                
+                if (speechBtn) {
+                    if (this.isPlaying) {
+                        speechBtn.classList.add('playing');
+                        speechBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 5px;"><rect width="4" height="14" x="3" y="1"/><rect width="4" height="14" x="9" y="1"/></svg>Stop Reading';
+                    } else {
+                        speechBtn.classList.remove('playing');
+                        speechBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 5px;"><path d="M11.536 14.01A8.473 8.473 0 0 0 14.026 8a8.473 8.473 0 0 0-2.49-6.01l-.708.707A7.476 7.476 0 0 1 13.025 8c0 2.071-.84 3.946-2.197 5.303l.708.707z"/><path d="M10.121 12.596A6.48 6.48 0 0 0 12.025 8a6.48 6.48 0 0 0-1.904-4.596l-.707.707A5.483 5.483 0 0 1 11.025 8a5.483 5.483 0 0 1-1.61 3.89l.706.706z"/><path d="M8.707 11.182A4.486 4.486 0 0 0 10.025 8a4.486 4.486 0 0 0-1.318-3.182L8 5.525A3.489 3.489 0 0 1 9.025 8 3.49 3.49 0 0 1 8 10.475l.707.707zM6.717 3.55A.5.5 0 0 1 7.43 4.084L5.49 6.823l-1.773-1.826a.5.5 0 1 1 .722-.693l2.1 2.165 3.239-3.846a.5.5 0 1 1 .759.65l-3.5 4.15a.5.5 0 0 1-.756.049l-2.5-2.5a.5.5 0 0 1 .708-.708l1.743 1.752 1.95-2.254z"/></svg>Read Aloud';
+                    }
+                }
+                
+                if (playPauseBtn) {
+                    playPauseBtn.textContent = this.isPaused ? '▶️ Resume' : '⏸️ Pause';
+                }
+            }
+            
+            // Show speech controls
+            showSpeechControls() {
+                const controls = document.getElementById('speechControls');
+                if (controls) {
+                    controls.style.display = 'block';
+                }
+            }
+            
+            // Hide speech controls
+            hideSpeechControls() {
+                const controls = document.getElementById('speechControls');
+                if (controls) {
+                    controls.style.display = 'none';
+                }
+            }
+            
+            // Progress tracking
+            startProgressTracking() {
+                // Simple progress simulation
+                let progress = 0;
+                const progressBar = document.getElementById('progressBar');
+                const currentTime = document.getElementById('currentTime');
+                
+                if (progressBar && currentTime) {
+                    const interval = setInterval(() => {
+                        if (!this.isPlaying) {
+                            clearInterval(interval);
+                            return;
+                        }
+                        
+                        progress += 0.5;
+                        if (progress > 100) progress = 100;
+                        
+                        progressBar.style.width = progress + '%';
+                        
+                        // Calculate time (estimate)
+                        const seconds = Math.floor((progress / 100) * (this.currentText.length / 10));
+                        const minutes = Math.floor(seconds / 60);
+                        const remainingSeconds = seconds % 60;
+                        currentTime.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+                        
+                        if (progress >= 100) {
+                            clearInterval(interval);
+                        }
+                    }, 500);
+                }
+            }
+            
+            resetProgress() {
+                const progressBar = document.getElementById('progressBar');
+                const currentTime = document.getElementById('currentTime');
+                
+                if (progressBar) progressBar.style.width = '0%';
+                if (currentTime) currentTime.textContent = '0:00';
+            }
+            
+            // Change voice
+            changeVoice(voiceIndex) {
+                if (this.voices[voiceIndex]) {
+                    this.currentVoice = this.voices[voiceIndex];
+                    if (this.isPlaying) {
+                        this.stopReading();
+                        setTimeout(() => this.startReading(), 100);
+                    }
+                }
+            }
+            
+            // Change rate
+            changeRate(newRate) {
+                this.rate = newRate;
+                if (this.isPlaying) {
+                    this.stopReading();
+                    setTimeout(() => this.startReading(), 100);
+                }
+            }
+        }
+
+        // Initialize speech synthesis
+        let caseNoteSpeech;
+
+        function initializeSpeechSynthesis() {
+            try {
+                // Check if browser supports speech synthesis
+                if (!('speechSynthesis' in window)) {
+                    console.warn('Speech synthesis not supported');
+                    const speechBtn = document.getElementById('speechBtn');
+                    if (speechBtn) {
+                        speechBtn.disabled = true;
+                        speechBtn.title = 'Speech synthesis not supported in your browser';
+                    }
+                    return;
+                }
+                
+                caseNoteSpeech = new CaseNoteSpeech();
+                
+                // Set up event listeners for speech controls
+                const speechBtn = document.getElementById('speechBtn');
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                const stopBtn = document.getElementById('stopBtn');
+                const rateControl = document.getElementById('rateControl');
+                const voiceSelect = document.getElementById('voiceSelect');
+                const rateValue = document.getElementById('rateValue');
+                
+                if (speechBtn) {
+                    speechBtn.addEventListener('click', () => {
+                        if (caseNoteSpeech) {
+                            caseNoteSpeech.startReading();
+                        }
+                    });
+                }
+                
+                if (playPauseBtn) {
+                    playPauseBtn.addEventListener('click', () => {
+                        if (caseNoteSpeech) {
+                            if (caseNoteSpeech.isPaused) {
+                                caseNoteSpeech.resumeReading();
+                            } else {
+                                caseNoteSpeech.pauseReading();
+                            }
+                        }
+                    });
+                }
+                
+                if (stopBtn) {
+                    stopBtn.addEventListener('click', () => {
+                        if (caseNoteSpeech) {
+                            caseNoteSpeech.stopReading();
+                        }
+                    });
+                }
+                
+                if (rateControl && rateValue) {
+                    rateControl.addEventListener('input', (e) => {
+                        const rate = parseFloat(e.target.value);
+                        rateValue.textContent = rate.toFixed(1) + 'x';
+                        if (caseNoteSpeech) {
+                            caseNoteSpeech.changeRate(rate);
+                        }
+                    });
+                }
+                
+                if (voiceSelect) {
+                    voiceSelect.addEventListener('change', (e) => {
+                        if (caseNoteSpeech) {
+                            caseNoteSpeech.changeVoice(parseInt(e.target.value));
+                        }
+                    });
+                }
+                
+                console.log('Speech synthesis initialized successfully');
+                
+            } catch (error) {
+                console.error('Error initializing speech synthesis:', error);
+            }
+        }
+
+        });
+
+</script>
+{% endblock %}

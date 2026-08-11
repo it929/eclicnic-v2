@@ -1,0 +1,123 @@
+
+    {% if request.user.department.department == 'Front Desk' %}
+        <hr class="sidebar-divider my-0">
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'admin-dashboard' %}">
+                    <i class="fas fa-fw fa-tachometer-alt"></i>
+                    <span>Dashboard</span></a>
+            </li>
+            <hr class="sidebar-divider">
+            {% endif %}
+            <div class="sidebar-heading">
+                {% if request.user.department.department == 'Front Desk' %}<span>Front Desk</span>{% else %}<span class="text-warning font-weight-bold">🏥 Front Desk</span>{% endif %}
+            </div>
+            {% if request.user.department.department == 'Front Desk' %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+                    aria-expanded="true" aria-controls="collapseTwo">
+                    <i class="fas fa-fw fa-cog"></i>
+                    <span>Profile Settings</span>
+                </a>
+                <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                        <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                        <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+                    </div>
+                </div>
+            </li>
+            {% else %}
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'admin-dashboard' %}">
+                    <i class="fas fa-fw fa-tachometer-alt"></i>
+                    <span>Dashboard</span></a>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseRegistration"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-user-plus"></i>
+                    <span>Patients Registration</span>
+                </a>
+                <div id="collapseRegistration" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'patient_registration' %}">Register new Patient</a>
+                        <a class="collapse-item" href="{% url 'patient_list' %}">Import Patient from Excel</a>
+                        <a class="collapse-item" href="{% url 'registered_today' %}">Registered Todday</a>
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapsePatientRecord"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-users"></i>
+                    <span>Patients Records</span>
+                </a>
+                <div id="collapsePatientRecord" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'search_page' %}">Search for Patients</a>
+                        <a class="collapse-item" href="{% url 'birthday_list' %}">Today's Birthday List</a>
+                        <a class="collapse-item" href="{% url 'family_patients' %}">Family Patients</a>
+                        <a class="collapse-item" href="{% url 'anc_patients' %}">ANC Patients</a>
+                        <a class="collapse-item" href="{% url 'hmo_patients' %}">HMO Patients</a>
+                        <a class="collapse-item" href="{% url 'nhis_patients' %}">NHIS Patients</a>
+                        <a class="collapse-item" href="{% url 'retainership_patients' %}">Retainership Patients</a>  
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseAppointments"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-bell"></i>
+                    <span>Appointments</span>
+                </a>
+                <div id="collapseAppointments" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'today_appointment' %}">Today's Appointments</a>
+                        <a class="collapse-item" href="{% url 'upcoming_appointment' %}">Upcoming Appointments</a>
+                        <a class="collapse-item" href="{% url 'cancelled_appointment' %}">Cancelled Appointments</a>
+                        <a class="collapse-item" href="{% url 'all_appointment' %}">Expired Appointments</a>
+                        <a class="collapse-item" href="{% url 'all_appointment' %}">Appointments Reviews</a>       
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseAttendance"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-clipboard-list"></i>
+                    <span>Attendance Sheet</span>
+                </a>
+                <div id="collapseAttendance" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        <a class="collapse-item" href="{% url 'attendants_today' %}">Today's Attendance</a>
+                        <a class="collapse-item" href="{% url 'attendants_all' %}">All-time Attendance</a>
+                        
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link collapsed" href="" data-toggle="collapse" data-target="#collapseFileUploads"
+                    aria-expanded="true" aria-controls="collapseUtilities">
+                    <i class="fas fa-fw fa-upload"></i>
+                    <span>File Uploads</span>
+                </a>
+                <div id="collapseFileUploads" class="collapse" aria-labelledby="headingUtilities"
+                    data-parent="#accordionSidebar">
+                    <div class="bg-white py-2 collapse-inner rounded">
+                        
+                        <a class="collapse-item" href="{% url 'upload_plans' %}">Upload patients Type</a>
+                        <a class="collapse-item" href="{% url 'patient_list' %}">Upload patients Records</a>
+                        <a class="collapse-item" href="{% url 'import_visit_purposes' %}">Upload Service List</a>
+                    </div>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{% url 'deactivated_patients' %}">
+                    <i class="fas fa-user-times"></i>
+                    <span>Deactivated Patients</span>
+                </a>
+            </li>

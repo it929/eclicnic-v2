@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt #{{ receipt_number }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 20px;
+        }
+        .meta {
+            text-align: right;
+            margin-bottom: 30px;
+        }
+        .patient-info {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 30px;
+            display: flex;
+        }
+        .patient-col {
+            flex: 1;
+        }
+        .title {
+            text-align: center;
+            font-size: 24px;
+            margin: 30px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .totals {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .totals div {
+            width: 300px;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+        .remarks {
+            margin-top: 30px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>ISALU HOSPITALS LIMITED</h2>
+        <p>Email: it@isaluhospitals.com | Phone: 08099902223</p>
+    </div>
+    
+    <div class="meta">
+        <p><strong>RECEIPT #:</strong> {{ receipt_number }}</p>
+        <p><strong>INVOICE #:</strong> {{ invoice_number|default:"N/A" }}</p>
+        <p><strong>Date:</strong> {{ created_date|date:"d F Y H:i" }}</p>
+    </div>
+    
+    <div class="patient-info">
+        <div class="patient-col">
+            <p><strong>PATIENT INFORMATION:</strong></p>
+            <p>Name: {{ patient.get_full_name }} [{{ patient.hospital_number }}]</p>
+            <p>Sponsor: {{ patient.plan.plan|default:"N/A" }}</p>
+            <p>Plan Type: {{ patient.category.category|default:"N/A" }}</p>
+        </div>
+        <div class="patient-col">
+            <p>Address: {{ patient.address|default:"N/A" }}</p>
+            <p>Phone: {{ patient.phone_number|default:"N/A" }}</p>
+            <p>Gender: {{ patient.gender|default:"N/A" }}</p>
+        </div>
+    </div>
+    
+    <h3 class="title">PAYMENT RECEIPT</h3>
+    
+    <p><strong>Payment Type:</strong> {{ payment_type|default:"N/A" }}</p>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>S/N</th>
+                <th>Description</th>
+                <th>Quantity</th>
+                <th>Rate (₦)</th>
+                <th>Discount (%)</th>
+                <th>Amount (₦)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in invoice_items %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ item.product }}</td>
+                <td>{{ item.qty }}</td>
+                <td>{{ item.price|div:item.qty|floatformat:2 }}</td>
+                <td>{{ item.discount|floatformat:2 }}%</td>
+                <td>{{ item.price|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" class="text-center">No items found</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="totals">
+        <div>
+            <p><strong>Total Amount Paid:</strong> ₦{{ total_amount|floatformat:2 }}</p>
+        </div>
+    </div>
+    
+    {% if remarks %}
+    <div class="remarks">
+        <p><strong>Remarks:</strong> {{ remarks }}</p>
+    </div>
+    {% endif %}
+</body>
+</html>

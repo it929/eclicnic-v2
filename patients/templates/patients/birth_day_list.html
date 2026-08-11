@@ -1,0 +1,50 @@
+{% extends 'admin.html' %}
+{% block content %}
+
+<div class="container-fluid">
+<!-- Page Heading -->
+    <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-danger" style="padding-block: 2px;">{{ counts}}</span> &nbsp;<i class="fa fa-users"></i> &nbsp;{{title}} </h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead style="display: none;">
+                    <tr>
+                        
+                        <th>Name</th>
+                        <th>Phone No.</th>
+                        <th>Plan</th>
+                    </tr>
+                </thead>
+                <tfoot style="display: none;">
+                    <tr>
+                        
+                        <th>Name</th>
+                        <th>Phone No.</th>
+                        <th>Plan</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in birthday_patients %}
+                    <tr>
+                        
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }} is ( <span style="color: brown; font-weight: bold;">{{patient.get_age}}</span> years old today )</a> </td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="color: brown; text-decoration: none;">Phone No: {{ patient.phone_number|default:"-" }}</a></td>
+                        <td><a href="{% url 'patient_profile' patient.id %}" style="text-decoration: none;">({{ patient.plan.plan|default:"-" }}) Patient</a></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No Birthday celebrants today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+{% endblock content %}

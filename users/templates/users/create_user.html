@@ -1,0 +1,194 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <title>Isalu Hospital</title>
+    <!-- Custom fonts for this template-->
+    <link href="{% static 'admin-vendor/fontawesome-free/css/all.min.css' %}" rel="stylesheet" type="text/css">
+    <link rel="shortcut icon" href="{% static 'admin-img/myicon.ico' %}" type="image/x-icon" />
+    <link
+        href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i"
+        rel="stylesheet">
+    <!-- Custom styles for this template-->
+    <link href="{% static 'admin-css/sb-admin-2.min.css' %}" rel="stylesheet">
+    <link href="{% static 'admin-vendor/datatables/dataTables.bootstrap4.min.css' %}" rel="stylesheet">
+<style>
+    input[type="text"],input[type="email"],input[type="file"],input[type="number"],
+    input[type="password"],input[type="date"],select{
+        width:100%; height: 40px; padding-left: 10px;
+        border:1px solid #ccc; 
+        border-radius: 5px;
+    }
+    input[type="file"]{
+        display: none;
+    }
+    ul{
+        list-style-type: none;
+    }
+    li{
+        color: red; margin: -10px -40px;
+    }
+    .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+</style>
+</head>
+<body>
+<div style=" height: auto; background-image:url('static/admin-img/login-bg.png'); 
+padding-inline: 7%; padding-top: 3%; padding-bottom: 5%; ">  
+<div class="container-fluid">
+{% if page == 'register' %}
+<div class="row" style="margin-top: 35px; margin-left: 10%;">
+    <div class="col-lg-6" style="padding-bottom: -10px;">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"> Create Staff's Account <a href="{% url 'login' %}" class="text-warning" style="font-weight: bold; float: right;"><i class="fa fa-arrow-up"></i></a></h6>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {% csrf_token %} 
+                    <h6 class="text-warning">Staff's Full Names:</h6>
+                        <p>
+                            {{ form.fullname }}
+                            {{form.errors.fullname}}
+                        </p>
+                        <h6 class="text-warning">Staff's Date of Birth:</h6>
+                        <p>
+                            {{ form.dob }}
+                            {{form.errors.dob}}
+                        </p>      
+                        <h6 class="text-warning">Home Address:</h6>
+                        <p>
+                            {{ form.address }}
+                            {{form.errors.address}}
+                        </p>
+                        <h6 class="text-warning">Staff's Number:</h6>
+                        <p>
+                            {{ form.phone_number }}
+                            {{form.errors.phone_number}}
+                        </p>
+                        <h6 class="text-warning">Staff's Email</h6>
+                        <p>
+                            {{ form.email }}
+                            {{form.errors.email}}
+                        </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow mb-4" style="padding-bottom: 12px;">
+            <div class="collapse show" id="collapseCardExample">
+                <div class="card-body">
+                    <h6 class="text-warning">Staff's Gender:</h6>
+                        <p>
+                            {{ form.gender }}
+                            {{form.errors.gender}}
+                        </p>
+                        <div class="form-grid">
+                            <div>
+                                <h6 class="text-warning"> Staff Category</h6>
+                                <p>
+                                    {{ form.department }}
+                                    {{form.errors.department}}
+                                </p>
+                            </div>
+                            <div id="purpose-field" style="display: none;"> 
+                                <h6 class="text-warning"> Specialization</h6>
+                                <p>
+                                    {{ form.purpose }}
+                                    {{form.errors.purpose}}
+                                </p>
+                            </div>
+                        </div>
+                        <h6 class="text-warning">Username: Staff ID</h6>
+                        <p>
+                            {{ form.username }}
+                            {{form.errors.username}}
+                        </p>
+                        <h6 class="text-warning">Password:</h6>
+                        <p>
+                            {{ form.password1 }}
+                            {{form.errors.password1}}
+                        </p>
+                        <h6 class="text-warning">Confirm Password</h6>
+                        <p>
+                            {{ form.password2 }}
+                            {{form.errors.password2}}
+                        </p>
+                        <button style="width: 100%; height: 40px;" class="btn btn-warning" type="submit" >
+                            Create Account <i class="fa fa-user-plus"></i>
+                        </button>
+                    </form>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+<script>
+    function loadVisitPurposes() {
+        const departmentId = document.getElementById('{{ form.department.id_for_label }}').value;
+        const purposeField = document.getElementById('{{ form.purpose.id_for_label }}');
+        const purposeContainer = document.getElementById('purpose-field');
+        if (!departmentId) {
+            purposeContainer.style.display = 'none';
+            return;
+        }
+        // Making AJAX call to check department and get purposes
+        fetch(`/check-department/${departmentId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.is_clinical | data.is_cmd ) {
+                    // Show purpose field
+                    purposeContainer.style.display = 'block';
+                    
+                    // Clear existing options
+                    purposeField.innerHTML = '';
+                    
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Select Specialization';
+                    purposeField.appendChild(defaultOption);
+                    
+                    // Add purpose options
+                    data.purposes.forEach(purpose => {
+                        const option = document.createElement('option');
+                        option.value = purpose.id;
+                        option.textContent = `${purpose.purpose}`;
+                        purposeField.appendChild(option);
+                    });
+                } else {
+                    // Hide purpose field
+                    purposeContainer.style.display = 'none';
+                    purposeField.innerHTML = '';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                purposeContainer.style.display = 'none';
+            });
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        const departmentField = document.getElementById('{{ form.department.id_for_label }}');
+        if (departmentField.value) {
+            loadVisitPurposes();
+        }
+        
+        // event listener
+        departmentField.addEventListener('change', loadVisitPurposes);
+    });
+</script>
+{% endif %}
+</div>
+</div>
+</body>
+</html>

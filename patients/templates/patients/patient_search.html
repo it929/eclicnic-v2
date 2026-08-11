@@ -1,0 +1,174 @@
+{% extends 'admin.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-search"></i> &nbsp;Search for Patient  </h1>
+  <p></p>
+  <hr style="margin-top: -5px;">
+<div class="patient-search-container" style="margin-top: -5px;">
+    <form id="patientSearchForm">
+        {% csrf_token %}
+        <div style="width: 20%;">
+            <select id="categoryFilter" class="form-control" required>
+                <option value="set">--Select Category--</option>
+                <option value="Private">Private</option>
+                <option value="ANC">ANC</option>
+                <option value="HMO">HMO</option>
+                <option value="NHIS">NHIS</option>
+                <option value="Retainership">Retainership</option>
+                <option value="">All Patients</option>
+            </select>
+        </div>
+        <div class="form-group" style="width: 78%; margin: -38px 21%;">
+            <input type="text" 
+                   id="patientSearchInput" 
+                   class="form-control" 
+                   placeholder="Search by name, phone, or hospital number"
+                   autocomplete="off" style="background: #fff;"> 
+        </div>
+    </form>
+    
+    <div id="searchResults" class="list-group" style="display:none;"></div>
+</div>
+<div id="categoryToast" class="toast align-items-center text-bg-warning border-0 position-fixed bottom-0 end-0 m-4" role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 1055; display: none;">
+  <div class="d-flex">
+    <div class="toast-body">
+      ⚠️ Please select a category before searching.
+    </div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="$('#categoryToast').hide();" aria-label="Close"></button>
+  </div>
+</div>
+
+</div>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+// Debounce function: delays execution until wait time has passed
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+}
+
+$(document).ready(function() {
+    //  Disable patientSearchInput when category is not selected
+    $('#categoryFilter').on('change', function () {
+        const value = $(this).val();
+        $('#patientSearchInput').prop('disabled', value === 'set');
+    });
+
+        // Initial check in case the page is reloaded with 'set' selected
+    if ($('#categoryFilter').val() === 'set') {
+        $('#patientSearchInput').prop('disabled', true);
+    }
+    const searchPatients = debounce(function() {
+        const searchTerm = $('#patientSearchInput').val().trim();
+
+        if (searchTerm.length >= 2) {
+            const selectedCategory = $('#categoryFilter').val();
+
+            if (selectedCategory === "set") {
+                alert("Please select a category before searching.");
+                return;
+            }
+
+            $.ajax({
+                url: '/patient-search/',
+                data: {
+                    'search_term': searchTerm,
+                    'category': selectedCategory,
+                    'csrfmiddlewaretoken': $('input[name=csrfmiddlewaretoken]').val()
+                },
+
+                dataType: 'json',
+                beforeSend: function() {
+                    const resultsContainer = $('#searchResults');
+                    resultsContainer.html(`
+                        <div class="list-group-item text-info">
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Searching…
+                        </div>
+                    `).show();
+                },
+                success: function(data) {
+                    const resultsContainer = $('#searchResults');
+                    resultsContainer.empty();
+
+                    if (data.cached) {
+                        resultsContainer.append(
+                            `<div class="list-group-item text-muted small">
+                                Showing cached results
+                            </div>`
+                        );
+                    }
+                    
+                    if (data.results.length > 0) {
+                        data.results.forEach(function(patient) {
+                            resultsContainer.append(
+                                `<a href="/patient-profile/${patient.id}/" class="list-group-item list-group-item-action patient-result">
+                                    <strong>${patient.full_name}</strong><br>
+                                    <small>Hospital No: <small style='color:rgb(161, 87, 87)'> ${patient.hospital_number || 'N/A'}</small></small> | 
+                                    <small>Phone No: <small style='color:rgb(161, 87, 87)'>${patient.phone_number}</small></small>
+                                </a>`
+                            );
+                        });
+                    } else {
+                        resultsContainer.append(
+                            `<div class="alert alert-danger">
+                                No patients found matching "<strong>${$('<div>').text(searchTerm).html()}</strong>"
+                            </div>`
+                        );
+                    }
+                }
+
+            });
+
+        } else {
+            $('#searchResults').hide();
+        }
+    }, 1000); // 300ms debounce delay
+
+    $('#patientSearchInput').on('input', searchPatients);
+
+    // Hide results when clicking elsewhere
+    $(document).click(function(e) {
+        if (!$(e.target).closest('.patient-search-container').length) {
+            $('#searchResults').hide();
+        }
+    });
+    
+});
+
+</script>
+
+<style>
+.patient-search-container {
+    position: relative;
+    margin-bottom: 20px;
+}
+#searchResults {
+    position: absolute;
+    width: 100%;
+    z-index: 1000;
+    max-height: 300px;
+    overflow-y: auto;
+    box-shadow: 0 5px 10px rgba(0,0,0,0.1);
+    padding-inline: 1%;
+    margin-top: 45px;
+    
+}
+.list-group-item {
+    transition: background-color 0.2s ease-in-out;
+}
+.list-group-item:hover {
+    background-color: #f8f9fa;
+}
+.patient-result {
+    cursor: pointer;
+}
+</style>
+{% endblock %}
+
+

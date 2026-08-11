@@ -1,0 +1,134 @@
+<div class="sidebar-heading">
+    {% if request.user.department.department == 'Inventory' %}<span>Inventory</span>{% else %}<span class="text-warning font-weight-bold">📦 Inventory</span>{% endif %}
+
+    </div>
+    {% if request.user.department.department == 'Inventory' %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+            aria-expanded="true" aria-controls="collapseTwo">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseInventory"
+            aria-expanded="true" aria-controls="collapseInventory">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Inventory Settings</span>
+        </a>
+        <div id="collapseInventory" class="collapse" aria-labelledby="headingInventory" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'add_product' %}">View Inventory</a>
+                <a class="collapse-item" href="{% url 'upload_products' %}">Upload Products</a>
+                <a class="collapse-item" href="{% url 'manage_imports' %}">Manage all Imports</a>
+                <a class="collapse-item" href="{% url 'imports_history' %}">Importations History</a>
+                <a class="collapse-item" href="{% url 'view_vendors' %}">Manage Vendors</a>
+                <a class="collapse-item" href="{% url 'scan_barcode' %}">Scan Products</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+    <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseExport"
+        aria-expanded="true" aria-controls="collapseExport">
+        <i class="fas fa-arrow-up"></i>
+        <span>Transfer Products</span>
+    </a>
+    <div id="collapseExport" class="collapse" aria-labelledby="headingExport" data-parent="#accordionSidebar">
+        <div class="bg-white py-2 collapse-inner rounded">
+        <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+            href="#" data-toggle="collapse" data-target="#ipdSubmenu" aria-expanded="false">
+            To IPD Pharmacy
+            <i class="fas fa-chevron-right submenu-arrow"></i>
+        </a>
+        <div id="ipdSubmenu" class="collapse ml-3">
+            <a class="collapse-item" href="{% url 'upload_to_ipd' %}">Pharmacy 1</a>
+            <a class="collapse-item" href="{% url 'upload_to_ipd2' %}">Pharmacy 2</a>
+            <a class="collapse-item" href="{% url 'upload_to_ipd3' %}">Pharmacy 3</a>
+        </div>
+        <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+            href="#" data-toggle="collapse" data-target="#opdSubmenu" aria-expanded="false">
+            To OPD Pharmacy
+            <i class="fas fa-chevron-right submenu-arrow"></i>
+        </a>
+        <div id="opdSubmenu" class="collapse ml-3">
+            <a class="collapse-item" href="{% url 'upload_to_opd' %}">Pharmacy 1</a>
+            <a class="collapse-item" href="{% url 'upload_to_opd2' %}">Pharmacy 2</a>
+        </div>
+
+        </div>
+    </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseExports"
+            aria-expanded="true" aria-controls="collapseExports">
+            <i class="fas fa-adjust"></i>
+            <span>Manage Transfers</span>
+        </a>
+        <div id="collapseExports" class="collapse" aria-labelledby="headingRequest" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#ipdExportSubmenu" aria-expanded="false">
+                Manage IPD Transfers
+            </a>
+            <div id="ipdExportSubmenu" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'manage_exports_ipd' %}">Pharmacy 1</a>
+                <a class="collapse-item" href="{% url 'manage_exports_ipd2' %}">Pharmacy 2</a>
+                <a class="collapse-item" href="{% url 'manage_exports_ipd3' %}">Pharmacy 3</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#opdExportSubmenu" aria-expanded="false">
+                Manage OPD Transfers
+            </a>
+            <div id="opdExportSubmenu" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'manage_exports_opd' %}">Pharmacy 1</a>
+                <a class="collapse-item" href="{% url 'manage_exports_opd2' %}">Pharmacy 2</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-danger"
+                href="{% url 'exports_history' %}">Transfer History
+                <i class="fas fa-history"></i>
+            </a>
+        </div>
+    </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseRequest"
+            aria-expanded="true" aria-controls="collapseRequest">
+            <i class="fas fa-adjust"></i>
+            <span>Manage Requisitions</span>
+        </a>
+        <div id="collapseRequest" class="collapse" aria-labelledby="headingRequest" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#ipdSubmenu" aria-expanded="false">
+                Manage IPD Request
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="ipdSubmenu" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'manage_ipd_requests' %}">Pharmacy 1</a>
+                <a class="collapse-item" href="{% url 'manage_ipd2_requests' %}">Pharmacy 2</a>
+                <a class="collapse-item" href="{% url 'manage_ipd3_requests' %}">Pharmacy 3</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#opdSubmenu" aria-expanded="false">
+                Manage OPD Request
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="opdSubmenu" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'manage_opd_requests' %}">Pharmacy 1</a>
+                <a class="collapse-item" href="{% url 'manage_opd2_requests' %}">Pharmacy 2</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-danger"
+                href="{% url 'requests_history' %}">Requisitions History
+                <i class="fas fa-history"></i>
+            </a>
+        </div>
+    </div>
+    </li>

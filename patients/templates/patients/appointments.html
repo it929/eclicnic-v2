@@ -1,0 +1,597 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    td{
+        font-size: 14px;
+    }
+</style>
+{% if page == 'today-appointment' %}
+<div class="container-fluid">
+      <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;Today's Appointments</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Arrival Time</th>
+                        <th>Status</th>
+                        <th>Doctor In charge</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Arrival Time</th>
+                        <th>Status</th>
+                        <th>Doctor In charge</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in appointments %}
+                    {% if patient.is_completed%}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">Completed <i class="fa fa-check"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                    </tr>
+                    {% elif patient.is_expired %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">Expired <i class="fa fa-times-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                    </tr>
+                    {% elif patient.is_cancelled %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">Still Available <i class="fa fa-available"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}} </a></td>
+                    </tr>
+                    {% endif %}
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No Appointment for today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div> 
+{% elif page == 'upcoming-appointment' %}
+<div class="container-fluid">
+    <!-- Content Row -->
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+      <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;Upcoming Appointments</h6>
+  </div>
+  <div class="card-body">
+      <div class="table-responsive">
+          <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moments</th>
+                      <th>Arrival Date</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moments</th>
+                      <th>Arrival Date</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+                  {% for patient in upcoming_appointment %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">Upcoming <i class="fa fa-clock"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">In {{ patient.days_remaining}} day(s)</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{patient.arrival_date}}, By {{patient.arrival_time}} </a></td>
+                    </tr>
+                  {% empty %}
+                  <tr>
+                      <td colspan="6" class="text-center">No Upcoming Appointments </td>
+                  </tr>
+                  {% endfor %}
+              </tbody>
+          </table>
+      </div>
+  </div>
+</div>
+</div>
+{% elif page == 'cancelled-appointment' %}
+<div class="container-fluid">
+      <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;{{title}}</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Visit Type</th>
+                        <th>Status</th>
+                        <th>Doctor In charge</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Visit Type</th>
+                        <th>Status</th>
+                        <th>Doctor In charge</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in appointments %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.visit_type}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">Cancelled <i class="fa fa-available"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}} </a></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No Cancelled appointment for today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div> 
+{% elif page == 'all-appointment' %}
+<div class="container-fluid">
+    <!-- Content Row -->
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+      <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;My Appointments Reviews</h6>
+  </div>
+  <div class="card-body">
+      <div class="table-responsive">
+          <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moment</th>
+                      <th>Date Created</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moment</th>
+                      <th>Date Created</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+                  {% for patient in appointments %}
+                    {% if patient.is_completed %}
+                    <tr class="bg bg-success">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Completed <i class="fas fa-check-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% elif patient.is_cancelled and patient.is_upcoming %}
+                    <tr class="bg bg-danger">
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff" >Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">in {{patient.arrival_date | timeuntil}} time </a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+
+                    {% elif patient.is_cancelled and patient.is_expired %}
+                    <tr class="bg bg-danger">
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff" >Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago </a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% elif patient.is_today %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none;" >Today <i class="fas fa-calendar"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none;">By {{patient.arrival_time}}  </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none;">{{patient.created_date}} </a></td>
+                    </tr>
+                    
+                    {% elif patient.is_upcoming %}
+                    <tr class="bg bg-info">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Upcoming <i class="fas fa-clock"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">in {{ patient.days_remaining}} day(s) </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% elif patient.is_expired %}
+                    <tr class="bg bg-warning">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }} ({{patient.patient.hospital_number}})</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Expired <i class="fas fa-times-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% endif %}
+                  {% empty %}
+                  <tr>
+                      <td colspan="6" class="text-center">No Appointment found</td>
+                  </tr>
+                  {% endfor %}
+              </tbody>
+          </table>
+      </div>
+  </div>
+</div>
+</div>
+{% elif page == 'appointment-today' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+<h1 class="h3 mb-1 text-gray-800">Appointment with <span class="text-success">({{appointment.patient.surname}} {{appointment.patient.other_name}} {{appointment.patient.first_name}})</span>&nbsp;-&nbsp;<span style="font-size: 15px; color: brown; font-weight: bold;">{{appointment.patient.hospital_number}}</span>&nbsp;<span style="font-size: 15px; font-weight: bold;">[{{appointment.patient.category.category}} patient]</span></h1>
+<div class="row">
+    <div class="col-lg-6">
+        <!-- Overflow Hidden -->
+        <div class="card mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+            </div>
+            <div class="card-body">
+                <table>
+                    <tr><td>Purpose of Appointment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.purpose}}</td></tr>                
+                    <tr><td>Patient's Visit Type</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.visit_type}}</td></tr>
+                    <tr><td>Additional Comment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.comment}}</td></tr>
+                    <tr><td>Appointment Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.arrival_date}} - {{appointment.arrival_time}} </td></tr>
+                    <tr><td>Created Date</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{appointment.created_date}} </td></tr>
+                    <tr><td>Appointment Status</td><td>&nbsp;&nbsp;&nbsp;</td>
+                        {% if appointment.is_cancelled %}<td class="text-warning font-weight-bold">Cancelled</td>
+                        {% elif appointment.is_expired %}<td class="text-danger font-weight-bold">Expired</td>
+                        {% elif appointment.is_completed %}<td class="text-success font-weight-bold">Completed <i class="fa fa-check"></i><i class="fa fa-check"></i></td>
+                        {% else %}<td class="text-primary font-weight-bold">Available</td>{% endif %}
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <!-- Progress Small -->
+        <div class="card mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Confirm Appointment</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-1 small">Please confirm the completion of this appointment</div>
+                
+                <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                    <div class="progress-bar" role="progressbar" style="width: 85%"
+                        aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <a class="btn btn-info" href="#" data-toggle="modal" data-target="#completedModal" style="text-decoration: none;">Completed? <i class="fa fa-check"></i></a>
+                <a class="btn btn-danger" href="#" data-toggle="modal" data-target="#cancelledModal" style="text-decoration: none;">Cancelled? <i class="fa fa-trash"></i></a>
+            </div>
+        </div>
+        <!-- Dropdown No Arrow -->
+    </div>
+    <div class="col-lg-6">
+        <!-- Roitation Utilities -->
+        <div class="card">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
+            </div>
+            <div class="card-body text-center" style="background: #f8f8f8;">
+                <div style="padding-inline: 30px; padding-block: 30px; background: #fff;">
+                    <img src="{{appointment.patient.avatar.url}}" style=" border-radius: 5px; width: 100%; height: 300px;"/>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="completedModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to confirm this action?</h6>
+        </div>
+        <div class="modal-footer">
+            <form method="post">
+                {% csrf_token %}
+            <button type="submit" name="completed" class="btn btn-primary">Yes, Submit <i class="fa fa-modify"></i></button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </form>
+        </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="cancelledModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to cancel this appointment?</h6>
+        </div>
+        <div class="modal-footer">
+            <form method="post">
+                {% csrf_token %}
+            <button type="submit" name="cancelled" class="btn btn-danger">Yes, Cancel <i class="fa fa-trash"></i></button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </form>
+        </div>
+    </div>
+  </div>
+</div>
+</div>
+{% elif page == 'appointment-upcoming' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+<h1 class="h3 mb-1 text-gray-800">Appointment with <span class="text-success">({{appointment.patient.surname}} {{appointment.patient.other_name}} {{appointment.patient.first_name}})</span>&nbsp;-&nbsp;<span style="font-size: 15px; color: brown; font-weight: bold;">{{appointment.patient.hospital_number}}</span>&nbsp;<span style="font-size: 15px; font-weight: bold;">[{{appointment.patient.category.category}} patient]</span></h1>
+<div class="row">
+    <div class="col-lg-6">
+        <!-- Overflow Hidden -->
+        <div class="card mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+            </div>
+            <div class="card-body">
+                <table>
+                    <tr><td>Purpose of Appointment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.purpose}}</td></tr>                
+                    <tr><td>Patient's Visit Type</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.visit_type}}</td></tr>
+                    <tr><td>Additional Comment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.comment}}</td></tr>
+                    <tr><td>Appointment Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.arrival_date}} - {{appointment.arrival_time}} </td></tr>
+                    <tr><td>Created Date</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{appointment.created_date}} </td></tr>
+                    <tr><td>Appointment Status</td><td>&nbsp;&nbsp;&nbsp;</td>
+                        {% if appointment.is_cancelled %}<td class="text-warning font-weight-bold">Cancelled</td>
+                        {% elif appointment.is_expired %}<td class="text-danger font-weight-bold">Expired</td>
+                        {% elif appointment.is_completed %}<td class="text-success font-weight-bold">Completed <i class="fa fa-check"></i><i class="fa fa-check"></i></td>
+                        {% else %}<td class="text-primary font-weight-bold">Available</td>{% endif %}
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <!-- Progress Small -->
+        <div class="card mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Confirm Appointment</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-1 small">Please confirm the completion of this appointment</div>
+                
+                <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                    <div class="progress-bar" role="progressbar" style="width: 85%"
+                        aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <a class="btn btn-info" href="#" data-toggle="modal" data-target="#modifiedAppointmentModal" style="text-decoration: none;">Modify <i class="fa fa-adjust"></i></a>
+                <a class="btn btn-danger" href="#" data-toggle="modal" data-target="#cancelledModal" style="text-decoration: none;">Cancelled? <i class="fa fa-trash"></i></a>
+            </div>
+        </div>
+        <!-- Dropdown No Arrow -->
+    </div>
+    <div class="col-lg-6">
+        <!-- Roitation Utilities -->
+        <div class="card">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
+            </div>
+            <div class="card-body text-center" style="background: #f8f8f8;">
+                <div style="padding-inline: 30px; padding-block: 30px; background: #fff;">
+                    <img src="{{appointment.patient.avatar.url}}" style=" border-radius: 5px; width: 100%; height: 300px;"/>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="cancelledModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to confirm this action?</h6>
+        </div>
+        <div class="modal-footer">
+            <form method="post">
+                {% csrf_token %}
+            <button type="submit" name="cancelled" class="btn btn-danger">Yes, Cancel <i class="fa fa-trash"></i></button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </form>
+        </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="modifiedAppointmentModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="margin-top: -20px;">
+        <div class="modal-header">
+            <h6 class="modal-title font-weight-bold" id="myModalLabel2">Do you want to modify this appointment?</h6>
+        </div>
+        <div class="modal-footer">
+            <form method="post">
+                <div style="margin-left: -230px;">
+                    {% csrf_token %}
+                    {{modify_appoint_form.as_p}}
+                </div>
+            <button type="submit" name="modified" class="btn btn-warning">Yes, Modify <i class="fa fa-adjust"></i></button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </form>
+        </div>
+    </div>
+  </div>
+</div>
+</div>
+{% elif page == 'appointment-all' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+<h1 class="h3 mb-1 text-gray-800">Appointment with <span class="text-success">({{appointment.patient.surname}} {{appointment.patient.other_name}} {{appointment.patient.first_name}})</span>&nbsp;-&nbsp;<span style="font-size: 15px; color: brown; font-weight: bold;">{{appointment.patient.hospital_number}}</span>&nbsp;<span style="font-size: 15px; font-weight: bold;">[{{appointment.patient.category.category}} patient]</span></h1>
+<div class="row">
+    <div class="col-lg-6">
+        <!-- Overflow Hidden -->
+        <div class="card mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+            </div>
+            <div class="card-body">
+                <table>
+                    <tr><td>Purpose of Appointment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.purpose}}</td></tr>                
+                    <tr><td>Patient's Visit Type</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.visit_type}}</td></tr>
+                    <tr><td>Additional Comment</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.comment}}</td></tr>
+                    <tr><td>Appointment Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{appointment.arrival_date}} - {{appointment.arrival_time}} </td></tr>
+                    <tr><td>Created Date</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{appointment.created_date}} </td></tr>
+                    <tr><td>Appointment Status</td><td>&nbsp;&nbsp;&nbsp;</td>
+                        {% if appointment.is_cancelled %}<td class="text-warning font-weight-bold">Cancelled</td>
+                        {% elif appointment.is_completed %}<td class="text-success font-weight-bold">Completed <i class="fa fa-check"></i><i class="fa fa-check"></i></td>
+                        {% elif appointment.is_expired %}<td class="text-danger font-weight-bold">Expired</td>
+                        {% else %}<td class="text-primary font-weight-bold">Available</td>{% endif %}
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <!-- Progress Small -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="mb-1 small">Click "Request Consultation" to send the patient to Nurse queue</div>
+                
+                <div class="progress progress-sm mb-2" style="margin-top: 15px;">
+                    <div class="progress-bar" role="progressbar" style="width: 85%"
+                        aria-valuenow="85" aria-valuemin="0" aria-valuemax="100"></div>
+                        
+                </div>
+                <a class="btn btn-primary" href="{% url 'patient_profile' appointment.patient.id %}">Request Consultation</a>
+            </div>
+        </div>
+        <!-- Dropdown No Arrow -->
+    </div>
+    <div class="col-lg-6">
+        <!-- Roitation Utilities -->
+        <div class="card">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
+            </div>
+            <div class="card-body text-center" style="background: #f8f8f8;">
+                <div style="padding-inline: 30px; padding-block: 30px; background: #fff;">
+                    <img src="{{appointment.patient.avatar.url}}" style=" border-radius: 5px; width: 100%; height: 300px;"/>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+{% elif page == 'visit-purpose' %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fa fa-upload" ></i> &nbsp;Service List fron Excel file </h1>
+      <p></p>
+    
+    <div class="card">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                    {{ form.upload_purpose.label_tag }}
+                    {{ form.upload_purpose }}
+                    <small class="form-text text-muted">{{ form.upload_purpose.help_text }}</small>
+                    {% if form.upload_purpose.errors %}
+                        <div class="alert alert-danger mt-2">
+                            {{ form.upload_purpose.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <button type="submit" class="btn btn-primary" name="upload_service">
+                    <i class="fas fa-upload"></i> Upload and Import
+                </button>
+                <a href="{% url 'import_visit_purposes' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </form>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Excel File Requirements</h5>
+            </div>
+            <div class="card-body">
+                <ul>
+                    <li>File must be in .xlsx format (Excel 2007 or later)</li>
+                    <li>First row must contain column headers</li>
+                    <li>Required columns: <code>purpose</code>, <code>price</code></li>
+                    <li>Download <a href="{% url 'download_servicelist_template' %}">template file</a> for reference</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- front desk -- service list modal (add service list) -->
+<div class="modal fade" id="addServiceListModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-plus"></i> Add to Service List</h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form method="POST">
+                {% csrf_token %}
+                {{ add_service_list_form.as_p }}
+
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" type="submit" name="add_service" class="btn btn-primary"><i class="fa fa-plus"></i> Add New</button>
+        </div>
+            </form>
+    </div>
+</div>
+</div>
+</div>
+
+{% else %}
+<div></div>
+{% endif %}
+{% endblock content%}

@@ -1,0 +1,105 @@
+<!-- templates/test_ajax.html -->
+{% extends 'admin.html' %}
+ {% block content %}   
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} <span class="text-danger">({{patient.hospital_number}})</span></h1>
+    </div>
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+
+    <div class="collapse navbar-collapse" id="navbarText">
+      <ul class="navbar-nav mr-auto">
+        <li class="nav-item ">
+          <a class="nav-link" href="{% url 'doctor_consultation' patient.id%}">Nurse Report <span class="sr-only">(current)</span></a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#">Prescriptions</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link active" href="">Documentation</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#">Systemic Review</a>
+          </li>
+        <li class="nav-item">
+            <a class="nav-link" href="{% url 'icd11_search' patient.id%}">ICD-11</a>
+          </li>
+      </ul>
+    </div>
+  </nav>
+
+<div style="margin-top: 10px;">
+    <textarea id="transcript" rows="6" placeholder="Speak and your text will appear here..." style="width: 100%; padding-left: 10px; border: 1px solid #bab7b7;"></textarea>
+    <p style="margin-top: 5px;">
+        <button type="button" class="btn btn-primary" onclick="startDictation()">Start <i class="fa fa-play"></i></button>
+        <button type="button" class="btn btn-danger" onclick="stopDictation()">Stop <i class="fas fa-stop"></i></button>
+        <button type="button" class="btn btn-success" onclick="saveTranscription()">Save Text <i class="fa fa-save"></i></button>
+        <a href="" class="btn btn-secondary">Clear Text <i class="fa fa-times"></i></a>
+    </p>
+</div>
+</div>
+<script>
+  let recognition;
+  let finalTranscript = '';
+  const patientId = '{{patient.id}}';
+  if ('webkitSpeechRecognition' in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = function(event) {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+      document.getElementById("transcript").value = finalTranscript + interimTranscript;
+    };
+  } else {
+    alert("Speech recognition not supported in your browser.");
+  }
+
+  function startDictation() {
+    finalTranscript = '';
+    document.getElementById("transcript").value = '';
+    recognition.start();
+  }
+
+  function stopDictation() {
+    recognition.stop();
+  }
+
+  function saveTranscription() {
+    const text = document.getElementById("transcript").value;
+    fetch(`/save-transcript/${patientId}/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken()
+      },
+      body: JSON.stringify({ text })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === "success") {
+        alert("Saved successfully! ID: " + data.id);
+      } else {
+        alert("Save failed.");
+      }
+    });
+  }
+
+  function getCSRFToken() {
+    const name = "csrftoken";
+    const cookieValue = document.cookie.split('; ')
+      .find(row => row.startsWith(name + '='))
+      ?.split('=')[1];
+    return cookieValue || '';
+  }
+</script>
+{% endblock content %}

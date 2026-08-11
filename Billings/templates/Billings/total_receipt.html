@@ -1,0 +1,349 @@
+{% extends 'admin.html' %}
+{% load static %}
+{% load custom_tags %}
+
+{% block content %}
+<style>
+    th, td{
+        font-size: 12px;
+    }
+
+    .total{
+       background: none; border: none; width: 90px;
+    }
+    .discount{
+        width: 60px; text-align: right; background: none; border: none; color: grey;
+    }
+    input[type='text']{
+        width: 80px; border: none; border-bottom: 1px solid #ccc; background: none;
+    }
+    select{
+        border: none; background: none; color: grey;
+    }
+
+    /* for the content of the modal */
+    .receipt-wrapper {
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            box-shadow: 0 0 15px rgba(0,0,0,0.05);
+            
+        }
+     .receipt-header, .receipt-footer {
+            padding: 20px;
+            text-align: center;
+        }
+        .receipt-header h4 { margin-bottom: 5px; color: #333; }
+        .receipt-header p { font-size: 12px; color: #666; margin-bottom: 2px; }
+        .receipt-meta {
+            padding: 10px 20px;
+            text-align: right;
+            font-size: 13px;
+            border-bottom: 1px solid #eee;
+        }
+        .patient-details-box {
+            border: 1px solid #eee;
+            margin: 20px;
+            padding: 15px;
+            padding-bottom: 10px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .patient-details-col {
+            flex: 1;
+            min-width: 280px;
+            padding-right: 15px;
+        }
+        .patient-details-col p { margin-bottom: 5px; font-size: 13px; }
+        .patient-details-col strong { color: #555; }
+
+        .receipt-title {
+            text-align: center;
+            margin: 30px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .receipt-table-section {
+            padding: 0 20px;
+            margin-bottom: 20px;
+        }
+        .receipt-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
+        .receipt-table th, .receipt-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px 12px;
+            text-align: left;
+            font-size: 12px;
+            vertical-align: middle;
+        }
+        .receipt-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            color: #444;
+        }
+        .receipt-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+        .receipt-table tbody tr:hover { background-color: #f2f2f2; }
+
+        .receipt-totals {
+            margin-top: 20px;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .receipt-totals div {
+            width: 500px;
+            border: 1px solid #e0e0e0;
+            padding: 10px 15px;
+            background-color: #fdfdfd;
+        }
+
+        .receipt-totals p strong { color: #333; }
+
+        .btn-toolbar { margin-bottom: 20px; padding: 10px 0; border-bottom: 1px solid #eee;}
+        .btn-toolbar .btn { margin-right: 5px; }
+        
+        .remarks-box {
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+            font-size: 12px;
+        }
+        .payment-info {
+            margin: 10px 20px;
+            padding: 10px;
+            border-left: 3px solid #28a745;
+            background-color: #f9f9f9;
+            font-size: 12px;
+        }
+
+</style>
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+
+<!-- Navbar -->
+<div id="billing-module-wrapper" style="margin-top: -15px;">
+  <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+    <div class="collapse navbar-collapse" id="navbarText">
+      <ul class="navbar-nav mr-auto">
+        
+        <li class="nav-item dropdown hover-dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+            Invoices
+          </a>
+          <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+            <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+          </div>
+        </li>
+
+        <li class="nav-item dropdown hover-dropdown actives">
+          <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+            Receipts
+          </a>
+          <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+            <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+          </div>
+        </li>
+
+        <li class="nav-item dropdown hover-dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                Transactions
+            </a>
+            <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+            </div>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+            Deposits & Refunds
+          </a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+</div>
+  
+  <div class="card-body">
+    <div class="table-responsive">
+        {% csrf_token %}
+            <table class="table" cellpadding="0" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Receipt ID</th>
+                        <th>Date Generated</th>
+                        <th>Generated By</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in distinct_receipts %}
+                    <tr>
+                        <td>#{{ entry.receipt_number }}</td>
+                        <td>{{ entry.latest_date|date:"d M Y" }}</td>
+                        <td>{{ entry.staff_name }}</td>
+                        <td>
+                            <a href="#" data-toggle="modal" data-target="#receiptModal{{ entry.receipt_number }}" class="text-success" style="text-decoration: none;">View Receipt</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modals for each receipt -->
+    {% for entry in distinct_receipts %}
+    {% with receipt_data=receipt_data|get_item:entry.receipt_number %}
+    <div class="modal fade" id="receiptModal{{ entry.receipt_number }}" tabindex="-1" role="dialog" aria-labelledby="receiptModalLabel{{ entry.receipt_number }}" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content" style="width: 160%; position: relative; right: 50px; margin-top: -20px;">
+                <div class="btn-toolbar" role="toolbar" aria-label="receipt actions" style="margin-left: 10px;">
+                    <div class="btn-group" role="group" aria-label="First group">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="addReceiptSignature('{{ entry.receipt_number }}')">
+                            <i class="fas fa-signature"></i> Signature
+                        </button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="printReceipt('{{ entry.receipt_number }}')">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                        <button type="button" class="btn btn-sm btn-success" onclick="emailReceiptQRCode('{{ entry.receipt_number }}')">
+                            <i class="fas fa-qrcode"></i> Email QR Code
+                        </button>
+                    </div>
+                    <div class="btn-group" role="group" aria-label="Second group">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-dark dropdown-toggle" type="button" id="dropdownMenuButton{{ entry.receipt_number }}" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton{{ entry.receipt_number }}">
+                                <a class="dropdown-item" href="#" onclick="downloadReceipt('{{ entry.receipt_number }}', 'pdf'); return false;">PDF</a>
+                                <a class="dropdown-item" href="#" onclick="downloadReceipt('{{ entry.receipt_number }}', 'excel'); return false;">Excel</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>           
+            
+                <div class="row" style="padding: 20px; margin-top: -40px;">
+                    <!-- This div contains the actual receipt content with rendered Django tags -->
+                    <div class="receipt-wrapper" id="receipt-content-{{ entry.receipt_number }}" data-patient-email="{{ patient.email_address }}">
+                        <div class="receipt-header">
+                            <h4>ISALU HOSPITALS LIMITED</h4>
+                            <p>Email: it@isaluhospitals.com</p>
+                            <p>Phone: 08099902223</p>
+                        </div>
+
+                        <div class="receipt-meta" style="margin-top: -30px;">
+                            <p>RECEIPT #: <strong>{{ entry.receipt_number }}</strong></p>
+                            <p style="margin-top: -15px;">INVOICE #: <strong>{{ receipt_data.invoice_number|default:"N/A" }}</strong></p>
+                            <p style="margin-top: -15px;">{{ entry.latest_date|date:"d F Y H:i" }}</p> 
+                        </div>
+
+                        <div class="patient-details-box">
+                            <div class="patient-details-col">
+                                <p><strong>PATIENT INFORMATION:</strong></p>
+                                <p>Name: <strong>{{ patient.get_full_name }}</strong> [{{ patient.hospital_number }}]</p>
+                                <p>Sponsor: <strong>{{ patient.plan.plan|default:"N/A" }}</strong></p> 
+                                <p>Plan Type: <strong>{{ patient.category.category|default:"N/A" }}</strong></p> 
+                                <p>Policy Number: <strong>{{ patient.insurance_policy_number|default:"NIL" }}</strong></p>
+                            </div>
+                            <div class="patient-details-col" >
+                                <p>Address: <strong>{{ patient.address|default:"N/A" }}</strong></p>
+                                <p>Phone: <strong>{{ patient.phone_number|default:"N/A" }}</strong></p>
+                                <p>Gender: <strong>{{ patient.gender|default:"N/A" }}</strong></p>
+                                {% if patient.category.category == 'HMO' %}
+                                <p>Enrollee No: <strong>{{patient.insurance_policy_number|default:"NIL"}}</strong></p> 
+                                {% endif %}
+                                <p>Patient Account Balance: <strong>₦ {{ total_deposits | currency }}</strong></p>
+                            </div>
+                        </div>
+
+                        <h5 class="receipt-title">PAYMENT RECEIPT</h5>
+
+                        <div class="payment-info">
+                            <p><strong>Payment Type:</strong> {{ receipt_data.payment_type|default:"N/A" }}</p>
+                        </div>
+
+                        <div class="receipt-table-section">
+                            <table class="receipt-table">
+                                <thead>
+                                    <tr>
+                                        <th>S/N</th>
+                                        <th>Description</th>
+                                        <th>Quantity</th>
+                                        <th>Rate (₦)</th>
+                                        <th>Discount (%)</th> 
+                                        <th>Amount (₦)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% if receipt_data.items %}
+                                        {% for item in receipt_data.items %}
+                                        <tr>
+                                            <td>{{ forloop.counter }}</td>
+                                            <td>{{ item.product }}</td>
+                                            <td>{{ item.qty }}</td>
+                                            <td>{{ item.calculated_original_rate|floatformat:2 }}</td>
+                                            <td>{{ item.discount|floatformat:2 }}%</td> 
+                                            <td>{{ item.price|floatformat:2 }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    {% else %}
+                                        <tr>
+                                            <td colspan="6" class="text-center">No items found for this receipt.</td>
+                                        </tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="receipt-totals">
+                            <div>
+                                <table>
+                                    <tr><td style="width:150px" class="rt">Total Amount Paid:</td><td class="text-success">₦{{ receipt_data.total_amount | currency }}</td></tr>
+                                    <tr><td>Amount in Words:</td><td>{{ receipt_data.total_amount|floatformat:2|wordify }}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+
+                        {% if receipt_data.remarks %}
+                        <div class="remarks-box">
+                            <p><strong>Remarks:</strong> {{ receipt_data.remarks }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endwith %}
+    {% endfor %}
+</div>
+
+<script>
+    // Add user fullname to body data attribute
+    document.body.dataset.userFullname = "{{ request.user.fullname|default:'System User' }}";
+    document.body.dataset.patientId = "{{ patient.id }}";
+</script>
+
+<script src="{% static 'admin-js/receipt.js' %}"></script>
+{% endblock content %}

@@ -1,0 +1,229 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<style>
+    td{
+        font-size: 14px;
+    }
+</style>
+{% if page == 'today_appointments' %}
+<div class="container-fluid">
+      <!-- Content Row -->
+  <div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;Today's Appointments</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Visit Type</th>
+                        <th>Status</th>
+                        <th>Time Created</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <th>Name</th>
+                        <th>Purpose</th>
+                        <th>Arrival Time</th>
+                        <th>Status</th>
+                        <th>Time Created</th>
+                    </tr>
+                </tfoot>
+                <tbody>
+                    {% for patient in today_appointments %}
+                    {% if patient.is_completed%}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">Completed <i class="fa fa-check"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">{{patient.created_date}}</a></td>
+                    </tr>
+                    {% elif patient.is_expired %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">Expired <i class="fa fa-times-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">{{patient.created_date}}</a></td>
+                    </tr>
+                    {% elif patient.is_cancelled %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">{{patient.created_date}}</a></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" class="text-primary" style="text-decoration: none;">Still Available <i class="fa fa-available"></i></a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% endif %}
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center">No Appointment for today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div> 
+
+{% elif page == 'upcoming_appointments' %}
+<div class="container-fluid">
+    <!-- Content Row -->
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+      <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;Upcoming Appointments</h6>
+  </div>
+  <div class="card-body">
+      <div class="table-responsive">
+          <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moments</th>
+                      <th>Arrival Date</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moments</th>
+                      <th>Arrival Date</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+                  {% for patient in upcoming_appointments %}
+                    <tr>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">Upcoming <i class="fa fa-clock"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="text-decoration: none;">In {{ patient.days_remaining}} day(s)</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{patient.arrival_date}}, By {{patient.arrival_time}} </a></td>
+                    </tr>
+                  {% empty %}
+                  <tr>
+                      <td colspan="6" class="text-center">No Upcoming Appointments </td>
+                  </tr>
+                  {% endfor %}
+              </tbody>
+          </table>
+      </div>
+  </div>
+</div>
+</div>
+{% elif page == 'all_appointments' %}
+<div class="container-fluid">
+    <!-- Content Row -->
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+      <h6 class="m-0 font-weight-bold text-primary"><span class="btn btn-primary" style="padding-block: 1px;">{{ counts}}</span> &nbsp;<i class="fa fa-bell"></i> &nbsp;My Appointments Reviews</h6>
+  </div>
+  <div class="card-body">
+      <div class="table-responsive">
+          <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moment</th>
+                      <th>Date Created</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                      <th>Name</th>
+                      <th>Purpose</th>
+                      <th>Status</th>
+                      <th>Moment</th>
+                      <th>Date Created</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+                  {% for patient in all_appointments %}
+
+                    {% if patient.is_completed %}
+                    <tr class="bg bg-success">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Completed <i class="fas fa-check-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                   
+                    {% elif patient.is_cancelled and patient.is_upcoming %}
+                    <tr class="bg bg-danger">
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff" >Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">in {{patient.arrival_date | timeuntil}} time </a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+
+                    {% elif patient.is_cancelled and patient.is_expired %}
+                    <tr class="bg bg-danger">
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff" >Cancelled <i class="fa fa-times"></i></a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago </a></td>
+                        <td><a href="{% url 'appointment_review_upcoming' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+
+                    {% elif patient.is_today %}
+                    <tr>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" style=" text-decoration: none;">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" style="text-decoration: none;" >Today <i class="fas fa-calendar"></i></a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" style=" text-decoration: none;">By {{patient.arrival_time}}  </a></td>
+                        <td><a href="{% url 'completed_appointment' patient.id %}" style=" text-decoration: none;">{{patient.created_date}} </a></td>
+                    </tr>
+                    
+                    {% elif patient.is_upcoming %}
+                    <tr class="bg bg-info">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Upcoming <i class="fas fa-clock"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">in {{ patient.days_remaining}} day(s) </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                     {% elif patient.is_expired %}
+                    <tr class="bg bg-warning">
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{ patient.purpose }}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style="text-decoration: none; color:#fff" >Expired <i class="fas fa-times-circle"></i></a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.arrival_date | timesince}} ago </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" style=" text-decoration: none; color:#fff">{{patient.created_date}} </a></td>
+                    </tr>
+                    {% endif %}
+                  {% empty %}
+                  <tr>
+                      <td colspan="6" class="text-center">No Appointment found</td>
+                  </tr>
+                  {% endfor %}
+              </tbody>
+          </table>
+      </div>
+  </div>
+</div>
+</div>
+
+{% endif %}
+{% endblock content%}

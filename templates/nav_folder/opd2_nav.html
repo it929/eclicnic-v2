@@ -1,0 +1,75 @@
+<div class="sidebar-heading">
+    {% if request.user.department.department == 'OPD Pharmacy 2' %}<span>OPD Pharmacy 2</span>{% else %}<span class="text-warning font-weight-bold">💊 OPD Pharmacy 2</span>{% endif %}
+    </div>
+    {% if request.user.department.department == 'OPD Pharmacy 2' %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
+            aria-expanded="true" aria-controls="collapseTwo">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>Profile Settings</span>
+        </a>
+        <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'profile-update' user.id %}">Modify Profile</a>
+                <a class="collapse-item" href="{% url 'user-profile' user.id %}">My Profile</a>
+                <a class="collapse-item" href="{% url 'change-password' %}">Change Password</a>
+            </div>
+        </div>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseQueuePharm1"
+            aria-expanded="true" aria-controls="collapseQueuePharm1">
+            <i class="fas fa-fw fa-users"></i>
+            <span>Queue Managements</span>
+        </a>
+        <div id="collapseQueuePharm1" class="collapse" aria-labelledby="headingQueuePharm1" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'opd2pharm_queue' %}">Waiting List</a>
+                <a class="collapse-item" href="{% url 'opd2_pharm_complete' %}">Completed List</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseOPDInventory"
+            aria-expanded="true" aria-controls="collapseOPDInventory">
+            <i class="fas fa-fw fa-cog"></i>
+            <span>View OPD Pharmacy 2</span>
+        </a>
+        <div id="collapseOPDInventory" class="collapse" aria-labelledby="headingOPDInventory" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{% url 'view_opd2_product' %}">View Inventory</a>
+                <a class="collapse-item" href="{% url 'scan_barcode' %}">Scan Products</a>
+            </div>
+        </div>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseRequest"
+            aria-expanded="true" aria-controls="collapseRequest">
+            <i class="fas fa-adjust"></i>
+            <span>Product Requisition</span>
+        </a>
+        <div id="collapseRequest" class="collapse" aria-labelledby="headingRequest" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#opdSubmenu" aria-expanded="false">
+                My Store
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="opdSubmenu" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'requisition_opd2' %}">Request Product(s)</a>
+                <a class="collapse-item" href="{% url 'review_requests_opd2' %}">Review Requests </a>
+                <a class="collapse-item" href="{% url 'history_requests_opd2' %}">History of Requests</a>
+            </div>
+            <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                href="#" data-toggle="collapse" data-target="#opdSubmenu2" aria-expanded="false">
+                Inventory Store
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+            </a>
+            <div id="opdSubmenu2" class="collapse ml-3">
+                <a class="collapse-item" href="{% url 'inventory_requests_to_opd2' %}">Manage Request</a>
+                <a class="collapse-item" href="{% url 'request_history_to_opd2' %}">History of Requests</a>
+            </div>
+        </div>
+    </div>
+</li>

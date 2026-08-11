@@ -1,0 +1,1327 @@
+{% extends "admin.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<style>
+    .div-grid {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+    }
+    .receipt-wrapper {
+            width: 100%;
+            margin: 20px 0px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            box-shadow: 0 0 15px rgba(0,0,0,0.05);
+            
+        }
+     .receipt-header, .receipt-footer {
+            padding: 20px;
+            padding-bottom: 0px;
+            text-align: center;
+        }
+        .receipt-header h4 { margin-bottom: 5px; color: #333; }
+        .receipt-header p { font-size: 12px; color: #666; margin-bottom: 2px; }
+        .receipt-meta {
+            padding: 10px 20px;
+            text-align: right;
+            font-size: 13px;
+            border-bottom: 1px solid #eee;
+        }
+        .patient-details-box {
+            border: 1px solid #eee;
+            margin: 20px;
+            padding: 15px;
+            padding-bottom: 10px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .patient-details-col {
+            flex: 1;
+            min-width: 280px;
+            padding-right: 15px;
+        }
+        .patient-details-col p { margin-bottom: 5px; font-size: 13px; }
+        .patient-details-col strong { color: #555; }
+
+        .receipt-title {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .receipt-table-section {
+            padding: 0 20px;
+            margin-bottom: 20px;
+        }
+        .receipt-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
+        .receipt-table th, .receipt-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px 12px;
+            text-align: left;
+            font-size: 12px;
+            vertical-align: middle;
+        }
+        .receipt-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            color: #444;
+        }
+        .receipt-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+        .receipt-table tbody tr:hover { background-color: #f2f2f2; }
+
+        .receipt-totals {
+            margin-top: 20px;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .receipt-totals div {
+            width: 500px;
+            border: 1px solid #e0e0e0;
+            padding: 10px 15px;
+            background-color: #fdfdfd;
+        }
+
+        .receipt-totals p strong { color: #333; }
+
+        .btn-toolbar { margin-bottom: 20px; padding: 10px 0; border-bottom: 1px solid #eee;}
+        .btn-toolbar .btn { margin-right: 5px; }
+        
+        .remarks-box {
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+            font-size: 12px;
+        }
+        .payment-info {
+            margin: 10px 20px;
+            padding: 10px;
+            border-left: 3px solid #28a745;
+            background-color: #f9f9f9;
+            font-size: 12px;
+        }
+        #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
+            display: block;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #medical-module-wrapper .dropdown-menu {
+            display: block;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(15px);
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+        }
+
+        .swal2-textarea{
+            height: 5px; width: 98%; margin-left: -1.5%;
+        }
+</style>
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.get_full_name}} 
+            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
+    </div>
+    {% if request.user.department.department in 'CMD, Admin, Clinical' %}
+        {% include 'queue_operations/crumbs/doctors_general_nav.html' %}
+    {% else %}
+    <div id="medical-module-wrapper">
+            <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
+                <div class="collapse navbar-collapse" id="navbarText">
+                    <ul class="navbar-nav mr-auto">
+                        <li class="nav-item ">
+                        <a class="nav-link" href="{% url 'opd_prescribe_drugs' patient.id %}">Doctor's Request <span class="sr-only">(current)</span></a>
+                        </li>
+                        <li class="nav-item dropdown hover-dropdown active">
+                            <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                Download prescriptions
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                                <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions_today' patient.id %}">Today's prescriptions (current)</a>
+                                <div class="dropdown-divider"></div>
+                                    <a class="dropdown-item text-primary" href="{% url  'opd_download_prescriptions' patient.id %}">Other prescriptions (past)</a>
+                            </div>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'opd_dispense_history' patient.id %}">History of Drugs dispensed</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </div>
+    {% endif %}
+         <div class="card-body div-grid">    
+            <!-- Column 1: Printable fields         -->
+                <div class="row" style="padding: 20px; margin-top: -40px;">
+                    <div class="receipt-wrapper">
+                        <div class="receipt-header">
+                            <h4>ISALU HOSPITALS LIMITED</h4>
+                            <p>Email: it@isaluhospitals.com</p>
+                            <p>Phone: 08099902223</p>
+                        </div>
+
+                        <div class="patient-details-box">
+                            <div class="patient-details-col">
+                                <p>Name: <strong>{{ patient.get_full_name }}</strong> [{{ patient.hospital_number }}]</p>
+                                <p>Sponsor: <strong>{{ patient.plan.plan|default:"N/A" }}</strong></p> 
+                                <p>Plan Type: <strong>{{ patient.category.category|default:"N/A" }}</strong></p> 
+                            </div>
+                            <div class="patient-details-col" >
+                                <p>Address: <strong>{{ patient.address|default:"N/A" }}</strong></p>
+                                <p>Phone: <strong>{{ patient.phone_number|default:"N/A" }}</strong></p>
+                                <p>Gender: <strong>{{ patient.gender|default:"N/A" }}</strong></p>
+                            </div>
+                        </div>
+
+                        <h5 class="receipt-title">PRESCRIPTIONS</h5>
+
+                        <div class="payment-info">
+                            <p><strong>Prepared by:</strong> {{ request.user.fullname }}</p>
+                        </div>
+
+                        <div class="receipt-table-section">
+                            <table class="receipt-table">
+                                <thead>
+                                    <tr>
+                                        <th class="print-none">All <input type="checkbox" name="all_result_row" id="all_result_row"></th>
+                                        <th>#</th>
+                                        <th>Medications</th>
+                                        <th>Instructions</th>
+                                    </tr>
+                                </thead>
+                                {% if page == 'opd_download_prescription_today' %}
+                                <tbody>
+                                {% if dispensed_drugs_today %}
+                                    {% for item in dispensed_drugs_today %}
+                                    <tr data-created-date="{{ item.created_date|date:'Y-m-d H:i:s' }}">
+                                        <td class="print-none"><input type="checkbox" name="result_row" value="{{ item.id }}"></td>
+                                        <td>{{ forloop.counter }}</td>
+                                        <td><span class="text-info">{{item.quantity}} {{item.UoM}}</span> of {{ item.item }}</td>
+                                        <td>{{ item.instructions }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-center">No active drug prescriptions found for this patient.</td>
+                                    </tr>
+                                {% endif %}
+                                </tbody>
+                                {% else %}
+                                <tbody>
+                                {% if dispensed_drugs %}
+                                    {% for item in dispensed_drugs %}
+                                    <tr data-created-date="{{ item.created_date|date:'Y-m-d H:i:s' }}">
+                                        <td class="print-none"><input type="checkbox" name="result_row" value="{{ item.id }}"></td>
+                                        <td>{{ forloop.counter }}</td>
+                                        <td><span class="text-info">{{item.quantity}} {{item.UoM}}</span> of {{ item.item }}</td>
+                                        <td>{{ item.instructions }} </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-center">No active drug prescriptions found for this patient.</td>
+                                    </tr>
+                                {% endif %}
+                                </tbody>
+                                {% endif %}
+                            </table>
+                        </div>
+
+                        <div class="receipt-totals">
+                            <div>
+                                <table>
+                                    <tr><td style="width:150px" class="rt">Created date:</td><td class="text-success" id="created_date"></td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+             <!-- Column 2: Toolbars         -->
+                <div class="table-responsive">
+                <div style="padding: 5px; border: 1.5px solid rgb(228, 222, 222); border-radius: 4px;">
+                    
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;"  onclick="addReceiptSignature()">
+                        <div class="message text-left alert alert-warning text-warning" role="alert" style="padding-left: 10px;">
+                            <i class="fas fa-signature"></i> Add Signature
+                        </div>
+                    </button>
+                    
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;"  onclick="printResult()">
+                        <div class="message text-left alert alert-success text-success" role="alert" style="padding-left: 10px;">
+                            <i class="fas fa-print"></i> Print Result
+                        </div>
+                    </button>
+                    
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;"  onclick="emailPDF()">
+                        <div class="message text-left alert alert-secondary" role="alert" style="padding-left: 10px;">
+                            <i class="fas fa-envelope"></i> Email PDF
+                        </div>
+                    </button>
+
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;"  onclick="downloadPDF()">
+                        <div class="message text-left alert alert-info text-info" role="alert" style="padding-left: 10px;">
+                            <i class="fa-solid fa-file-pdf" style="color: #E02424;"></i> Download PDF
+                        </div>
+                    </button>
+
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;"  onclick="downloadExcel()">
+                        <div class="message text-left alert alert-secondary" role="alert" style="padding-left: 10px;">
+                            <i class="fa-solid fa-file-excel" style="color: #1D6F42;"></i> Download Excel
+                        </div>
+                    </button>
+
+                    <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="clearDocumentSignature()">
+                        <div class="message text-left alert alert-danger text-danger" role="alert" style="padding-left: 10px;">
+                            <i class="fas fa-trash-alt"></i> Clear Signature
+                        </div>
+                    </button>
+
+                </div>
+            </div>
+        </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<script>
+    // Get all necessary DOM elements
+    const checkboxes = document.querySelectorAll('input[name="result_row"]');
+    const selectAllCheckbox = document.getElementById('all_result_row');
+    const createdDateSpan = document.getElementById('created_date');
+
+    // Storing original table rows for filtering
+    const originalRows = [];
+
+    // Function to get all currently selected rows (checkboxes that are checked)
+    function getSelectedRows() {
+        return document.querySelectorAll('input[name="result_row"]:checked');
+    }
+
+    // Function to get selected row elements
+    function getSelectedRowElements() {
+        const selectedRows = [];
+        document.querySelectorAll('input[name="result_row"]:checked').forEach(checkbox => {
+            const row = checkbox.closest('tr');
+            if (row) selectedRows.push(row);
+        });
+        return selectedRows;
+    }
+
+    // Function to update the "Created Date" field based on selected rows
+    function updateCreatedDate() {
+        const selectedRows = getSelectedRowElements();
+        if (selectedRows.length === 0) {
+            createdDateSpan.textContent = '';
+            return;
+        }
+
+        // Get unique created_date from selected rows
+        const uniqueDates = new Set();
+        selectedRows.forEach(row => {
+            if (row.dataset.createdDate) {
+                // Format the date nicely
+                const date = new Date(row.dataset.createdDate);
+                const formattedDate = date.toLocaleString('en-NG', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                uniqueDates.add(formattedDate);
+            }
+        });
+
+        // Display the unique dates
+        if (uniqueDates.size === 0) {
+            createdDateSpan.textContent = 'N/A';
+        } else {
+            createdDateSpan.textContent = Array.from(uniqueDates).join(' | ');
+        }
+    }
+
+    // Function to get selected records data
+    function getSelectedRecordsData() {
+        const selectedRows = getSelectedRowElements();
+        const records = [];
+        selectedRows.forEach((row, index) => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 3) {
+                const checkbox = row.querySelector('input[name="result_row"]');
+                records.push({
+                    id: checkbox?.value || index,
+                    sn: index + 1,
+                    test: cells[2]?.innerText || 'N/A',
+                    result: cells[3]?.innerText || 'N/A',
+                    created_date: row.dataset.createdDate || 'N/A'
+                });
+            }
+        });
+        return records;
+    }
+
+    // Function to get visible rows count (for display)
+    function getVisibleRowsCount() {
+        const tbody = document.querySelector('.receipt-table tbody');
+        if (!tbody) return 0;
+        return tbody.querySelectorAll('tr:not([style*="display: none"])').length;
+    }
+
+    // --- Select All / Deselect All functionality ---
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+            updateCreatedDate();
+            
+            // Show feedback
+            const count = selectAllCheckbox.checked ? checkboxes.length : 0;
+            if (count > 0) {
+                Swal.fire({
+                    icon: 'info',
+                    title: `${count} record(s) selected`,
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
+            }
+        });
+    }
+
+    // event listeners to individual checkboxes
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            // Update "Select All" checkbox state
+            if (selectAllCheckbox) {
+                const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                const someChecked = Array.from(checkboxes).some(cb => cb.checked);
+                selectAllCheckbox.checked = allChecked;
+                selectAllCheckbox.indeterminate = !allChecked && someChecked;
+            }
+            updateCreatedDate();
+        });
+    });
+
+    // --- Saving original rows for filtering ---
+    function saveOriginalRows() {
+        const tbody = document.querySelector('.receipt-table tbody');
+        if (tbody) {
+            originalRows.length = 0;
+            tbody.querySelectorAll('tr').forEach(row => {
+                if (row.cells.length > 1) { // Skip "No items found" row
+                    originalRows.push(row.cloneNode(true));
+                }
+            });
+        }
+    }
+
+    // Filter table to show only selected rows
+    function filterTableToSelected() {
+        const tbody = document.querySelector('.receipt-table tbody');
+        if (!tbody) return;
+
+        const selectedRowIds = new Set();
+        document.querySelectorAll('input[name="result_row"]:checked').forEach(checkbox => {
+            const row = checkbox.closest('tr');
+            if (row) {
+                // Use a unique identifier for the row
+                const testName = row.cells[2]?.innerText;
+                const result = row.cells[3]?.innerText;
+                selectedRowIds.add(`${testName}-${result}`);
+            }
+        });
+
+        // Hide/show rows based on selection
+        const allRows = tbody.querySelectorAll('tr');
+        let visibleCount = 0;
+        
+        allRows.forEach(row => {
+            if (row.cells.length <= 1) return; // Skip empty/error rows
+            
+            const testName = row.cells[2]?.innerText;
+            const result = row.cells[3]?.innerText;
+            const rowId = `${testName}-${result}`;
+            
+            if (selectedRowIds.has(rowId)) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+        
+        return visibleCount;
+    }
+
+    // Reset table to show all rows
+    function resetTableFilter() {
+        const tbody = document.querySelector('.receipt-table tbody');
+        if (!tbody) return;
+        
+        const allRows = tbody.querySelectorAll('tr');
+        allRows.forEach(row => {
+            row.style.display = '';
+        });
+    }
+
+    // --- Function to print ONLY the receipt area ---
+    window.printResult = function() {
+        const selectedCount = getSelectedRows().length;
+        if (selectedCount === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Records Selected',
+                text: 'Please select at least one Drug prescription to print.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        // Get the receipt wrapper element
+        const receiptWrapper = document.querySelector('.receipt-wrapper');
+        if (!receiptWrapper) {
+            Swal.fire('Error', 'Receipt area not found!', 'error');
+            return;
+        }
+
+        // Store original display state
+        const originalDisplay = {};
+        const allRows = document.querySelectorAll('.receipt-table tbody tr');
+        
+        // Hide unselected rows temporarily
+        allRows.forEach(row => {
+            if (row.cells.length <= 1) return;
+            const checkbox = row.querySelector('input[name="result_row"]');
+            if (checkbox && !checkbox.checked) {
+                originalDisplay[row] = row.style.display;
+                row.style.display = 'none';
+            }
+        });
+
+        // Temporarily hide the toolbar and other elements for printing
+        const toolbar = document.querySelector('.div-grid .table-responsive');
+        const originalToolbarDisplay = toolbar ? toolbar.style.display : null;
+        if (toolbar) toolbar.style.display = 'none';
+
+        // Clone the receipt wrapper for printing
+        const printContent = receiptWrapper.cloneNode(true);
+        
+        // Remove checkboxes from print content
+        const printCheckboxes = printContent.querySelectorAll('input[type="checkbox"]');
+        printCheckboxes.forEach(cb => cb.remove());
+        
+        // Remove action buttons from print content
+        const printButtons = printContent.querySelectorAll('button');
+        printButtons.forEach(btn => btn.remove());
+
+        // Create print window
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Drug prescriptions - {{ patient.get_full_name }}</title>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 0;
+                        padding: 20px;
+                    }
+                    .receipt-wrapper {
+                        width: 100%;
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        background-color: #fff;
+                        border: 1px solid #ddd;
+                        box-shadow: 0 0 15px rgba(0,0,0,0.05);
+                    }
+                    .receipt-header, .receipt-footer {
+                        padding: 20px;
+                        padding-bottom: 0px;
+                        text-align: center;
+                    }
+                    .receipt-header h4 { margin-bottom: 5px; color: #333; }
+                    .receipt-header p { font-size: 12px; color: #666; margin-bottom: 2px; }
+                    .patient-details-box {
+                        border: 1px solid #eee;
+                        margin: 20px;
+                        padding: 15px;
+                        display: flex;
+                        flex-wrap: wrap;
+                    }
+                    .patient-details-col {
+                        flex: 1;
+                        min-width: 280px;
+                        padding-right: 15px;
+                    }
+                    .receipt-title {
+                        text-align: center;
+                        margin: 10px 0;
+                        font-size: 18px;
+                        font-weight: bold;
+                    }
+                    .receipt-table-section {
+                        padding: 0 20px;
+                        margin-bottom: 20px;
+                    }
+                    .print-none {
+                        display: none;
+                    }
+                    .receipt-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+                    .receipt-table th, .receipt-table td {
+                        border: 1px solid #e0e0e0;
+                        padding: 8px 12px;
+                        text-align: left;
+                        font-size: 12px;
+                    }
+                    .receipt-table th {
+                        background-color: #f0f0f0;
+                        font-weight: bold;
+                    }
+                    .payment-info {
+                        margin: 10px 20px;
+                        padding: 10px;
+                        border-left: 3px solid #28a745;
+                        background-color: #f9f9f9;
+                        font-size: 12px;
+                    }
+                    @media print {
+                        body { margin: 0; padding: 0; }
+                        .receipt-wrapper { box-shadow: none; border: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                ${printContent.outerHTML}
+                <script>
+                    window.onload = function() {
+                        window.print();
+                        window.onafterprint = function() {
+                            window.close();
+                        };
+                    };
+                <\/script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+
+        // Restore original display states after a delay
+        setTimeout(() => {
+            allRows.forEach(row => {
+                if (originalDisplay[row] !== undefined) {
+                    row.style.display = originalDisplay[row];
+                } else {
+                    row.style.display = '';
+                }
+            });
+            if (toolbar && originalToolbarDisplay !== null) {
+                toolbar.style.display = originalToolbarDisplay;
+            } else if (toolbar) {
+                toolbar.style.display = '';
+            }
+        }, 1000);
+    };
+
+    // --- Email PDF Function ---
+    window.emailPDF = function() {
+        const selectedRows = getSelectedRows();
+        if (selectedRows.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Records Selected',
+                text: 'Please select at least one Drug prescription to email.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        const selectedData = getSelectedRecordsData();
+        
+        // Show email input dialog
+        Swal.fire({
+            title: 'Email Drug Prescriptions',
+            html: `
+                <input type="email" id="email" class="swal2-input" placeholder="Recipient Email" required>
+                <textarea id="message" class="swal2-textarea" placeholder="Optional message"></textarea>
+            `,
+            focusConfirm: false,
+            preConfirm: () => {
+                const email = document.getElementById('email').value;
+                if (!email) {
+                    Swal.showValidationMessage('Please enter an email address');
+                    return false;
+                }
+                return { email: email, message: document.getElementById('message').value };
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Send to server
+                fetch('/send-opd-report-email/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        patient_id: {{ patient.id }},
+                        email: result.value.email,
+                        message: result.value.message,
+                        records: selectedData
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        Swal.fire('Success!', `Email sent to ${result.value.email}`, 'success');
+                    } else {
+                        Swal.fire('Error!', 'Failed to send email', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    Swal.fire('Demo Mode', `Email would be sent to ${result.value.email} with ${selectedData.length} record(s)`, 'info');
+                });
+            }
+        });
+    };
+
+    // --- Download PDF Function ---
+    window.downloadPDF = function() {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Records Selected',
+            text: 'Please select at least one Drug prescription to download.',
+            confirmButtonColor: '#3085d6'
+        });
+        return;
+    }
+
+    Swal.fire({
+        title: 'Generating PDF...',
+        text: 'Please wait while we prepare your PDF.',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+
+    try {
+        filterTableToSelected();
+        
+        const element = document.querySelector('.receipt-wrapper');
+        if (!element) {
+            throw new Error('Receipt wrapper not found');
+        }
+        
+        const clonedElement = element.cloneNode(true);
+        
+        // Hiding only the checkbox cells
+        clonedElement.querySelectorAll('.receipt-table th.print-none, .receipt-table td.print-none').forEach(cell => {
+            cell.style.display = 'none';
+        });
+
+        // Renumber S/N column - only for visible rows after filtering
+        const visibleRows = clonedElement.querySelectorAll('.receipt-table tbody tr');
+        let counter = 1;
+        visibleRows.forEach((row) => {
+            // Skip if row is hidden by filterTableToSelected
+            if (row.style.display === 'none') return;
+            
+            const cells = row.querySelectorAll('td');
+            for (let cell of cells) {
+                if (!cell.classList.contains('print-none')) {
+                    cell.textContent = counter++;
+                    break; 
+                }
+            }
+        });
+        
+        // flex layout for PDF
+        const patientBox = clonedElement.querySelector('.patient-details-box');
+        if (patientBox) {
+            patientBox.style.display = 'block';
+            patientBox.style.width = 'auto';
+            patientBox.style.overflow = 'hidden';
+            
+            const cols = patientBox.querySelectorAll('.patient-details-col');
+            cols.forEach(col => {
+                col.style.float = 'left';
+                col.style.width = '48%';
+                col.style.minWidth = 'auto';
+                col.style.display = 'block';
+            });
+            
+            const clearfix = document.createElement('div');
+            clearfix.style.clear = 'both';
+            patientBox.appendChild(clearfix);
+        }
+        
+        clonedElement.style.width = '190mm';
+        clonedElement.style.maxWidth = '190mm';
+        clonedElement.style.margin = '0 auto';
+        clonedElement.style.padding = '0';
+        clonedElement.style.backgroundColor = '#ffffff';
+        clonedElement.style.boxShadow = 'none';
+        clonedElement.style.border = 'none';
+        
+        const opt = {
+            margin: 10,
+            filename: `prescriptions_{{ patient.hospital_number }}_{{ patient.get_full_name }}.pdf`,
+            image: { type: 'jpeg', quality: 0.95 },
+            html2canvas: { 
+                scale: 2,
+                useCORS: true,
+                scrollY: 0,
+                scrollX: 0,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait'
+            }
+        };
+        
+        html2pdf()
+            .set(opt)
+            .from(clonedElement)
+            .save()
+            .then(() => {
+                resetTableFilter();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'PDF Downloaded!',
+                    text: `${selectedRows.length} record(s) exported successfully.`,
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            })
+            .catch((error) => {
+                console.error('html2pdf Error:', error);
+                resetTableFilter();
+                
+                Swal.fire({
+                    icon: 'error',
+                    title: 'PDF Generation Failed',
+                    html: `Error: ${error.message || 'Unknown error'}<br><br>Check console for details.`,
+                    confirmButtonColor: '#3085d6'
+                });
+            });
+            
+    } catch (error) {
+        console.error('Function Error:', error);
+        resetTableFilter();
+        
+        Swal.fire({
+            icon: 'error',
+            title: 'PDF Generation Failed',
+            text: error.message || 'Please try again or contact support',
+            confirmButtonColor: '#3085d6'
+        });
+    }
+};
+
+    // --- Email PDF Function  ---
+window.emailPDF = function() {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Records Selected',
+            text: 'Please select at least one Drug prescription to email.',
+            confirmButtonColor: '#3085d6'
+        });
+        return;
+    }
+
+    const selectedData = getSelectedRecordsData();
+    
+    // Ask for optional message
+    Swal.fire({
+        title: 'Send Prescriptions via Email',
+        html: `
+            <div style="text-align: left;">
+                <p><strong>Recipient:</strong> {{ patient.email_address }}</p>
+                <textarea id="message" class="form-control" placeholder="Optional message to include in the email"></textarea>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Send Email',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#28a745',
+        preConfirm: () => {
+            return {
+                message: document.getElementById('message').value
+            };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Show loading
+            Swal.fire({
+                title: 'Sending Email...',
+                text: 'Please wait while we prepare and send the drug prescriptions.',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            // Send to server
+            fetch('/send-opd-report-email/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({
+                    patient_id: {{ patient.id }},
+                    records: selectedData,
+                    message: result.value.message
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Email Sent Successfully!',
+                        text: data.message,
+                        confirmButtonColor: '#28a745',
+                        timer: 3000
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Failed to Send Email',
+                        text: data.error || 'Please try again later.',
+                        confirmButtonColor: '#d33'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Network Error',
+                    text: 'Unable to send email. Please check your connection.',
+                    confirmButtonColor: '#d33'
+                });
+            });
+        }
+    });
+};
+
+    // --- Download Excel Function  ---
+    window.downloadExcel = function() {
+        const selectedRows = getSelectedRows();
+        if (selectedRows.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Records Selected',
+                text: 'Please select at least one Drug prescription to export.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+        
+        const selectedData = getSelectedRecordsData();
+        
+        // Create Excel/CSV content with better formatting
+        let csvContent = "\uFEFFS/N,Test,Result,Created Date\n"; // Added BOM for UTF-8
+        
+        selectedData.forEach((record) => {
+            // Escape quotes in content
+            const test = `"${record.test.replace(/"/g, '""')}"`;
+            const result = `"${record.result.replace(/"/g, '""')}"`;
+            const date = record.created_date !== 'N/A' ? new Date(record.created_date).toLocaleString() : 'N/A';
+            csvContent += `${record.sn},${test},${result},"${date}"\n`;
+        });
+        
+        csvContent += `\n"Summary:","Total Records: ${selectedData.length}","",""\n`;
+        csvContent += `"Patient:","{{ patient.get_full_name }}","Hospital #:","{{ patient.hospital_number }}"\n`;
+        
+        // Create download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute('download', `prescriptions_{{ patient.hospital_number }}_{{ patient.get_full_name }}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        Swal.fire({
+            icon: 'success',
+            title: 'Exported Successfully!',
+            text: `${selectedData.length} record(s) exported to CSV.`,
+            timer: 2000,
+            showConfirmButton: false
+        });
+    };
+
+    // Storing signature globally
+    let savedSignatureData = null;
+
+    // --- Add Signature Function  ---
+    window.addReceiptSignature = function() {
+        const selectedRows = getSelectedRows();
+        if (selectedRows.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Records Selected',
+                text: 'Please select at least one drug prescription to add signature.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        Swal.fire({
+            title: 'Add Digital Signature',
+            html: `
+                <div style="text-align: center;">
+                    <div style="border: 2px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 15px; background: white;">
+                        <canvas id="signatureCanvas" width="500" height="200" style="border: 1px solid #ccc; border-radius: 5px; cursor: crosshair; background: white;"></canvas>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button type="button" class="btn btn-secondary" id="clearSignatureBtn" style="margin-right: 10px;">Clear Signature</button>
+                    </div>
+                    <input type="text" id="signatoryName" class="swal2-input" placeholder="Enter Signatory Name (e.g., Dr. John Doe)" style="margin-top: 15px; width: 80%;">
+                    <input type="text" id="signatoryTitle" class="swal2-input" placeholder="Enter Title (e.g., Medical Director)" style="margin-top: 10px; width: 80%;">
+                </div>
+            `,
+            width: '650px',
+            showConfirmButton: true,
+            confirmButtonText: 'Add Signature to Document',
+            showCancelButton: true,
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#28a745',
+            didOpen: () => {
+                // Setup signature pad
+                const canvas = document.getElementById('signatureCanvas');
+                const ctx = canvas.getContext('2d');
+                let drawing = false;
+                let lastX = 0;
+                let lastY = 0;
+                
+                // Set canvas background to white
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                // Get the correct mouse coordinates
+                function getMousePos(e) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scaleX = canvas.width / rect.width;
+                    const scaleY = canvas.height / rect.height;
+                    
+                    let clientX, clientY;
+                    
+                    if (e.touches) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    } else {
+                        clientX = e.clientX;
+                        clientY = e.clientY;
+                    }
+                    
+                    const x = (clientX - rect.left) * scaleX;
+                    const y = (clientY - rect.top) * scaleY;
+                    
+                    return { x, y };
+                }
+                
+                // Start drawing
+                function startDrawing(e) {
+                    drawing = true;
+                    const pos = getMousePos(e);
+                    lastX = pos.x;
+                    lastY = pos.y;
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    e.preventDefault();
+                }
+                
+                // Draw
+                function draw(e) {
+                    if (!drawing) return;
+                    e.preventDefault();
+                    
+                    const pos = getMousePos(e);
+                    const currentX = pos.x;
+                    const currentY = pos.y;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    ctx.lineTo(currentX, currentY);
+                    ctx.stroke();
+                    
+                    lastX = currentX;
+                    lastY = currentY;
+                }
+                
+                // Stop drawing
+                function stopDrawing() {
+                    drawing = false;
+                    ctx.beginPath();
+                }
+                
+                // Mouse events
+                canvas.addEventListener('mousedown', startDrawing);
+                canvas.addEventListener('mousemove', draw);
+                canvas.addEventListener('mouseup', stopDrawing);
+                canvas.addEventListener('mouseleave', stopDrawing);
+                
+                // Touch events for mobile
+                canvas.addEventListener('touchstart', startDrawing);
+                canvas.addEventListener('touchmove', draw);
+                canvas.addEventListener('touchend', stopDrawing);
+                canvas.addEventListener('touchcancel', stopDrawing);
+                
+                // Clear button functionality
+                const clearBtn = document.getElementById('clearSignatureBtn');
+                if (clearBtn) {
+                    clearBtn.onclick = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth = 2;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                    };
+                }
+            },
+            preConfirm: () => {
+                const canvas = document.getElementById('signatureCanvas');
+                const signatoryName = document.getElementById('signatoryName').value;
+                
+                if (!signatoryName) {
+                    Swal.showValidationMessage('Please enter the signatory name!');
+                    return false;
+                }
+                
+                // Check if canvas has signature (not empty)
+                const canvasData = canvas.toDataURL();
+                
+                // Create a blank canvas for comparison
+                const blankCanvas = document.createElement('canvas');
+                blankCanvas.width = canvas.width;
+                blankCanvas.height = canvas.height;
+                const blankCtx = blankCanvas.getContext('2d');
+                blankCtx.fillStyle = 'white';
+                blankCtx.fillRect(0, 0, blankCanvas.width, blankCanvas.height);
+                const blankData = blankCanvas.toDataURL();
+                
+                if (canvasData === blankData) {
+                    Swal.showValidationMessage('Please draw your signature on the canvas!');
+                    return false;
+                }
+                
+                return {
+                    signature: canvasData,
+                    name: signatoryName,
+                    title: document.getElementById('signatoryTitle').value
+                };
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading
+                Swal.fire({
+                    title: 'Adding Signature...',
+                    text: 'Please wait',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // Add signature to the document
+                addSignatureToDocument(result.value.signature, result.value.name, result.value.title);
+                
+                // Store signature in session for PDF generation
+                fetch('/save-signature-session/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        signature: result.value.signature,
+                        name: result.value.name,
+                        title: result.value.title
+                    })
+                }).then(() => {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Signature Added!',
+                        text: `Digital signature has been added to ${selectedRows.length} selected record(s).`,
+                        confirmButtonColor: '#28a745',
+                        timer: 2000
+                    });
+                }).catch(() => {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Signature Added!',
+                        text: `Digital signature has been added to ${selectedRows.length} selected record(s).`,
+                        confirmButtonColor: '#28a745',
+                        timer: 2000
+                    });
+                });
+            }
+        });
+    };
+
+    // Function to add signature to the document
+    function addSignatureToDocument(signatureDataUrl, signatoryName, signatoryTitle = '') {
+        const paymentInfo = document.querySelector('.payment-info');
+        
+        if (paymentInfo) {
+            // Check if signature already exists and remove it
+            const existingSignature = paymentInfo.querySelector('.digital-signature');
+            if (existingSignature) {
+                existingSignature.remove();
+            }
+            
+            // Create signature container
+            const signatureDiv = document.createElement('div');
+            signatureDiv.className = 'digital-signature';
+            signatureDiv.style.marginTop = '15px';
+            signatureDiv.style.paddingTop = '15px';
+            signatureDiv.style.borderTop = '1px solid #ddd';
+            
+            // Add signature image
+            const signatureImg = document.createElement('img');
+            signatureImg.src = signatureDataUrl;
+            signatureImg.style.maxWidth = '200px';
+            signatureImg.style.maxHeight = '80px';
+            signatureImg.style.border = '1px solid #ccc';
+            signatureImg.style.padding = '5px';
+            signatureImg.style.backgroundColor = 'white';
+            
+            // Add signatory info
+            const signatureInfo = document.createElement('div');
+            signatureInfo.style.marginTop = '10px';
+            signatureInfo.innerHTML = `
+                <p><strong>Digitally Signed by:</strong> ${signatoryName}</p>
+                ${signatoryTitle ? `<p><strong>Title:</strong> ${signatoryTitle}</p>` : ''}
+                <p><small>Signed on: ${new Date().toLocaleString()}</small></p>
+            `;
+            
+            signatureDiv.appendChild(signatureImg);
+            signatureDiv.appendChild(signatureInfo);
+            
+            // Insert after the last paragraph in payment-info
+            paymentInfo.appendChild(signatureDiv);
+            
+            // Store signature in session storage for PDF generation
+            sessionStorage.setItem('labSignature', JSON.stringify({
+                signature: signatureDataUrl,
+                name: signatoryName,
+                title: signatoryTitle,
+                date: new Date().toISOString()
+            }));
+        }
+    }
+
+    // Clear signature from document
+    window.clearDocumentSignature = function() {
+        const paymentInfo = document.querySelector('.payment-info');
+        const existingSignature = paymentInfo?.querySelector('.digital-signature');
+        
+        if (existingSignature) {
+            Swal.fire({
+                title: 'Remove Signature?',
+                text: 'Are you sure you want to remove the digital signature?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, remove it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    existingSignature.remove();
+                    
+                    // Clear from session
+                    fetch('/clear-signature-session/', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': getCookie('csrftoken')
+                        }
+                    });
+                    
+                    sessionStorage.removeItem('labSignature');
+                    
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Removed!',
+                        text: 'Signature has been removed.',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                }
+            });
+        } else {
+            Swal.fire({
+                icon: 'info',
+                title: 'No Signature Found',
+                text: 'There is no signature to remove.',
+                timer: 1500,
+                showConfirmButton: false
+            });
+        }
+    };
+
+    // --- Helper function to get CSRF token ---
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // --- Initialize on page load ---
+    document.addEventListener('DOMContentLoaded', function() {
+        saveOriginalRows();
+        updateCreatedDate();
+        
+        // Add some helpful tooltips or instructions
+        console.log('Drug prescriptions Manager initialized');
+    });
+</script>
+{% endblock %}

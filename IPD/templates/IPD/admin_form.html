@@ -1,0 +1,50 @@
+<form id="adminForm"
+      method="POST"
+      action="{% url 'administer_drug' admin.id %}">
+
+{% csrf_token %}
+
+<label>Patient owned?</label>
+<input type="checkbox" name="is_patient_owned">
+
+<label>Action</label>
+<select name="action" class="form-control" required>
+    <option value="">Select</option>
+    <option value="administered">Given</option>
+    <option value="missed">Missed</option>
+    <option value="refused">Refused</option>
+    <option value="held">Held</option>
+</select>
+
+<label>Quantity</label>
+<input type="text" name="quantity_administered"
+       class="form-control">
+
+<label>Batch No</label>
+<input type="text" name="batch_no"
+       class="form-control">
+
+<label>Comments</label>
+<textarea name="comments"
+          class="form-control"></textarea>
+
+<br>
+
+<button class="btn btn-success w-100">
+    SIGN ADMINISTRATION
+</button>
+
+</form>
+<script>
+$(document).on("click", ".admin-btn", function(){
+
+    let adminId = $(this).data("id");
+
+    $.get(`/drug-administration/${adminId}/`, function(html){
+
+        $("#modalBody").html(html);
+        $("#adminModal").modal("show");
+
+    });
+});
+</script>

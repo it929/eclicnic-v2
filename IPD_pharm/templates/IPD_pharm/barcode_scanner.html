@@ -1,0 +1,131 @@
+{% extends 'admin.html' %}
+{% load static %}
+{% block content %}
+<style>
+    input[type="text"],input[type="email"],input[type="file"],input[type="number"],select{
+        width:100%; height: 40px; padding-left: 10px;
+        border:1px solid #ccc; 
+        border-radius: 5px;
+    }
+    textarea{
+        width: 100%; height: 80px; 
+        border:1px solid #ccc; border-radius: 5px;
+        padding: 10px;
+    }
+</style>
+  <!-- Content Row -->
+  <div class="container-fluid">
+
+    <!-- Page Heading -->
+    <h1 class="h3 mb-1 text-gray-800">Scan Barcode</h1>
+    <!-- Content Row -->
+    <div class="row">
+        <div class="col-lg-6">
+            <!-- Overflow Hidden -->
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Scan Barcode</h6>
+                </div>
+                <div class="card-body">
+                    <div style="width:500px;" id="reader"></div>
+                </div>
+            </div>
+            <!-- Dropdown No Arrow -->
+            <div class="card mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Back to Homepage</h6>
+                </div>
+                <div class="card-body">
+                    <div class="dropdown no-arrow mb-4">
+                        <a class="btn btn-primary btn-icon-split" href="{{request.META.HTTP_REFERER}}">
+                            <span class="icon text-white-50">
+                                <i class="fas fa-arrow-left"></i>
+                            </span>
+                            <span class="text">Back</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <!-- Roitation Utilities -->
+            <div class="card">
+                <div class="card-header py-3">
+                    {% if results == 'unavailable' and set_result == 'q' %}
+                    <h6 class="m-0 font-weight-bold text-primary">Add a Product to the scanned barcode</h6>
+                    {% elif results != 'unavailable' and set_result == 'q' %}
+                    <h6 class="m-0 font-weight-bold text-primary">This Barcode already available with a Product</h6>
+                    {% else %}
+                    <h6 class="m-0 font-weight-bold text-primary">Scanned Barcode Result</h6>
+                    {% endif %}
+                </div>
+                <div class="col" style="padding:10px; padding-bottom: 50px;">
+                    <form method="GET">
+                        {% csrf_token %}
+                    <input type="hidden" id="result" name="barcode" class="form-control" style="width: 50%; height: 35px;">
+                    <div id="main" style="margin: -53px 52%;"></div>
+                    </form>
+                    <div style="height: 40px; width:20px; "></div>
+                {% if results != 'unavailable' %}
+                    <h6 class="font-weight-bold text-secondary" style="margin: 10px 20px;">Requested Product's details</h6>
+                        {% for result in results %}
+                        <img src="{{result.barcode.url}}" style="height: 150px; width: 450px;" class="user-image img-responsive" />
+                        <table style="margin-left: 20px;" cellpadding="4">
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product's Name</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.product_name}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product ID (SKU)</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.product_id}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Description</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.description}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Product's Price</td><td>&nbsp;&nbsp;&nbsp;</td><td>&#8358; {{result.price}}</td></tr>
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Stock (Quantity)</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">{{result.stock}} {{result.minimum_UoM}}</td></tr>
+                        {% if result.status > 0 %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Reorder Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: #256fad;">Normal (Above threshold level)</td></tr>
+                        {% else %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Reorder Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">Critical (Below threshold level)</td></tr>
+                        {% endif %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Date Created</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.created_date}}</td></tr>                  
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Manufacturing Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.manufacturing_date}}</td></tr>                  
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Date</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.expiry_date}}</td></tr>  
+                        {% if expiry_status == 1 %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Status</td><td>&nbsp;&nbsp;&nbsp;</td><td style="color: brown;">Expired ({{result.expiry_date | timesince}}) ago</td></tr>                  
+                        {% else %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Expiry Status</td><td>&nbsp;&nbsp;&nbsp;</td><td class="text-warning">Expiring in ({{result.expiry_date | timeuntil}}) time</td></tr>                  
+                        {% endif %}
+                        <tr style="border-bottom: 1px solid #ccc;"><td>Added/Modified By</td><td>&nbsp;&nbsp;&nbsp;</td><td>{{result.staff.fullname}}</td></tr>                  
+                    </table>
+                        {% endfor %}
+                {% elif results == 'unavailable' and set_result == 'q' %}
+                        <div style="margin-top: 5px;">
+                            <form class="form" action="" method="POST" enctype="multipart/form-data">
+                                {% csrf_token %}
+                                {{form.as_p }}
+                                <div class="modal-footer">
+                                    <a class="btn btn-secondary" href="" > <i class="fas fa-times"></i> Cancel</a>
+                                    <button class="btn btn-primary" type="submit"><i class="fas fa-plus"></i> AddProduct</button>
+                                </div>
+                            </form>
+                        </div>
+                {% else %}
+                <div></div>
+                {% endif %}
+                  </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="{% static 'admin-js/html5-qrcode.min.js' %}"></script>
+<script type="text/javascript">
+    function onScanSuccess(qrCodeMessage) {
+        document.getElementById('result').value = qrCodeMessage;
+        document.getElementById("main")
+                    .innerHTML +=
+                    `<button type='submit' class='btn btn-primary' style='height:35px; margin-left:80px'>
+                       <i class='fas fa-eye' style='width:120px'> View Details </i> 
+                    </button>`;
+    }
+    function onScanError(errorMessage) {
+      //handle scan error
+    }
+    var html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader", { fps: 10, qrbox: 250 });
+    html5QrcodeScanner.render(onScanSuccess, onScanError);
+    </script>
+{% endblock content%}

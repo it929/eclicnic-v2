@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Statement of Account</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm 1cm 1.5cm 1cm;
+            @frame footer {
+                -pdf-frame-content: footerContent;
+                bottom: 0.5cm;
+                margin-left: 1cm;
+                margin-right: 1cm;
+                height: 1cm;
+            }
+        }
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 10px;
+            color: #000;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #000;
+        }
+        .header h4 {
+            margin: 0 0 3px 0;
+            font-size: 14px;
+        }
+        .header p {
+            margin: 1px 0;
+            font-size: 9px;
+        }
+        .patient-box {
+            border: 1px solid #000;
+            padding: 6px;
+            margin: 8px 0;
+            font-size: 9px;
+        }
+        .title {
+            text-align: center;
+            font-size: 13px;
+            font-weight: bold;
+            margin: 10px 0 5px 0;
+        }
+        .meta {
+            font-size: 9px;
+            margin-bottom: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8px;
+            -pdf-keep-with-next: false;
+        }
+        th, td {
+            border: 0.5px solid #000;
+            padding: 3px 2px;
+            text-align: left;
+            word-wrap: break-word;
+        }
+        th {
+            background-color: #333333;
+            color: #ffffff;
+            font-weight: bold;
+            -pdf-keep-with-next: true;
+        }
+        thead {
+            display: table-header-group; /* Repeat header on each page */
+        }
+        tr {
+            page-break-inside: avoid; /* Try to keep rows together */
+        }
+        .text-right { text-align: right; }
+        .bg-gray { background-color: #e0e0e0; }
+        .bg-dark { background-color: #333333; color: #ffffff; font-weight: bold; }
+        #footerContent {
+            font-size: 8px;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h4>ISALU HOSPITALS LIMITED</h4>
+        <p>Email: it@isaluhospitals.com | Phone: 08099902223</p>
+        <p>123 Hospital Road, Lagos, Nigeria</p>
+    </div>
+
+    <div class="patient-box">
+        <strong>Name:</strong> {{ patient.get_full_name }} [{{ patient.hospital_number }}] | 
+        <strong>Phone:</strong> {{ patient.phone_number|default:"N/A" }} | 
+        <strong>Gender:</strong> {{ patient.gender|default:"N/A" }} | 
+        <strong>Age:</strong> {{ patient.get_age }} yrs<br>
+        <strong>Sponsor:</strong> {{ patient.plan.plan|default:"N/A" }} | 
+        <strong>Category:</strong> {{ patient.category.category|default:"N/A" }}<br>
+        <strong>Address:</strong> {{ patient.address|default:"N/A" }}
+    </div>
+
+    <div class="title">ACCOUNT STATEMENTS</div>
+    <div class="meta">
+        <strong>Prepared by:</strong> {{ request.user.get_full_name|default:request.user.username }} | 
+        <strong>Date Generated:</strong> {% now "d M Y, H:i" %}
+    </div>
+
+    <table repeat="1"> <!-- repeat="1" = repeat thead on each page -->
+        <thead>
+            <tr>
+                <th width="11%">Reference</th>
+                <th width="9%">Date</th>
+                <th width="7%">Type</th>
+                <th width="31%">Details</th>
+                <th width="9%">Debit (₦)</th>
+                <th width="9%">Credit (₦)</th>
+                <th width="9%">RB (₦)</th>
+                <th width="15%">User</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if statement_data %}
+            <tr class="bg-gray">
+                <td colspan="7"><strong>Balance before {{ statement_data.0.trans_date|date:"d M Y" }}</strong></td>
+                <td class="text-right"><strong>{{ opening_balance|floatformat:2 }}</strong></td>
+            </tr>
+            
+            {% for item in statement_data %}
+            <tr>
+                <td>{{ item.reference|default:"-" }}</td>
+                <td>{{ item.trans_date|date:"d M Y" }}</td>
+                <td>{{ item.trans_type }}</td>
+                <td>{{ item.details|truncatechars:35 }}</td>
+                <td class="text-right">{{ item.debit|floatformat:2 }}</td>
+                <td class="text-right">{{ item.credit|floatformat:2 }}</td>
+                <td class="text-right">{{ item.rib|floatformat:2 }}</td>
+                <td>{{ item.user|truncatechars:12 }}</td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="8" class="text-center">No transactions found</td>
+            </tr>
+            {% endif %}
+        </tbody>
+        <tfoot>
+            <tr class="bg-dark">
+                <td colspan="4" class="text-right"><strong>Totals:</strong></td>
+                <td class="text-right"><strong>{{ total_debits|floatformat:2 }}</strong></td>
+                <td class="text-right"><strong>{{ total_credits|floatformat:2 }}</strong></td>
+                <td class="text-right"><strong>{{ balance_due|floatformat:2 }}</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <div id="footerContent">
+        Page <pdf:pagenumber> of <pdf:pagecount> | This is a computer-generated statement
+    </div>
+</body>
+</html>

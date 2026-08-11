@@ -1,0 +1,167 @@
+{% extends "admin.html" %}
+{% load static %}
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Heading -->
+        <h1 class="h3 mb-1 text-primary font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-edit"></i> Edit {{ patient.surname }} {{ patient.first_name }}'s Profile </h1>
+      <p></p>
+    <div class="row" style="margin-top: 35px;">
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data" novalidate>
+                        {% csrf_token %}
+                        
+                        <h6 class="text-primary">Patient's Surname: </h6>
+                        <p>
+                            {{ form.surname }}
+                            {% if form.surname.errors %}
+                                <div class="text-danger small">{{ form.surname.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Middle Name:</h6>
+                           <p> {{ form.other_name }}
+                            {% if form.other_name.errors %}
+                                <div class="text-danger small">{{ form.other_name.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-primary">Patient's First Name: </h6>
+                        <p>
+                            {{ form.first_name }}
+                            {% if form.first_name.errors %}
+                                <div class="text-danger small">{{ form.first_name.errors }}</div>
+                            {% endif %}
+                        <h6 class="text-primary">Date of Birth:</h6>  
+                            {{ form.dob }}
+                            {% if form.dob.errors %}
+                                <div class="text-danger small">{{ form.dob.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-primary">Patient's Home Address:</h6>
+                        <p>
+                            {{ form.address }}
+                            {% if form.address.errors %}
+                                <div class="text-danger small">{{ form.address.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6  class="text-primary">Hospital Number: </h6>
+                        <p>
+                            {{ form.hospital_number }}
+                            {% if form.hospital_number.errors %}
+                                <div class="text-danger small">{{ form.hospital_number.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Gender:</h6>
+                        <p>
+                            {{ form.gender }}
+                            {% if form.gender.errors %}
+                                <div class="text-danger small">{{ form.gender.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-primary">Select Marital Status: <span class="text-danger">(optional)</span></h6>
+                        <p>
+                            {{ form.patient_type }}
+                            {% if form.patient_type.errors %}
+                                <div class="text-danger small">{{ form.patient_type.errors }}</div>
+                            {% endif %}
+                        </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-body">
+                    <h6 class="text-primary">Patient's Email: </h6>
+                        <p>
+                            {{ form.email_address }}
+                            {% if form.email_address.errors %}
+                                <div class="text-danger small">{{ form.email_address.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Patien's Phone No.:</h6> 
+                        <p>
+                            {{ form.phone_number }}
+                            {% if form.phone_number.errors %}
+                                <div class="text-danger small">{{ form.phone_number.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Patient's Category: </h6>
+                        <p>
+                            {{ form.category }}
+                            {% if form.category.errors %}
+                                <div class="text-danger small">{{ form.category.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Patient's Plan Type:</h6>
+                        <p>
+                            {{ form.plan }}
+                            {% if form.plan.errors %}
+                                <div class="text-danger small">{{ form.plan.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-primary">Insurance Policy/ID Number <span class="text-danger">(Only for Insurance Patients)</span></h6>
+                        <p>
+                            {{ form.insurance_policy_number }}
+                            {% if form.insurance_policy_number.errors %}
+                                <div class="text-danger small">{{ form.insurance_policy_number.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-danger">Emergency Contact Information:</h6>
+                        <h6 class="text-primary">Full Name</h6>
+                        <p>
+                            {{ form.full_name }}
+                            {% if form.full_name.errors %}
+                                <div class="text-danger small">{{ form.full_name.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <h6 class="text-primary">Relationship to Patient: </h6>
+                        <p>
+                            {{ form.relationship_to_patient }}
+                            {% if form.relationship_to_patient.errors %}
+                                <div class="text-danger small">{{ form.relationship_to_patient.errors }}</div>
+                            {% endif %}
+                        </p>
+                        <h6 class="text-primary">Phone Numbers:</h6>
+                        <p>
+                            {{ form.phone_numbers }}
+                            {% if form.phone_numbers.errors %}
+                                <div class="text-danger small">{{ form.phone_numbers.errors }}</div>
+                            {% endif %}
+                        </p>
+                        
+                        <a class="btn btn-primary" href="#" style="width: 100%; height: 40px; text-decoration: none;" data-toggle="modal" data-target="#profileUpdateModal">Update Profile <i class="fa fa-edit"></i></a>
+                        <div class="modal fade" id="profileUpdateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+                        <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="exampleModalLabel">Pin Code Authentication</h5>
+                                <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">×</span>
+                                </button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
+                                <button class="btn btn-primary" type="submit">Update Profile <i class="fa fa-edit"></i></button>
+                            </form>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

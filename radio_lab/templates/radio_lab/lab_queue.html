@@ -1,0 +1,87 @@
+{% extends 'admin.html' %}
+{% load static %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"> &nbsp;Patients Queue (Waiting List) <span id="lab-queue-count" class="badge badge-secondary"></span> </h1>
+  <p></p>
+   <hr style="margin-top: -5px;">
+<div class="container">
+    <table id="waiting-table" class="table" style="width:100%">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Hospital No.</th>
+                <th>Category</th>
+                <th>Plan</th>
+                <th>Date</th>
+                <th>Sent By</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+</div>
+
+<script>
+$(document).ready(function () {
+    let table = $('#waiting-table').DataTable({
+        ajax: {
+            url: "{% url 'fetch_lab_queue' %}",
+            dataSrc: function (json) {
+                $('#lab-queue-count').text(json.count);  
+                return json.data;
+            }
+        },
+        columns: [
+            {
+                data: 'name',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            },
+            {
+                data: 'hospital_number',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            },
+            {
+                data: 'category',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            },
+            {
+                data: 'plan',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            },
+            {
+                data: 'created_date',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            },
+            {
+                data: 'attendant',
+                render: function (data, type, row) {
+                    return `<a href="/lab-investigation/${row.patient_id}/" style=" text-decoration:none">${data}</a>`;
+                }
+            }
+        ],
+        rowCallback: function (row, data) {
+
+        }
+    });
+
+    // 🔁 Auto-refresh every 10 seconds
+    setInterval(function () {
+        table.ajax.reload(null, false);
+    }, 10000);
+});
+</script>
+
+{% endblock %}

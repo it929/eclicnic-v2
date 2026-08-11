@@ -1,0 +1,76 @@
+<div id="medical-module-wrapper">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
+        <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                </li>
+
+                {% if patient.category.category == 'ANC' %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                </li>
+                {% endif %}
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        View Reports
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    {% if patient.is_admitted %}
+                    <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                    {% else %}
+                    <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                    {% endif %}
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown active">
+                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        Prints
+                    </a>
+                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
+                        <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
+                    <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
+                        <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
+                        <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link text-warning" href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
+                </li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>

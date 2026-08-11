@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Clinical Results - {{ patient.hospital_number }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .no-print {
+                display: none;
+            }
+            
+            .date-header {
+                background: #667eea !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            .section-title {
+                background: #e3e6f0 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+        
+        body {
+            font-family: 'DejaVu Sans', Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #4e73df;
+        }
+        
+        .header h1 {
+            color: #4e73df;
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .print-instructions {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .print-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        
+        .print-button:hover {
+            background: #0056b3;
+        }
+        
+        .patient-info {
+            background: #f8f9fc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4e73df;
+        }
+        
+        .patient-info table {
+            width: 100%;
+        }
+        
+        .patient-info td {
+            padding: 5px;
+        }
+        
+        .date-group {
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+            border: 2px solid #4e73df;
+            border-radius: 8px;
+            overflow: hidden;
+            break-inside: avoid;
+        }
+        
+        .date-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            border-bottom: 3px solid #5a67d8;
+            text-align: center;
+        }
+        
+        .date-header i {
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .date-content {
+            padding: 20px;
+            background: white;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+        
+        .section-title {
+            background: #e3e6f0;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #4e73df;
+            border-left: 4px solid #4e73df;
+            font-size: 14px;
+        }
+        
+        .result-card {
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid #4e73df;
+            background: #f8f9fc;
+            border-radius: 4px;
+        }
+        
+        .drugs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .drugs-table th {
+            background: #4e73df;
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-size: 11px;
+        }
+        
+        .drugs-table td {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+            font-size: 11px;
+        }
+        
+        .drugs-table tr:nth-child(even) {
+            background: #f8f9fc;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .filter-info {
+            background: #fff3cd;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .scan-image {
+            margin-top: 15px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .scan-image img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .image-caption {
+            font-size: 10px;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        
+        .no-records {
+            padding: 20px;
+            text-align: center;
+            background: #f8f9fc;
+            border-radius: 5px;
+            color: #666;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 12px;
+            margin-left: 10px;
+        }
+        
+        .badge-primary {
+            background: #ffd700;
+            color: #333;
+        }
+        
+        hr {
+            margin: 15px 0;
+            border: none;
+            border-top: 1px solid #e3e6f0;
+        }
+        
+        .record-count {
+            font-size: 12px;
+            margin-left: 10px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏥 CLINICAL RESULTS REPORT</h1>
+        <p><strong>Generated on:</strong> {{ print_date|date:"F d, Y H:i:s" }}</p>
+    </div>
+    
+    <div class="print-instructions no-print">
+        <strong>🖨️ Print Instructions:</strong> 
+        Press <kbd>Ctrl+P</kbd> (Windows) or <kbd>Cmd+P</kbd> (Mac) to print this page.
+        <br>
+        <button class="print-button" onclick="window.print();">Click here to Print</button>
+    </div>
+    
+    <div class="patient-info">
+        <table>
+            <tr>
+                <td width="30%"><strong>Patient Name:</strong></td>
+                <td width="70%"><strong>{{ patient.surname }} {{ patient.other_name }} {{ patient.first_name }}</strong></td>
+            </tr>
+            <tr>
+                <td><strong>Hospital Number:</strong></td>
+                <td>{{ patient.hospital_number }}</td>
+            </tr>
+            <tr>
+                <td><strong>Age/Gender:</strong></td>
+                <td>{{ patient.get_age }} years - {{ patient.gender }}</td>
+            </tr>
+            <tr>
+                <td><strong>Category:</strong></td>
+                <td>{{ patient.plan }} Category</td>
+            </tr>
+        </table>
+    </div>
+    
+    <div class="filter-info">
+        <strong>📊 Filter Applied:</strong>
+        {% if filter_type == 'latest' %}
+            Latest Record Only
+        {% elif filter_type == 'single_record' and selected_date %}
+            Single Date: <strong>{{ selected_date }}</strong>
+        {% elif filter_type == 'date_range' and start_date and end_date %}
+            Date Range: <strong>{{ start_date }}</strong> to <strong>{{ end_date }}</strong>
+        {% elif filter_type == 'all_records' %}
+            All Records (Sorted by Date - Most Recent First)
+        {% endif %}
+    </div>
+    
+    {% if grouped_records %}
+        {% for date, records in grouped_records.items %}
+            <div class="date-group">
+                <div class="date-header">
+                    📅 {{ date|date:"l, F d, Y" }}
+                    <!-- <span class="badge badge-primary">
+                        {% with total=records.labs|length|add:records.scans|length|add:records.drugs|length %}
+                            {{ total }} Record{{ total|pluralize }}
+                        {% endwith %}
+                    </span> -->
+                </div>
+                <div class="date-content">
+                    
+                    <!-- Lab Results -->
+                    {% if records.labs %}
+                    <div class="section">
+                        <div class="section-title">
+                            🔬 LABORATORY RESULTS ({{ records.labs|length }})
+                        </div>
+                        {% for result in records.labs %}
+                            <div class="result-card">
+                                <strong>📋 {{ result.investigation }}</strong><br>
+                                <strong>Results:</strong> {{ result.results|default:"No results entered" }}<br>
+                                <strong>Time:</strong> {{ result.created_date|date:"g:i A" }}<br>
+                                <strong>Carried out by:</strong> {{ result.staff.fullname }}
+                            </div>
+                            {% if not forloop.last %}<hr>{% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Scan Results -->
+                    {% if records.scans %}
+                    <div class="section">
+                        <div class="section-title">
+                            🖼️ SCAN RESULTS ({{ records.scans|length }})
+                        </div>
+                        {% for result in records.scans %}
+                            <div class="result-card">
+                                <strong>📷 {{ result.investigation }}</strong><br>
+                                <strong>Results:</strong> {{ result.results|default:"No results entered" }}<br>
+                                <strong>Time:</strong> {{ result.created_date|date:"g:i A" }}<br>
+                                <strong>Carried out by:</strong> {{ result.staff.fullname }}<br>
+                                
+                                {% if result.scan %}
+                                    <div class="scan-image">
+                                        <img src="{{ result.scan.url }}" alt="Scan Image for {{ result.investigation }}">
+                                        <div class="image-caption">▼ Scan Image - {{ result.investigation }} ▼</div>
+                                    </div>
+                                {% else %}
+                                    <em>⚠️ No scan image uploaded</em>
+                                {% endif %}
+                            </div>
+                            {% if not forloop.last %}<hr>{% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Dispensed Drugs -->
+                    {% if records.drugs %}
+                    <div class="section">
+                        <div class="section-title">
+                            💊 DISPENSED DRUGS ({{ records.drugs|length }})
+                        </div>
+                        <table class="drugs-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Quantity</th>
+                                    <th>Dose</th>
+                                    <th>Frequency</th>
+                                    <th>Duration</th>
+                                    <th>Prescribed by</th>
+                                    <th>Dispensed by</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for drug in records.drugs %}
+                                <tr>
+                                    <td>{{ drug.item }}</td>
+                                    <td>{{ drug.quantity }} {{ drug.UoM|default:"-" }}</td>
+                                    <td>{{ drug.dose|default:"-" }}</td>
+                                    <td>{{ drug.frequency|default:"-" }}</td>
+                                    <td>{{ drug.duration|default:"-" }}</td>
+                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.pharm_staff }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- No Records -->
+                    {% if not records.labs and not records.scans and not records.drugs %}
+                        <div class="no-records">
+                            ℹ️ No clinical records found for this date
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="no-records">
+            ❌ No clinical records found for the selected criteria.
+        </div>
+    {% endif %}
+    
+    <div class="footer">
+        <p>This is a computer-generated document. No signature required.</p>
+        <p>© {% now "Y" %} Clinical Results System | Printed on {{ print_date|date:"F d, Y H:i:s" }}</p>
+    </div>
+    
+    <script>
+        // Auto-open print dialog when page loads (optional)
+
+    </script>
+</body>
+</html>
