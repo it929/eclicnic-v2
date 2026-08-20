@@ -1,7 +1,7 @@
 {% extends 'admin.html' %}
 
 {% block content %}
-{% if request.user.department.department in 'Nursing, Admin, CMD' and page == 'nurse-done-list' %}
+{% if request.user.department.department == 'Nursing' and page == 'nurse-done-list' %}
 <div class="container-fluid">
       <div class="card shadow mb-4">
         <div class="card-header py-3">
@@ -54,7 +54,7 @@
         </div>
     </div>
 </div>
-{% elif request.user.department.department in 'Clinical, Admin, CMD' and page == 'doctor-done-list' %}
+{% elif request.user.department.department == 'Clinical' and page == 'doctor-done-list' %}
 <div class="container-fluid">
     <!-- Page Heading -->
         <!-- Content Row -->

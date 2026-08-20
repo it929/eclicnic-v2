@@ -195,9 +195,7 @@ function uploadExcel() {
     });
 }
 
-// Optional: Add cancel button functionality
 $(document).ready(function() {
-    // Add cancel button if it doesn't exist
     if (!$('#cancelBtn').length) {
         $('button[onclick="saveWard()"]').after('<button id="cancelBtn" onclick="clearForm()" >Cancel</button>');
     }

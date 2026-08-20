@@ -225,7 +225,7 @@ def out_stock_report(request):
 
 
 
-# Map Excel values to UOM choices (case-insensitive + variations)
+# Mapping Excel values to UOM choices (case-insensitive + variations)
 UOM_MAP = {
     "ampoule": "ampoules",
     "ampoules": "ampoules",
@@ -321,7 +321,7 @@ def upload_products_from_excel(request):
                 # Required fields
                 product_id = str(row.get('product_id')).strip() if pd.notna(row.get('product_id')) else ''
                 product_name = str(row.get('product_name')).strip() if pd.notna(row.get('product_name')) else ''
-                # minimum_UoM = str(row.get('minimum_UoM')).strip() if pd.notna(row.get('minimum_UoM')) else ''
+                
                 raw_uom = str(row.get('minimum_UoM')) if pd.notna(row.get('minimum_UoM')) else ''
                 minimum_UoM = normalize_uom(raw_uom)
                 if not minimum_UoM:
@@ -331,6 +331,28 @@ def upload_products_from_excel(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0  # Default value for non-bottle items if omitted
 
                 # Handle required numeric fields
                 try:
@@ -363,6 +385,7 @@ def upload_products_from_excel(request):
                         'price': price,
                         'stock': stock,
                         'minimum_UoM': minimum_UoM,
+                        'unit': unit,
                         'low_stock_threshold': low_stock_threshold,
                     }
                 )
@@ -371,6 +394,7 @@ def upload_products_from_excel(request):
                     product.price = price
                     product.stock += stock
                     product.minimum_UoM = minimum_UoM
+                    product.unit = unit
                     product.low_stock_threshold = low_stock_threshold
 
                 # Optional fields
@@ -402,7 +426,7 @@ def upload_products_from_excel(request):
                     price=price,
                     transaction_type="PURCHASE",
                     destination="inventory",
-                    minimum_UoM = minimum_UoM,
+                    minimum_UoM=minimum_UoM,
                     staff=request.user
                 )
 
@@ -419,7 +443,7 @@ def upload_products_from_excel(request):
 
         return redirect('upload_products') 
 
-    return render(request, 'inventory/upload_products.html',{'page':page})
+    return render(request, 'inventory/upload_products.html', {'page': page})
 
 
 @login_required(login_url='login')
@@ -1684,6 +1708,29 @@ def upload_to_ipdpharm(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0 
+
                 try:
                     price = Decimal(row['price']) if pd.notna(row.get('price')) else None
                 except:
@@ -1735,6 +1782,7 @@ def upload_to_ipdpharm(request):
                         'price': price,
                         'stock': stock,
                         'minimum_UoM': minimum_UoM,
+                        'unit':unit,
                         'low_stock_threshold': low_stock_threshold,
                     }
                 )
@@ -1743,6 +1791,7 @@ def upload_to_ipdpharm(request):
                     drug.price = price
                     drug.stock += stock
                     drug.minimum_UoM = minimum_UoM
+                    drug.unit = unit
                     drug.low_stock_threshold = low_stock_threshold
 
                 # Optional fields
@@ -1840,6 +1889,28 @@ def upload_to_ipd2pharm(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0 
                 try:
                     price = Decimal(row['price']) if pd.notna(row.get('price')) else None
                 except:
@@ -1890,6 +1961,7 @@ def upload_to_ipd2pharm(request):
                     defaults={
                         'price': price,
                         'stock': stock,
+                        'unit':unit,
                         'minimum_UoM': minimum_UoM,
                         'low_stock_threshold': low_stock_threshold,
                     }
@@ -1899,6 +1971,7 @@ def upload_to_ipd2pharm(request):
                     drug.price = price
                     drug.stock += stock
                     drug.minimum_UoM = minimum_UoM
+                    drug.unit = unit
                     drug.low_stock_threshold = low_stock_threshold
 
                 # Optional fields
@@ -1996,6 +2069,29 @@ def upload_to_ipd3pharm(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0     
+
                 try:
                     price = Decimal(row['price']) if pd.notna(row.get('price')) else None
                 except:
@@ -2047,6 +2143,7 @@ def upload_to_ipd3pharm(request):
                         'price': price,
                         'stock': stock,
                         'minimum_UoM': minimum_UoM,
+                        'unit':unit,
                         'low_stock_threshold': low_stock_threshold,
                     }
                 )
@@ -2055,6 +2152,7 @@ def upload_to_ipd3pharm(request):
                     drug.price = price
                     drug.stock += stock
                     drug.minimum_UoM = minimum_UoM
+                    drug.unit = unit
                     drug.low_stock_threshold = low_stock_threshold
 
                 # Optional fields
@@ -2152,6 +2250,28 @@ def upload_to_opdpharm(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0 
 
                 try:
                     price = Decimal(row['price']) if pd.notna(row.get('price')) else None
@@ -2204,6 +2324,7 @@ def upload_to_opdpharm(request):
                         'price': price,
                         'stock': stock,
                         'minimum_UoM': minimum_UoM,
+                        'unit':unit,
                         'low_stock_threshold': low_stock_threshold,
                     }
                 )
@@ -2212,6 +2333,7 @@ def upload_to_opdpharm(request):
                     drug.price = price
                     drug.stock += stock
                     drug.minimum_UoM = minimum_UoM
+                    drug.unit = unit
                     drug.low_stock_threshold = low_stock_threshold
 
                 # Optional fields
@@ -2309,6 +2431,29 @@ def upload_to_opd2pharm(request):
                     )
                     continue
 
+                # Handle unit parsing & validation conditional on UoM
+                raw_unit = row.get('unit')
+                unit = None
+                
+                if pd.notna(raw_unit) and str(raw_unit).strip() != '':
+                    try:
+                        unit = int(raw_unit)
+                        if unit < 0:
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        messages.warning(request, f"Invalid unit value '{raw_unit}' in row {index+2}. Must be a positive integer. Skipping row.")
+                        continue
+                else:
+                    # Enforce compulsory requirement for 'bottles'
+                    if minimum_UoM == 'bottles':
+                        messages.warning(
+                            request, 
+                            f"'unit' is compulsory when minimum_UoM is 'bottles' (Row {index+2}). Skipping row."
+                        )
+                        continue
+                    else:
+                        unit = 0 
+
 
                 try:
                     price = Decimal(row['price']) if pd.notna(row.get('price')) else None
@@ -2361,6 +2506,7 @@ def upload_to_opd2pharm(request):
                         'price': price,
                         'stock': stock,
                         'minimum_UoM': minimum_UoM,
+                        'unit':unit,
                         'low_stock_threshold': low_stock_threshold,
                     }
                 )
@@ -2369,6 +2515,7 @@ def upload_to_opd2pharm(request):
                     drug.price = price
                     drug.stock += stock
                     drug.minimum_UoM = minimum_UoM
+                    drug.unit = unit
                     drug.low_stock_threshold = low_stock_threshold
 
                 # Optional fields

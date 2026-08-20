@@ -1,5 +1,7 @@
 from django.contrib.sessions.models import Session
 from django.db import models
+from ANC.models import AntenatalVisit  
+from Billings.models import TransactionUpdate
 
 class UserActivityLog(models.Model):
     ACTIVITY_TYPES = [
@@ -84,3 +86,51 @@ class UserSession(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - last active: {self.last_activity}"
+
+class OtherService2(models.Model):
+    service = models.CharField(max_length=200) 
+    service_id = models.CharField(max_length=12,null=True)
+    rate = models.DecimalField(max_digits=15, decimal_places=2)
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, related_name='service_tariffs')
+    
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_date']
+        unique_together = ('service_id', 'plan')  
+
+    def __str__(self):
+        return f'{self.service} - {self.rate} '
+
+
+class OtherServiceConsumed(models.Model):
+    service = models.CharField(max_length=200)
+    rate = models.DecimalField(max_digits=15, decimal_places=2)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    exception_bill = models.BooleanField(default=False)
+    completed = models.PositiveIntegerField(default=0)
+    created_date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_date']
+
+
+    def save(self, *args, **kwargs):
+        # update TransactionUpdate model from Billings app
+        obj, created = TransactionUpdate.objects.get_or_create(
+            patient=self.patient,
+            completed=0,
+            defaults={
+                'invoice_raised': 0, 
+                'receipt_given': 0
+            }
+        )
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.patient.surname} {self.patient.first_name} -- ({self.service})'
+    

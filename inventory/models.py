@@ -29,7 +29,8 @@ class Product(models.Model):
     description = models.CharField(blank=True, null=True,max_length=300)
     price = models.DecimalField(max_digits=15, decimal_places=2)
     stock = models.PositiveIntegerField()
-    minimum_UoM = models.CharField(choices=UOM, default="", null=True, max_length=22, blank=True) # UOM - unit of measurement
+    unit = models.PositiveIntegerField(default=0)
+    minimum_UoM = models.CharField(choices=UOM, default="", null=True, max_length=22, blank=True) # unit of measurement
     low_stock_threshold = models.PositiveIntegerField(default=10)  # Alert when stock is below this value
     status = models.IntegerField(default=1, null=True)
     activation_status = models.IntegerField(default=1, null=True)
@@ -163,3 +164,20 @@ class VendorTransaction(models.Model):
         self.total_cost = self.vendor.total_cost
         self.product_name = self.vendor.product_name
         return super().save(*args, **kwargs)
+
+
+class PharmacyTariff(models.Model):
+    product_id = models.CharField(max_length=13, db_index=True) # SKU
+    product_name = models.CharField(max_length=200)
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE)
+    rate = models.DecimalField(max_digits=15, decimal_places=2)
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('product_id', 'plan')
+        ordering = ['product_name']
+
+    def __str__(self):
+        return f"{self.product_name} - {self.plan.plan} - ₦{self.rate}"

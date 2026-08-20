@@ -6,14 +6,17 @@ from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
 from datetime import datetime, timedelta
+from decimal import Decimal
 import re
+import traceback
 from django.contrib.auth.decorators import login_required
 from .models import VisitPurpose, NurseWaitingList,PatientBackgroundHealth, DoctorWaitingList,Transcript,PatientFollowUp,PatientReferral,PatientOtherDetails, OtherService, WrittenPrescriptions
 from radio_lab.models import RadioLabInventory, RadiologyLab, ScanResult, LabResult
 from ANC.models import AntenatalVisit
-from inventory.models import Product
+from inventory.models import Product, PharmacyTariff
+from myAdmins.models import OtherService2, OtherServiceConsumed
 from .forms import BackgroundHealthForm,EditPatientBackgroundHealthForm,DoctorWaitingListForm,DoctorWaitingListModifyForm
-from patients.models import PatientProfile, PatientAppointment
+from patients.models import PatientProfile, PatientAppointment, PatientPlan
 from patients.forms import PatientAlergyUpdateForm
 from IPD_pharm.models import Drugs, IPDAdministeredDrugs
 from IPD.models import AdmissionTable
@@ -81,8 +84,7 @@ def nurse_waiting_count(request):
 
 @login_required(login_url='login')
 def nurse_done_list(request):
-    completed_by_users = [u for u in [request.user.fullname, request.user.username] if u]
-    my_patients = NurseWaitingList.objects.filter(waiting_status=1, completed_by__in=completed_by_users, created_date__gte=timezone.now() - timedelta(hours=24))
+    my_patients = NurseWaitingList.objects.filter(waiting_status = 1, completed_by=request.user.fullname, created_date__gte=timezone.now() - timedelta(hours=24))
     # all_patients = NurseWaitingList.objects.filter(waiting_status = 1, created_date__gte=timezone.now() - timedelta(hours=24))
 
     context = {
@@ -684,8 +686,7 @@ def scan_results_waiting_count(request):
 
 @login_required(login_url='login')
 def doctor_done_list(request):
-    completed_by_users = [u for u in [request.user.fullname, request.user.username] if u]
-    patients = DoctorWaitingList.objects.filter(waiting_status=1, completed_by__in=completed_by_users, created_date__gte=timezone.now() - timedelta(hours=24))
+    patients = DoctorWaitingList.objects.filter(waiting_status = 1, completed_by = request.user.fullname, created_date__gte=timezone.now() - timedelta(hours=24))
 
     context = {
         'patients':patients,
@@ -2497,12 +2498,13 @@ def link_callback(uri, rel):
 # Beginning of Drugs prescriptions from doctors
 
 from importlib import import_module
+import uuid
 
 STORES_CONFIG = {
     'ipd_pharm1': {
         'name': 'IPD Pharmacy 1',
         'app_name': 'IPD_pharm',  
-        'models_module': 'IPD_pharm.models',  # Path to models module
+        'models_module': 'IPD_pharm.models',  
         'drug_model': 'Drugs',
         'transaction_model': 'IPDAdministeredDrugs',
         'display_name': 'IPD Pharmacy 1'
@@ -2574,32 +2576,67 @@ def get_store_model(store_id, model_type='drug'):
 
 @login_required(login_url='login')
 def search_products(request):
-    query = request.GET.get('q', '')
-    store_id = request.GET.get('store', 'ipd_pharm1')  # Default to ipd_pharm1
-    
-    # Get the store configuration
+    query = request.GET.get('q', '').strip()
+    store_id = request.GET.get('store', 'ipd_pharm1')
+    patient_id = request.GET.get('patient_id')
+
+    if len(query) < 2:
+        return JsonResponse({'results': []})
+
     store_config = STORES_CONFIG.get(store_id, STORES_CONFIG['ipd_pharm1'])
-    
+
+    # Get patient plan
+    patient_plan = None
+    default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+    if patient_id:
+        try:
+            patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+            patient_plan = patient.plan or default_plan
+        except PatientProfile.DoesNotExist:
+            patient_plan = default_plan
+    else:
+        patient_plan = default_plan
+
     try:
-        # Get the drug model with app name
         drug_model = get_store_model(store_id, 'drug')
-        
-        # Search in the selected store
         products = drug_model.objects.filter(activation_status=1, product_name__icontains=query)[:10]
-        
-        results = [{
-            'id': product.id,
-            'text': f"{product.product_name} ({product.minimum_UoM}) - {store_config['display_name']}",
-            'stock': product.stock,
-            'price': str(product.price),
-            'uom': product.minimum_UoM,
-            'original_name': product.product_name,
-            'store_id': store_id,
-            'store_name': store_config['display_name']
-        } for product in products]
-        
+
+        # Preload tariffs for these products for this plan (1 query only)
+        product_codes = [p.product_id for p in products]
+        tariff_map = {
+            t.product_id.lower(): t.rate
+            for t in PharmacyTariff.objects.filter(product_id__in=product_codes, plan=patient_plan)
+        }
+        # Fallback map for Single if plan not found
+        fallback_map = {}
+        if patient_plan != default_plan:
+            fallback_map = {
+                t.product_id.lower(): t.rate
+                for t in PharmacyTariff.objects.filter(product_id__in=product_codes, plan=default_plan)
+            }
+
+        results = []
+        for product in products:
+            key = product.product_id.lower() if product.product_id else ''
+            tariff_price = tariff_map.get(key)
+            if tariff_price is None:
+                tariff_price = fallback_map.get(key, product.price)
+
+            results.append({
+                'id': product.id,
+                'text': f"{product.product_name} ({product.minimum_UoM}) - {store_config['display_name']} - ₦{tariff_price}",
+                'stock': product.stock,
+                'price': str(tariff_price), # tariff price
+                'uom': product.minimum_UoM,
+                'original_name': product.product_name,
+                'store_id': store_id,
+                'store_name': store_config['display_name'],
+                'product_code': product.product_id,
+                'plan': patient_plan.plan if patient_plan else 'Single'
+            })
+
         return JsonResponse({'results': results})
-    
+
     except Exception as e:
         return JsonResponse({'results': [], 'error': str(e)})
 
@@ -2612,48 +2649,6 @@ def get_stores(request):
     ]
     return JsonResponse({'stores': stores})
 
-
-import uuid
-
-#  STORES CONFIGURATION 
-STORES_CONFIG = {
-    'ipd_pharm1': {
-        'name': 'IPD Pharmacy 1',
-        'app_name': 'IPD_pharm',  
-        'drug_model': 'Drugs',
-        'transaction_model': 'IPDAdministeredDrugs',
-        'display_name': 'IPD Pharmacy 1'
-    },
-    'ipd_pharm2': {
-        'name': 'IPD Pharmacy 2',
-        'app_name': 'IPD_pharm2',
-        'drug_model': 'Ipd2Drugs',
-        'transaction_model': 'IPD2AdministeredDrugs',
-        'display_name': 'IPD Pharmacy 2'
-    },
-    'ipd_pharm3': {
-        'name': 'IPD Pharmacy 3',
-        'app_name': 'IPD_pharm3',
-        'drug_model': 'Ipd3Drugs',
-        'transaction_model': 'IPD3AdministeredDrugs',
-        'display_name': 'IPD Pharmacy 3'
-    },
-    'opd_pharm1': {
-        'name': 'OPD Pharmacy 1',
-        'app_name': 'OPD_pharm',
-        'drug_model': 'OpdDrugs',
-        'transaction_model': 'OPDAdministeredDrugs',
-        'display_name': 'OPD Pharmacy 1'
-    },
-    'opd_pharm2': {
-        'name': 'OPD Pharmacy 2',
-        'app_name': 'OPD_pharm2',
-        'drug_model': 'Opd2Drugs',
-        'transaction_model': 'OPD2AdministeredDrugs',
-        'display_name': 'OPD Pharmacy 2'
-    },
-    
-}
 
 def get_store_model(store_id, model_type='drug'):
     from django.apps import apps
@@ -2923,59 +2918,19 @@ def update_exception_bill_status(request):
 
 # REMOVE ITEM 
 
-@login_required
-@transaction.atomic()
+@login_required(login_url='login')
 def remove_drug_item(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
         unique_id = request.POST.get('unique_id')
-        
-        print(f"=== REMOVING ITEM ===")
-        print(f"Patient ID: {patient_id}")
-        print(f"Unique ID: {unique_id}")
-        
-        try:
-            session_key = f'drug_items_{patient_id}'
-            if session_key in request.session:
-                items = request.session[session_key]
-                original_count = len(items)
-                print(f"Items before removal: {original_count}")
-                
-                # Filter out the item to remove
-                new_items = [item for item in items if item.get('unique_id') != unique_id]
-                new_count = len(new_items)
-                
-                if new_count < original_count:
-                    # Item was removed
-                    request.session[session_key] = new_items
-                    request.session.modified = True
-                    print(f"Items after removal: {new_count}")
-                    print(f"Successfully removed item with unique_id: {unique_id}")
-                    
-                    return JsonResponse({
-                        'success': True,
-                        'message': 'Item removed successfully',
-                        'remaining_count': new_count
-                    })
-                else:
-                    print(f"Item with unique_id {unique_id} not found")
-                    return JsonResponse({
-                        'success': False,
-                        'error': 'Item not found in session'
-                    })
-            else:
-                print(f"Session key {session_key} not found")
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Session not found'
-                })
-        except Exception as e:
-            import traceback
-            print(f"Error in remove_drug_item: {str(e)}")
-            print(traceback.format_exc())
-            return JsonResponse({'success': False, 'error': str(e)})
-    
-    return JsonResponse({'success': False, 'error': 'Invalid request method'})
+        session_key = f'drug_items_{patient_id}'
+        items = request.session.get(session_key, [])
+        # Keeping only items that DON'T match
+        new_items = [item for item in items if str(item.get('unique_id')) != str(unique_id)]
+        request.session[session_key] = new_items
+        request.session.modified = True
+        return JsonResponse({'success': True})
+    return JsonResponse({'success': False})
 
 
 #  CLEAR SESSION 
@@ -3012,41 +2967,52 @@ def add_drug_item(request):
         patient_id = request.POST.get('patient_id')
         product_id = request.POST.get('product_id')
         store_id = request.POST.get('store_id', 'ipd_pharm1')
-        quantity = int(request.POST.get('quantity', 1))
-        
+        quantity = int(request.POST.get('quantity') or 1)
+        tariff_price = request.POST.get('price')
+
         try:
             store_config = STORES_CONFIG.get(store_id, STORES_CONFIG['ipd_pharm1'])
             drug_model = get_store_model(store_id, 'drug')
             product = drug_model.objects.get(id=product_id)
-            
+
+            is_bottle = str(product.minimum_UoM).lower() == 'bottles'
+            unit_vol = int(getattr(product, 'unit', 0) or 0)
+
+            price_to_use = Decimal(tariff_price) if tariff_price else product.price
+
+            if quantity > product.stock:
+                return JsonResponse({'success': False, 'error': f'Insufficient stock. Available: {product.stock}, Requested: {quantity}'})
+
             session_key = f'drug_items_{patient_id}'
             if session_key not in request.session:
                 request.session[session_key] = []
-            
+
             unique_id = str(uuid.uuid4())
             today = timezone.now().date().isoformat()
-            
+
             request.session[session_key].append({
                 'unique_id': unique_id,
                 'product_id': product_id,
                 'store_id': store_id,
                 'store_name': store_config['display_name'],
                 'store_app': store_config['app_name'],
-                'quantity': quantity,
-                'price': str(product.price),
+                'quantity': quantity, # initial 1, will be auto recalculated in JS
+                'price': str(price_to_use),
                 'uom': product.minimum_UoM,
                 'name': product.product_name,
                 'stock': product.stock,
                 'route': '',
-                'freq': '',
-                'dose': 0,
-                'duration': 0,
+                'freq': 'bd',
+                'unit': unit_vol,
+                'is_bottle': is_bottle,
+                'dose': 1,
+                'duration': 1,
                 'start_date': today,
                 'notes': '',
-                'exception_bill': 0,  
+                'exception_bill': 0,
             })
             request.session.modified = True
-            
+
             return JsonResponse({
                 'success': True,
                 'item': {
@@ -3054,20 +3020,58 @@ def add_drug_item(request):
                     'name': product.product_name,
                     'uom': product.minimum_UoM,
                     'quantity': quantity,
-                    'rate': str(product.price),
-                    'total': str(quantity * product.price),
+                    'rate': str(price_to_use),
+                    'total': str(quantity * price_to_use),
                     'id': len(request.session[session_key]) - 1,
                     'stock': product.stock,
                     'store_name': store_config['display_name'],
-                    'exception_bill': 0  
+                    'unit': unit_vol,
+                    'is_bottle': is_bottle,
                 }
             })
         except Exception as e:
             return JsonResponse({'success': False, 'error': str(e)})
-    
-    return JsonResponse({'success': False, 'error': 'Invalid request method'})
 
 #  GET SESSION ITEMS
+
+@login_required(login_url='login')
+def update_drug_session_item(request):
+    if request.method == 'POST':
+        patient_id = request.POST.get('patient_id')
+        unique_id = request.POST.get('unique_id')
+        
+        if not patient_id or not unique_id:
+            return JsonResponse({'success': False, 'error': 'Missing data'})
+        
+        session_key = f'drug_items_{patient_id}'
+        items = request.session.get(session_key, [])
+        
+        for item in items:
+            if item['unique_id'] == unique_id:
+                # Update all editable fields
+                if request.POST.get('quantity'):
+                    item['quantity'] = int(request.POST.get('quantity'))
+                if request.POST.get('dose'):
+                    item['dose'] = int(request.POST.get('dose') or 1)
+                if request.POST.get('duration'):
+                    item['duration'] = int(request.POST.get('duration') or 1)
+                if request.POST.get('freq') is not None:
+                    item['freq'] = request.POST.get('freq')
+                if request.POST.get('route') is not None:
+                    item['route'] = request.POST.get('route')
+                if request.POST.get('start_date'):
+                    item['start_date'] = request.POST.get('start_date')
+                if request.POST.get('notes') is not None:
+                    item['notes'] = request.POST.get('notes')
+                if request.POST.get('exception_bill') is not None:
+                    item['exception_bill'] = int(request.POST.get('exception_bill'))
+                break
+        
+        request.session[session_key] = items
+        request.session.modified = True
+        return JsonResponse({'success': True})
+    
+    return JsonResponse({'success': False, 'error': 'Invalid method'})
 
 @login_required
 @csrf_exempt
@@ -3206,7 +3210,7 @@ def administer_drugs(request, patient_id):
                         route = item_data.get('route', '')
                         frequency = item_data.get('freq', '')
                         
-                        # Handle start_date properly
+                        # Handle start_date 
                         start_date_raw = item_data.get('start_date', '')
                         start_date = None
                         if start_date_raw and start_date_raw != '':
@@ -3229,7 +3233,7 @@ def administer_drugs(request, patient_id):
                             duration=int(duration) if duration else 0,
                             notes=notes,
                             quantity=item_data['quantity'],
-                            rate=product.price,
+                            rate=Decimal(item_data['price']), 
                             start_date=start_date,
                             completed=completed,
                             patient=patient,
@@ -3260,7 +3264,7 @@ def administer_drugs(request, patient_id):
                             'redirect': False
                         })
                 
-                # Clear session after successful processing
+                # Clearing session after successful processing
                 if f'drug_items_{patient_id}' in request.session:
                     del request.session[f'drug_items_{patient_id}']
                     request.session.modified = True
@@ -3388,7 +3392,7 @@ def administer_drugs(request, patient_id):
 
 
 @login_required(login_url='login')
-@transaction.atomic()
+@transaction.atomic
 def delete_drug_by_store(request, store_id, record_id):
     """
     Delete a drug record from a specific store
@@ -3494,7 +3498,7 @@ def search_inventory(request):
     if not query:
         return JsonResponse([], safe=False)
 
-    # Filter by product_name or product_id instead of 'item'
+    # Filter by product_name or product_id 
     all_drugs = Product.objects.filter(
         Q(product_name__icontains=query) | Q(product_id__icontains=query)
     )[:10]
@@ -3777,23 +3781,44 @@ def product_search_api(request):
 
 
 # Lab Request
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
 def product_search_laboratory(request):
     query = request.GET.get('term', '')
+    patient_id = request.GET.get('patient_id')
+
     if not query:
         return JsonResponse([], safe=False)
 
-    all_tets = RadioLabInventory.objects.filter(item__icontains=query, type='L')[:10]
+    qs = RadioLabInventory.objects.filter(item__icontains=query, type='L')
+
+    # filter by patient plan
+    if patient_id:
+        try:
+            patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+            if patient.plan:
+                qs = qs.filter(plan=patient.plan)
+            # fallback if patient has no plan or tariff not found for plan
+            if not qs.exists() and patient.plan:
+                # fallback to Single/Private default
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                if default_plan:
+                    qs = RadioLabInventory.objects.filter(
+                        item__icontains=query, type='L', plan=default_plan
+                    )
+        except PatientProfile.DoesNotExist:
+            pass
+
+    all_tets = qs[:10]
 
     data = []
     for test in all_tets:
         data.append({
             'id': test.id,
-            'test_id':test.item_id,
-            'label': f"{test.item} ({test.item_id})",
+            'test_id': test.item_id,
+            'label': f"{test.item} ({test.item_id}) - {test.plan.plan if test.plan else ''} - ₦{test.rate}",
             'test_name': test.item,
             'price': float(test.rate),
+            'plan_id': test.plan_id, 
         })
 
     return JsonResponse(data, safe=False)
@@ -3803,46 +3828,61 @@ def product_search_laboratory(request):
 @login_required(login_url='login')
 @transaction.atomic()
 def save_lab_requests(request):
-    if request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            tests = data.get("tests", [])
-            patient_id = data.get("patient_id")
-            category_id = data.get("category_id")
-            plan_id = data.get("plan_id")
-            samples = data.get("samples", "")
-            emergency = data.get("emergency", "")
-            comment = data.get("comment", "")
-            user = request.user
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "Invalid request method"})
 
-            # Validate
-            if not tests:
-                return JsonResponse({"success": False, "error": "No tests received."})
+    try:
+        data = json.loads(request.body)
+        tests = data.get("tests", [])
+        patient_id = data.get("patient_id")
+        category_id = data.get("category_id")
+        plan_id = data.get("plan_id")
 
-            for t in tests:
-                # Check if exception_bill is set
-                exception_bill = t.get("exception_bill", False)
-                completed = 3 if exception_bill else 0  
-                
-                RadiologyLab.objects.create(
-                    item=t["test_name"],
-                    item_type='L',
-                    rate=t["rate"],
-                    samples=samples,
-                    emergency=emergency,
-                    comment=comment,
-                    patient_id=patient_id,
-                    category_id=category_id,
-                    plan_id=plan_id,
-                    staff=user,
-                    exception_bill=exception_bill,  
-                    completed=completed  
-                )
+        if not tests or not patient_id:
+            return JsonResponse({"success": False, "error": "No tests or patient."})
 
-            return JsonResponse({"success": True})
-        except Exception as e:
-            return JsonResponse({"success": False, "error": str(e)})
-    return JsonResponse({"success": False, "error": "Invalid request method"})
+        patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+        actual_plan = patient.plan
+
+        for t in tests:
+            item_id = t.get("test_id") 
+            exception_bill = t.get("exception_bill", False)
+
+            tariff = RadioLabInventory.objects.filter(
+                item_id=item_id,
+                plan=actual_plan,
+                type='L'
+            ).first()
+
+            if not tariff:
+                # fallback to default
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                tariff = RadioLabInventory.objects.filter(
+                    item_id=item_id, plan=default_plan, type='L'
+                ).first()
+
+            real_rate = tariff.rate if tariff else Decimal(t.get("rate", 0))
+
+            RadiologyLab.objects.create(
+                item=t["test_name"],
+                item_type='L',
+                rate=real_rate, 
+                samples=data.get("samples",""),
+                emergency=data.get("emergency",""),
+                comment=data.get("comment",""),
+                patient=patient,
+                category_id=category_id,
+                plan=actual_plan, 
+                staff=request.user,
+                exception_bill=exception_bill,
+                completed=3 if exception_bill else 0
+            )
+
+        return JsonResponse({"success": True})
+
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)})
+    
 
 
 @login_required(login_url='login')
@@ -3862,71 +3902,108 @@ def delete_requested_test(request, product_id):
 
 
 # Scan Request
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
 def product_search_radiology(request):
     query = request.GET.get('term', '')
+    patient_id = request.GET.get('patient_id')
+
     if not query:
         return JsonResponse([], safe=False)
 
-    all_scans = RadioLabInventory.objects.filter(item__icontains=query, type='R')[:10]
+    # Base query
+    qs = RadioLabInventory.objects.filter(item__icontains=query, type='R')
+
+    # filter by patient plan
+    if patient_id:
+        try:
+            patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+            if patient.plan:
+                qs = qs.filter(plan=patient.plan)
+            # fallback if patient has no plan or tariff not found for plan
+            if not qs.exists() and patient.plan:
+                # fallback to Single/Private default
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                if default_plan:
+                    qs = RadioLabInventory.objects.filter(
+                        item__icontains=query, type='R', plan=default_plan
+                    )
+        except PatientProfile.DoesNotExist:
+            pass
+
+    all_scans = qs[:10]
 
     data = []
-    for scan in all_scans:
+    for test in all_scans:
         data.append({
-            'id': scan.id,
-            'scan_id':scan.item_id,
-            'label': f"{scan.item} ({scan.item_id})",
-            'scan_name': scan.item,
-            'price': float(scan.rate),
+            'id': test.id,
+            'test_id': test.item_id,
+            'label': f"{test.item} ({test.item_id}) - {test.plan.plan if test.plan else ''} - ₦{test.rate}",
+            'test_name': test.item,
+            'price': float(test.rate),
+            'plan_id': test.plan_id, 
         })
 
     return JsonResponse(data, safe=False)
 
-
 @login_required(login_url='login')
 @transaction.atomic()
 def save_radio_requests(request):
-    if request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            scans = data.get("scans", [])
-            patient_id = data.get("patient_id")
-            category_id = data.get("category_id")
-            plan_id = data.get("plan_id")
-            emergency = data.get("emergency", "")
-            comment = data.get("comment", "")
-            mobility = data.get("mobility", "")
-            user = request.user
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "Invalid request method"})
 
-            # Validate
-            if not scans:
-                return JsonResponse({"success": False, "error": "No scans received."})
+    try:
+        data = json.loads(request.body)
+        scans = data.get("scans", [])
+        patient_id = data.get("patient_id")
+        category_id = data.get("category_id")
+        plan_id = data.get("plan_id")
 
-            for t in scans:
-                # Check if exception_bill is set
-                exception_bill = t.get("exception_bill", False)
-                completed = 3 if exception_bill else 0  
-                
-                RadiologyLab.objects.create(
-                    item=t["scan_name"],
-                    item_type='R',
-                    rate=t["rate"],
-                    samples=mobility,
-                    emergency=emergency,
-                    comment=comment,
-                    patient_id=patient_id,
-                    category_id=category_id,
-                    plan_id=plan_id,
-                    staff=user,
-                    exception_bill=exception_bill,  
-                    completed=completed  
-                )
+        if not scans or not patient_id:
+            return JsonResponse({"success": False, "error": "No scans or patient."})
 
-            return JsonResponse({"success": True})
-        except Exception as e:
-            return JsonResponse({"success": False, "error": str(e)})
-    return JsonResponse({"success": False, "error": "Invalid request method"})
+        patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+
+        actual_plan = patient.plan
+
+        for t in scans:
+            item_id = t.get("scan_id") 
+            exception_bill = t.get("exception_bill", False)
+
+            # get real tariff price
+            tariff = RadioLabInventory.objects.filter(
+                item_id=item_id,
+                plan=actual_plan,
+                type='R'
+            ).first()
+
+            if not tariff:
+                # fallback to default
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                tariff = RadioLabInventory.objects.filter(
+                    item_id=item_id, plan=default_plan, type='R'
+                ).first()
+
+            real_rate = tariff.rate if tariff else Decimal(t.get("rate", 0))
+
+            RadiologyLab.objects.create(
+                item=t["scan_name"],
+                item_type='R',
+                rate=real_rate, 
+                samples=data.get("samples",""),
+                emergency=data.get("emergency",""),
+                comment=data.get("comment",""),
+                patient=patient,
+                category_id=category_id,
+                plan=actual_plan, 
+                staff=request.user,
+                exception_bill=exception_bill,
+                completed=3 if exception_bill else 0
+            )
+
+        return JsonResponse({"success": True})
+
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)})
 
 
 @login_required(login_url='login')
@@ -3944,8 +4021,7 @@ def delete_requested_scan(request, product_id):
     
 # End of Scan Requests
 
-# Beginning of Other Service request
-
+# Beginning of Other Specialist consultation request
 
 @require_GET
 @login_required
@@ -3985,7 +4061,121 @@ def delete_other_service(request, service_id):
             messages.error(request, 'Service not found')
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-# End of Other service request
+# End of Other specialist consultation request
+
+
+# Other Services Requests
+@login_required
+def services_search(request):
+    query = request.GET.get('term', '')
+    patient_id = request.GET.get('patient_id')
+
+    if not query:
+        return JsonResponse([], safe=False)
+
+    qs = OtherService2.objects.filter(service__icontains=query)
+
+    # Filter by patient plan
+    if patient_id:
+        try:
+            patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+            if patient.plan:
+                qs = qs.filter(plan=patient.plan)
+            # Fallback if patient has no plan or tariff not found for plan
+            if not qs.exists() and patient.plan:
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                if default_plan:
+                    qs = OtherService2.objects.filter(
+                        service__icontains=query, plan=default_plan
+                    )
+        except PatientProfile.DoesNotExist:
+            pass
+
+    all_services = qs[:10]
+
+    data = []
+    for service in all_services:
+        data.append({
+            'id': service.id,
+            'service_id': service.service_id or '',
+            'label': f"{service.service} ({service.service_id or 'N/A'}) - {service.plan.plan if service.plan else ''} - ₦{service.rate}",
+            'service_name': service.service,
+            'price': float(service.rate),
+            'plan_id': service.plan_id, 
+        })
+
+    return JsonResponse(data, safe=False)
+
+@login_required(login_url='login')
+@transaction.atomic()
+def save_service_requests(request):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "Invalid request method"})
+
+    try:
+        data = json.loads(request.body)
+        services = data.get("services", [])
+        patient_id = data.get("patient_id")
+        category_id = data.get("category_id")
+        plan_id = data.get("plan_id")
+
+        if not services or not patient_id:
+            return JsonResponse({"success": False, "error": "No services or patient."})
+
+        patient = PatientProfile.objects.select_related('plan').get(id=patient_id)
+        actual_plan = patient.plan
+
+        for t in services:
+            service_id = t.get("service_id") 
+            exception_bill = t.get("exception_bill", False)
+
+            tariff = OtherService2.objects.filter(
+                service_id=service_id,
+                plan=actual_plan
+            ).first()
+
+            if not tariff:
+                # fallback to default
+                default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+                tariff = OtherService2.objects.filter(
+                    service_id=service_id, plan=default_plan
+                ).first()
+
+            real_rate = tariff.rate if tariff else Decimal(t.get("rate", 0))
+
+            OtherServiceConsumed.objects.create(
+                service=t["service_name"],
+                rate=real_rate, 
+                patient=patient,
+                category_id=category_id,
+                plan=actual_plan, 
+                staff=request.user,
+                exception_bill=exception_bill,
+                completed=3 if exception_bill else 0
+            )
+
+        return JsonResponse({"success": True})
+
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)})
+    
+
+
+@login_required(login_url='login')
+@transaction.atomic()
+def delete_requested_service(request, product_id):
+    try:
+        export_record = OtherServiceConsumed.objects.get(id=product_id)
+
+        #  delete the exported record
+        export_record.delete()
+
+        return JsonResponse({'success': True})
+    except OtherServiceConsumed.DoesNotExist:
+        return JsonResponse({'error': 'Service not found'}, status=404)
+
+    
+# End of Other Service requesets
 
 def mark_for_completion(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)

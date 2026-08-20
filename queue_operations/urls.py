@@ -67,10 +67,10 @@ urlpatterns = [
 
     path('save-transcript/<str:patient_id>/', views.save_transcript, name='save_transcript'),
     path('use-transcriptor/<str:patient_id>/', views.use_transcriptor, name='use_transcript'),  
+
     path('administer-drugs/<int:patient_id>/', views.administer_drugs, name='administer_drugs'),
     path('search-products/', views.search_products, name='search_products'),
     path('add-drug-item/', views.add_drug_item, name='add_drug_item'),
-    
     path('update-drug-route/', views.update_drug_route, name='update_drug_route'),
     path('update-drug-frequency/', views.update_drug_frequency, name='update_drug_frequency'),
     path('update-drug-dose/', views.update_drug_dose, name='update_drug_dose'),
@@ -80,10 +80,10 @@ urlpatterns = [
     path('update-drug-start-date/', views.update_drug_start_date, name='update_drug_start_date'),
     path('update-complete-drug-item/', views.update_complete_drug_item, name='update_complete_drug_item'),
     path('update-exception-bill-status/', views.update_exception_bill_status, name='update_exception_bill_status'),
-
     path('remove-drug-item/', views.remove_drug_item, name='remove_drug_item'),
     path('clear-drug-session/', views.clear_drug_session, name='clear_drug_session'), 
     path('get-session-items/', views.get_session_items, name='get_session_items'),
+    path('update-drug-session-item/', views.update_drug_session_item, name='update_drug_session_item'),
     path('get-stores/', views.get_stores, name='get_stores'),
     path('delete-drug/<str:store_id>/<int:record_id>/', views.delete_drug_by_store, name='delete_drug_by_store'),
 
@@ -93,7 +93,7 @@ urlpatterns = [
     path('download-written-prescriptions/<int:patient_id>/', views.download_written_prescriptions, name='download_written_prescriptions'),
     path('send-written-report-email/', views.send_written_prescription_email, name='send_written_prescription_email'),
 
-    # Other service requests
+    # Other specialists requests
     path('get-visit-purpose-price/', views.get_visit_purpose_price, name='get_visit_purpose_price'),
     path('delete-other-service/<int:service_id>/', views.delete_other_service, name='delete_other_service'),
     
@@ -117,6 +117,12 @@ urlpatterns = [
     path('scan-results-waiting-list', views.load_scan_results_queue, name = "scan_results_waiting"),
     path('scan-results-queue', views.fetch_scan_results_queue, name='fetch_scan_results_queue'),
     path('scan-results-waiting-count/', views.scan_results_waiting_count, name='scan_results_waiting_count'),
+
+    # Other Service Requests
+    path('search-services/', views.services_search, name='services_search'),
+    path('save-service-requests/', views.save_service_requests, name='save_service_requests'),
+    path('delete-requested-service/<int:product_id>/', views.delete_requested_service, name='delete_requested_service'),
+
     # ICD-11
     path('icd11/search/<int:patient_id>/', views.icd11_search_view, name='icd11_search'),
     path('icd11/autocomplete/', views.icd11_autocomplete, name='icd11_autocomplete'),

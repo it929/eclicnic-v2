@@ -1,7 +1,5 @@
 from django.db import models
 from django.utils import timezone
-from users.models import User
-from patients.models import PatientProfile, PatientCategory, PatientPlan
 from ANC.models import AntenatalVisit  
 from Billings.models import TransactionUpdate
 
@@ -14,10 +12,10 @@ class RadiologyLab(models.Model):
     samples = models.CharField(max_length=100,null=True, blank=True)
     emergency = models.CharField(max_length=20,null=True, blank=True)
     comment = models.TextField(null=True, blank=True)
-    patient = models.ForeignKey(PatientProfile, on_delete=models.CASCADE, null=True)
-    category = models.ForeignKey(PatientCategory, on_delete=models.CASCADE, null=True)
-    plan = models.ForeignKey(PatientPlan, on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey(User, on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
 
     radiolab_waiting_status = models.PositiveIntegerField(default=0)
     doctor_waiting_status = models.PositiveIntegerField(default=0)
@@ -74,25 +72,28 @@ class RadioLabInventory(models.Model):
     item = models.CharField(max_length=200) 
     item_id = models.CharField(max_length=12,null=True)
     rate = models.DecimalField(max_digits=15, decimal_places=2)
-    type = models.CharField(max_length=2, null=True)
-    staff = models.ForeignKey(User, on_delete=models.CASCADE, null=True)
+    type = models.CharField(max_length=2, null=True, choices=[('L','Lab'),('R','Scan')])
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, related_name='lab_tariffs')
+    
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
+    
     class Meta:
         ordering = ['-created_date']
+        unique_together = ('item_id', 'plan')  
 
     def __str__(self):
-        if self.type == 'L':
-            status = 'Lab Test'
-        else:
-            status = 'Scan Test'
-        return f'{self.item} ( {status})'
+        status = 'Lab Test' if self.type == 'L' else 'Scan Test'
+        plan_name = self.plan.plan if self.plan else "No Plan"
+        return f'{self.item} - {plan_name} ({status})'
+    
     
 class LabResult(models.Model):
     investigation = models.CharField(max_length=200, null=True)
     results = models.TextField(null=True)
     waiting_status = models.PositiveIntegerField(default=0)
-    patient = models.ForeignKey(PatientProfile, on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey(User, on_delete=models.CASCADE, null=True) 
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True) 
     created_date = models.DateTimeField(auto_now_add=True)
 
 
@@ -101,8 +102,8 @@ class ScanResult(models.Model):
     results = models.TextField(null=True)
     scan = models.ImageField(null=True, blank=True, upload_to='scan-image/')
     waiting_status = models.PositiveIntegerField(default=0)
-    patient = models.ForeignKey(PatientProfile, on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey(User, on_delete=models.CASCADE, null=True) 
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True) 
     created_date = models.DateTimeField(auto_now_add=True)
     
     def can_edit_delete(self):

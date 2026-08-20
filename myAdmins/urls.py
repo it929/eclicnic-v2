@@ -19,7 +19,6 @@ urlpatterns = [
     path('diagnosis-analytics/', views.diagnosis_analytics, name='diagnosis_analytics'),
     path('diagnosis-analytics-api/', views.diagnosis_analytics_api, name='diagnosis_analytics_api'),
     path('financial-analytics/', views.financial_analytics, name='financial_analytics'),
-    # path('financial-analytics-api/', views.financial_analytics_api, name='financial_analytics_api'),
 
     # Queue Monitor
 
@@ -48,5 +47,44 @@ urlpatterns = [
     path('drug-requests-ipd3-complete-all/', views.drug_requests_ipd3_completes_all, name='drug_requests_ipd3_completes_all'),
     path('drug-requests-opd1-complete-all/', views.drug_requests_opd_completes_all, name='drug_requests_opd1_completes_all'),
     path('drug-requests-opd2-complete-all/', views.drug_requests_opd2_completes_all, name='drug_requests_opd2_completes_all'),
+
+    # Tariff: Registration fee
+    path('plans/', views.plan_page, name='plan-page'),
+    path('plans/create/', views.create_plan_ajax),
+    path('plans/update/<int:id>/', views.update_plan_ajax),
+    path('plans/delete/<int:id>/', views.delete_plan_ajax),
+    path('plans/upload-excel/', views.upload_plan_excel_ajax),  
+
+     # Tariff: Laboratory fee
+    path('lab-inventory/', views.lab_inventory, name='lab_inventory'),
+    path('delete-lab-test/', views.delete_lab_test, name='delete_lab_test'),
+    path('update-lab-test/', views.update_lab_test, name='update_lab_test'),
+    path('download-test-template', views.download_import_test_template, name = "download_test_template"),
+    path("save-lab-inventory/", views.save_lab_inventory, name="save_lab_inventory"),
+
+    # Tariff: Radiology fee
+    path('scan-inventory/', views.scan_inventory, name='scan_inventory'),
+    path('delete-scan-test/', views.delete_scan_test, name='delete_scan_test'),
+    path('update-scan-test/', views.update_scan_test, name='update_scan_test'),
+    path("save-scan-inventory/", views.save_scan_inventory, name="save_scan_inventory"),
+
+    # Tariff: Drugs/Product fee
+    path('pharmacy-tariff/', views.pharmacy_tariff_inventory, name='pharmacy_tariff_inventory'),
+    path('pharmacy-tariff/edit/', views.edit_pharmacy_tariff, name='edit_pharmacy_tariff'),
+    path('pharmacy-tariff/delete/', views.delete_pharmacy_tariff, name='delete_pharmacy_tariff'),
+
+    # Tariff: Other Service fee
+    path('service-tariff/', views.service_tariff, name='service_tariff'),
+    path('delete-service2/', views.delete_service2, name='delete_service2'),
+    path('update-service2/', views.update_service2, name='update_service2'),
+    path('download-service2-template', views.download_import_service2_template, name = "download_service2_template"),
+    path("save-service-tariff/", views.save_service_tariff, name="save_service_tariff"),    
+
+    # Wards: Admission fee
+    path('wards/', views.ward_page, name='ward-page'),
+    path('wards/create/', views.create_ward_ajax),
+    path('wards/update/<int:id>/', views.update_ward_ajax),
+    path('wards/delete/<int:id>/', views.delete_ward_ajax),
+    path('wards/upload-excel/', views.upload_ward_excel_ajax),
 
 ]

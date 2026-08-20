@@ -30,7 +30,8 @@ class Opd2Drugs(models.Model):
     description = models.CharField(blank=True, null=True,max_length=300)
     price = models.DecimalField(max_digits=15, decimal_places=2)
     stock = models.PositiveIntegerField()
-    minimum_UoM = models.CharField(choices=UOM, default="", null=True, max_length=18, blank=True) # UOM - unit of measurement
+    minimum_UoM = models.CharField(choices=UOM, default="", null=True, max_length=18, blank=True) 
+    unit = models.PositiveIntegerField(default=0)
     low_stock_threshold = models.PositiveIntegerField(default=10)  # Alert when stock is below this value
     status = models.IntegerField(default=1, null=True)
     activation_status = models.IntegerField(default=1, null=True)
@@ -175,7 +176,9 @@ class OPD2AdministeredDrugs(models.Model):
         # Clean up UOM text
         if "--select" in uom or "select" in uom:
             uom = "units"
-        
+
+        if self.UoM.lower() == 'bottles':
+            self.dose = '(' + str(self.dose) + 'ml) from this '
         # Build the instruction
         instruction = f"{verb} {self.dose} {uom} {freq_text} {route_text}."
         

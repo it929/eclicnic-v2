@@ -57,7 +57,7 @@ class PatientProfileForm(forms.ModelForm):
     class Meta:
         model = PatientProfile
         fields = '__all__'
-        exclude = ['active', 'created_by', 'deactivated_date', 'deactivated_by', 'avatar']
+        exclude = ['active', 'created_by']
         widgets = {
             'dob': forms.DateInput(attrs={'type': 'date','class': 'form-control'}),
             'surname': forms.TextInput(attrs={'id': 'surname', 'placeholder':'Surname','class': 'form-control'}),

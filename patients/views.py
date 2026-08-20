@@ -178,54 +178,71 @@ def upload_patient_plans(request):
 
 
 @login_required(login_url='login')
-@transaction.atomic()
+@transaction.atomic
 def patient_registration(request):
     page = 'register-patients'
-    reg_fee = RegFee.objects.get(id=1)
+    
     if request.method == 'POST':
         form = PatientProfileForm(request.POST, request.FILES)
-        if form.is_valid():
-            if request.POST.get('pin_code') != '':
-                if request.user.pin == int(request.POST.get('pin_code')):
-                    try:
-                        patient = form.save(commit=False)
-                        patient.created_by = request.user
-                        patient.save()
+        print("POST DATA:", request.POST)
+        print("FILES:", request.FILES) 
+        
+        if not form.is_valid():
+            print("FORM ERRORS:", form.errors) 
+            messages.error(request, f"Form error: {form.errors.as_text()}")
 
-                        # Update GetRegistrationFee model for patient registration fee
-                        reg = GetRegistrationFee.objects.create(
-                            price = reg_fee.price,
-                            patient = patient,
-                            category = patient.category,
-                            plan = patient.plan,
-                            staff = request.user,
-                        )
+            return render(request, 'patients/registration.html', {'form': form, 'page': page})
 
-                        # update TransactionUpdate model from Billings app
-                        obj, created = TransactionUpdate.objects.get_or_create(
-                            patient=patient,
-                            completed=0,
-                            defaults={
-                                'invoice_raised': 0, 
-                                'receipt_given': 0
-                            }
-                        )
-                        if not reg:
-                            messages.error(request,'Error! Registration fee is not captured')
-                        messages.success(request, 'Patient Successfully Registered!')
-                        return redirect('registered_today')
-                    except Exception as e:
-                        messages.error(request, f'Error saving patient: {str(e)}')
-                else:
-                    messages.error(request, 'Incorrect Pin Code!')
-                    return redirect('patient_registration')
-            else:
-                    messages.error(request, 'Pls enter your Pin Code!')
-                    return redirect('patient_registration')
+        # Form is valid from here
+        pin_code = request.POST.get('pin_code', '').strip()
+        if not pin_code:
+            messages.error(request, 'Pls enter your Pin Code!')
+            return render(request, 'patients/registration.html', {'form': form, 'page': page})
+
+        if str(request.user.pin) != str(pin_code):
+            messages.error(request, 'Incorrect Pin Code!')
+            return render(request, 'patients/registration.html', {'form': form, 'page': page})
+
+        try:
+            patient = form.save(commit=False)
+            patient.created_by = request.user
+            patient.save() 
+
+            #  Registration Fee Logic 
+            try:
+                reg_fee = RegFee.objects.get(plan_name=patient.plan.plan)
+                GetRegistrationFee.objects.create(
+                    price=reg_fee.price,
+                    patient=patient,
+                    category=patient.category,
+                    plan=patient.plan,
+                    staff=request.user,
+                )
+            except RegFee.DoesNotExist:
+                messages.warning(request, f'Patient saved but no RegFee found for plan {patient.plan}')
+                # Don't fail registration for this
+            except Exception as e:
+                print(f"RegFee error: {e}")
+                messages.warning(request, f'Patient saved but fee not captured: {e}')
+
+            TransactionUpdate.objects.get_or_create(
+                patient=patient,
+                completed=0,
+                defaults={'invoice_raised': 0, 'receipt_given': 0}
+            )
+
+            messages.success(request, 'Patient Successfully Registered!')
+            return redirect('registered_today')
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            messages.error(request, f'Error saving patient: {str(e)}')
+            return render(request, 'patients/registration.html', {'form': form, 'page': page})
+
     else:
         form = PatientProfileForm()
     
-    return render(request, 'patients/registration.html', {'form': form,'page':page})
+    return render(request, 'patients/registration.html', {'form': form, 'page': page})
 
 def load_plans(request):
     category_id = request.GET.get('category_id')
@@ -233,118 +250,139 @@ def load_plans(request):
     return JsonResponse(list(plans.values('id', 'plan')), safe=False)
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+# Excel date handling helper function
+def parse_excel_date(date_value):
+    if date_value is None or date_value == "":
+        return None
+    try:
+        if pd.isna(date_value):
+            return None
+    except:
+        pass
+    # Using duck typing method
+    if hasattr(date_value, 'date') and callable(date_value.date):
+        try:
+            # Timestamp or datetime
+            return date_value.date()
+        except:
+            pass
+    if isinstance(date_value, date): 
+        return date_value
+
+    # Excel serial number e.g. 29221
+    if isinstance(date_value, (int, float)) and not isinstance(date_value, bool):
+        try:
+            return (datetime(1899, 12, 30) + timedelta(days=float(date_value))).date()
+        except Exception as e:
+            print(f"Failed numeric {date_value}: {e}")
+            return None
+
+    # String: '1989-07-22' 
+    if isinstance(date_value, str):
+        s = date_value.strip()
+        if not s:
+            return None
+        # Trying pandas first 
+        try:
+            return pd.to_datetime(s, dayfirst=False).date()
+        except:
+            pass
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%b-%Y', '%b-%d-%Y', '%d.%m.%Y', '%Y/%m/%d'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+
+    print(f"Debug: Unsupported - Value: {date_value}, Type: {type(date_value)}")
+    return None
+
+@login_required
+@transaction.atomic
 def import_patients(request):
     if request.method == 'POST':
         form = PatientImportForm(request.POST, request.FILES)
         if form.is_valid():
+            fs = FileSystemStorage()
+            filename = fs.save(request.FILES['excel_file'].name, request.FILES['excel_file'])
+            file_path = fs.path(filename)
+
             try:
-                excel_file = request.FILES['excel_file']
-                fs = FileSystemStorage()
-                filename = fs.save(excel_file.name, excel_file)
-                file_path = fs.path(filename)
-                
                 df = pd.read_excel(file_path)
                 df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
-                
-                print("First row sample:", df.iloc[0].to_dict())
-                
-                success_count = 0
-                error_count = 0
+
+                # 1. PRE-FETCH unique categories & plans - 2 queries only
+                unique_cats = set(df['category'].dropna().astype(str).str.strip().unique())
+                unique_plans = set(df['plan'].dropna().astype(str).str.strip().unique())
+
+                cat_map = {}
+                for cat_name in unique_cats:
+                    cat_obj, _ = PatientCategory.objects.get_or_create(category=cat_name)
+                    cat_map[cat_name] = cat_obj
+
+                plan_map = {}
+                for plan_name in unique_plans:
+                    # find category for this plan from first occurrence
+                    first_row = df[df['plan'].astype(str).str.strip() == plan_name].iloc[0]
+                    cat_obj = cat_map.get(str(first_row.get('category','')).strip())
+                    plan_obj, _ = PatientPlan.objects.get_or_create(
+                        plan=plan_name, defaults={'category': cat_obj}
+                    )
+                    plan_map[plan_name] = plan_obj
+
+                # 2. BUILD objects in memory - zero DB hit
+                patients_to_create = []
                 errors = []
-                
+
                 for index, row in df.iterrows():
                     try:
-                        #  1. Parse Date 
-                        dob = parse_excel_date(row['dob'])
-                        if dob is None:
-                            raise ValueError("Date of Birth (dob) is required and cannot be empty")
-                        
-                        #  2. Handle Foreign Keys 
-                        category = None
-                        if pd.notna(row.get('category')):
-                            category, _ = PatientCategory.objects.get_or_create(
-                                category=str(row['category']).strip()
-                            )
-                        
-                        plan = None
-                        if pd.notna(row.get('plan')):
-                            plan, _ = PatientPlan.objects.get_or_create(
-                                plan=str(row['plan']).strip(),
-                                defaults={'category': category}
-                            )
-                        
-                        #  3. Create Patient 
-                        PatientProfile.objects.create(
+                        dob = parse_excel_date(row.get('dob'))
+                        if not dob:
+                            raise ValueError("dob required")
+
+                        # skip duplicate email in file & in DB
+                        email = str(row.get('email_address','')).strip() or None
+                        if email and PatientProfile.objects.filter(email_address=email).exists():
+                            raise ValueError(f"Email {email} already exists")
+
+                        patients_to_create.append(PatientProfile(
                             surname=str(row['surname']).strip(),
                             first_name=str(row['first_name']).strip(),
-                            other_name=str(row.get('other_name', '')).strip() if pd.notna(row.get('other_name')) else None,
+                            other_name=str(row.get('other_name','')).strip() or None,
                             dob=dob,
-                            gender=str(row.get('gender', '')).strip(),
-                            patient_type=str(row.get('patient_type', '')).strip(),
-                            phone_number=str(row['phone_number']).strip(),
-                            address=str(row.get('address', '')).strip() if pd.notna(row.get('address')) else None,
-                            category=category,
-                            plan=plan,
-                            email_address=str(row.get('email_address', '')).strip() if pd.notna(row.get('email_address')) else None,
-                            hospital_number=str(row.get('hospital_number')) if pd.notna(row.get('hospital_number')) else None,
-                            full_name=str(row.get('full_name', '')).strip() if pd.notna(row.get('full_name')) else None,
-                            relationship_to_patient=str(row.get('relationship_to_patient', '')).strip() if pd.notna(row.get('relationship_to_patient')) else None,
-                            phone_numbers=str(row.get('phone_numbers')) if pd.notna(row.get('phone_numbers')) else None,
-                            insurance_policy_number=str(row.get('insurance_policy_number')) if pd.notna(row.get('insurance_policy_number')) else None,
+                            gender=str(row.get('gender','')).strip(),
+                            patient_type=str(row.get('patient_type','')).strip(),
+                            phone_number=str(row.get('phone_number','')).strip(),
+                            address=str(row.get('address','')).strip() or None,
+                            category=cat_map.get(str(row.get('category','')).strip()),
+                            plan=plan_map.get(str(row.get('plan','')).strip()),
+                            email_address=email,
+                            hospital_number=str(row.get('hospital_number','')).strip() or None,
                             created_by=request.user,
-                        )
-                        success_count += 1
-                    
+                            active=1
+                        ))
                     except Exception as e:
-                        error_count += 1
-                        errors.append(f"Row {index+2}: {str(e)} | DOB: {row.get('dob')} | Type: {type(row.get('dob'))}")
-                        print(f"Error details - Value: {row.get('dob')}, Type: {type(row.get('dob'))}")  # Debug
-                
-                fs.delete(filename)
-                
-                messages.success(request, f"Successfully imported {success_count} patients")
-                for error in errors[:5]:
-                    messages.error(request, error)
-                
+                        errors.append(f"Row {index+2}: {e}")
+
+                # 3. BULK INSERT - 1 query for all
+                if patients_to_create:
+                    PatientProfile.objects.bulk_create(patients_to_create, batch_size=500, ignore_conflicts=True)
+
+                messages.success(request, f"Imported {len(patients_to_create)} patients, {len(errors)} errors")
+                for err in errors[:5]:
+                    messages.error(request, err)
+
                 return redirect('patient_list')
-            
+
             except Exception as e:
-                messages.error(request, f"File processing error: {str(e)}")
+                import traceback; traceback.print_exc()
+                messages.error(request, f"File error: {e}")
+            finally:
+                fs.delete(filename)
     else:
         form = PatientImportForm()
-    
+
     return render(request, 'patients/import_patients.html', {'form': form})
 
-def parse_excel_date(date_value):
-    if pd.isna(date_value):
-        print("Debug: Received empty date")
-        return None
-    
-    # Handle Excel numeric dates (e.g., 29221 = 1980-01-01)
-    if isinstance(date_value, (int, float)):
-        try:
-            return (datetime(1899, 12, 30) + timedelta(days=date_value)).date()
-        except Exception as e:
-            print(f"Debug: Failed to parse numeric date {date_value}: {str(e)}")
-            return None
-    
-    # Handle string dates
-    if isinstance(date_value, str):
-        date_value = date_value.strip()
-        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%b-%Y', '%b-%d-%Y', '%d.%m.%Y'):
-            try:
-                return datetime.strptime(date_value, fmt).date()
-            except ValueError:
-                continue
-    
-    # Handle datetime objects
-    if isinstance(date_value, (datetime, pd.Timestamp)):
-        return date_value.date()
-    
-    print(f"Debug: Unsupported date format - Value: {date_value}, Type: {type(date_value)}")
-    return None
 
 def download_import_template(request):
     """Serve template Excel file"""

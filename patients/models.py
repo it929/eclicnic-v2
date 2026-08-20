@@ -55,8 +55,8 @@ class PatientProfile(models.Model):
     active = models.PositiveIntegerField(default=1, db_index=True)
     created_date = models.DateTimeField(auto_now_add=True, null=True)
     created_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
-    deactivated_date = models.DateTimeField(auto_now_add=False, null=True)
-    deactivated_by = models.CharField(max_length=100, null=True)
+    deactivated_date = models.DateTimeField(auto_now_add=False, null=True, blank=True)
+    deactivated_by = models.CharField(max_length=100, null=True, blank=True)
     
     class Meta: 
         ordering = ['-created_date']

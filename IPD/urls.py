@@ -2,12 +2,6 @@ from django.urls import path
 from . import views
 from django.http import JsonResponse
 urlpatterns = [
-    # Ward URLs
-    path('wards/', views.ward_page, name='ward-page'),
-    path('wards/create/', views.create_ward_ajax),
-    path('wards/update/<int:id>/', views.update_ward_ajax),
-    path('wards/delete/<int:id>/', views.delete_ward_ajax),
-    path('wards/upload-excel/', views.upload_ward_excel_ajax),
 
     # Bed URLs
     path('beds/', views.bed_page, name='bed_page'),

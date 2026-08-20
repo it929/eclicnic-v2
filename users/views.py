@@ -180,7 +180,6 @@ def user_login(request):
 @transaction.atomic()
 def my_admin(request):
     page = 'dashbourd'
-    get_reg_fee = RegFee.objects.get(id=1)
     form = PatientProfileForm()
     # all__patients = PatientProfile.objects.all().count
     hmo__patients = PatientProfile.objects.filter(category__category__iexact='HMO').select_related('category').count()
@@ -202,18 +201,7 @@ def my_admin(request):
     ).count()
 
     if request.method == 'POST':
-        if 'regfee' in request.POST:
-            if request.user.pin == int(request.POST.get('pin_code')):
-                get_reg_fee.price = request.POST['reg_fee']
-                get_reg_fee.save()
-                if get_reg_fee:
-                    messages.success(request,'Registration fee successfully saved')
-                else:
-                    messages.error(request, 'Error Occurred, pls try later')
-            else:
-                messages.error(request, 'Incorrect Pin')
-            
-        else:
+
             form = PatientProfileForm(request.POST)
             if form.is_valid():
                 form.save()

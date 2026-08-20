@@ -51,11 +51,13 @@ class PatientBackgroundHealth(models.Model):
     def __str__(self):
         return f'{self.patient.surname} {self.patient.other_name} {self.patient.first_name}'
     
+
 class RegFee(models.Model):
+    plan_name =  models.CharField(null=True,max_length=50,unique=True) 
     price = models.PositiveIntegerField(default=0)
-    creator = models.ForeignKey('users.User', on_delete=models.CASCADE)
+
     def __str__(self):
-        return f'price updated by {self.creator.fullname}'
+        return f"{self.plan_name}"
     
 class GetRegistrationFee(models.Model):
     price = models.PositiveIntegerField(default=0)

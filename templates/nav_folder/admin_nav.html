@@ -58,6 +58,46 @@
             </div>
         </div>
     </li>
+    <li class="nav-item" style="margin-top: -20px;">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseAdmin3"
+            aria-expanded="true" aria-controls="collapseAdmin3">
+            <i class="fas fa-fw fa-upload"></i>
+            <span>Manage Tariff Plans</span>
+        </a>
+        <div id="collapseAdmin3" class="collapse" aria-labelledby="headingAdmin3" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-info font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin1Submenu" aria-expanded="false">
+                     Service Tariffs
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin1Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-primary" href="{% url 'plan-page' %}">Registration Fees</a>
+                    <a class="collapse-item text-primary" href="{% url 'lab_inventory' %}">Laboratory Charges</a>
+                    <a class="collapse-item text-primary" href="{% url 'scan_inventory' %}">Radiology Charges</a>
+                    <a class="collapse-item text-primary" href="{% url 'ward-page' %}">Admission Fees</a>
+                    <a class="collapse-item text-primary" href="{% url 'service_tariff' %}">Other Services Fees</a>
+                </div>
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-primary font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin2Submenu" aria-expanded="false">
+                    Product Tariffs
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin2Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-info" href="{% url 'pharmacy_tariff_inventory' %}">Medication fees</a>
+                </div>
+                <a class="collapse-item collapsed d-flex justify-content-between align-items-center text-success font-weight-bold"
+                    href="#" data-toggle="collapse" data-target="#admin3Submenu" aria-expanded="false">
+                     Manage Packages
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                </a>
+                <div id="admin3Submenu" class="collapse ml-3">
+                    <a class="collapse-item text-info" href="#">Upload Packages</a>
+                    <a class="collapse-item text-info" href="#">Immunization fees</a>
+                </div>
+            </div>
+        </div>
+    </li>
     
     <li class="nav-item">
         <a class="nav-link" href="#" id="departmentDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">

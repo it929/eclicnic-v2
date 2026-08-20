@@ -1,0 +1,207 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<style>
+    .form-grid {
+        display: grid;
+        grid-template-columns: 4fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+        width: 50%;
+        }
+    .form-grid2 {
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        padding-bottom: -10px;
+        gap: 10px;
+        width: 50%;
+        }
+</style>
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-plus"></i> &nbsp;Registration Fee (Tariff)  </h1>
+  <p></p>
+  <hr style="margin-top: -5px;">
+<div style="margin-top: -5px;">
+    <input type="hidden" id="plan_id">
+    <div>
+        <label>Plan Name:</label>
+        <input type="text" id="plan_name" placeholder="Plan Name" class="form-control">
+    </div>
+
+    <div style="margin-top: 10px;">
+        <label>Price:</label>
+        <input type="number" id="price" placeholder="Enter price" min="0" value="0" class="form-control">
+    </div>
+
+    <div style="margin-top: 10px;">
+        <button onclick="savePlan()" class="btn btn-primary">Save Plan <i class="fa fa-save"></i></button>
+    </div>
+
+
+    <button onclick="clearForm()" id="cancelBtn" style="display:none; height:37px; border-radius: 5px; width:122px; margin-top:5px; border:none; background:#ccc; color:#fff">Cancel</button>
+
+    <hr>
+
+    <h3 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-upload"></i> &nbsp;Upload Tariff from Excel  </h3>
+    <p></p>
+    <hr style="margin-top: -5px;">
+    <div class="form-grid2">
+        <input type="file" id="excel_file" class="form-control">
+        <button onclick="uploadExcel()" class="btn btn-primary">Upload <i class="fa fa-upload"></i></button>
+        <div id="uploadMessage"></div>
+    </div>
+
+    <hr>
+
+    <h3 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-list"></i> &nbsp;Plan List  </h3>
+    <p></p>
+    <hr style="margin-top: -5px;">
+
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <tr>
+                    <th>Name</th>
+                    <th>Price </th>
+                    <th>Actions</th>
+                </tr>
+
+                {% for plan in plans %}
+                <tr id="row{{ plan.id }}">
+                    <td>{{ plan.plan_name }}</td>
+                    <td>₦ {{ plan.price|floatformat:0 }}</td>
+                    <td>
+                        <button onclick="editPlan('{{ plan.id }}','{{ plan.plan_name }}')" class="btn btn-warning btn-sm">Edit <i class="fa fa-pencil"></i></button>
+                        <button onclick="deletePlan('{{ plan.id }}')" class=" btn btn-danger btn-sm">Delete <i class="fa fa-trash"></i></button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function savePlan() {
+    let planName = $('#plan_name').val().trim();
+    let price = $('#price').val();
+    
+    if (!planName) {
+        alert('Please enter plan name');
+        return;
+    }
+    
+    // Validate price
+    if (price === '' || isNaN(price) || price < 0) {
+        alert('Please enter a valid price (0 or greater)');
+        return;
+    }
+    
+    let id = $('#plan_id').val();
+    let url = id ? `/plans/update/${id}/` : '/plans/create/';
+
+    $.post(url, {
+        plan_name: planName,
+        price: price,
+        csrfmiddlewaretoken: '{{ csrf_token }}'
+    }, function(response) {
+        if (response.status === 'error') {
+            alert(response.message);
+        } else {
+            clearForm();
+            location.reload();
+        }
+    }).fail(function(xhr) {
+        let response = xhr.responseJSON;
+        alert(response?.message || 'Error saving plan');
+    });
+}
+
+function editPlan(id, name, price) {
+    $('#plan_id').val(id);
+    $('#plan_name').val(name);
+    $('#price').val(price);
+    $('button[onclick="savePlan()"]').text('Update Plan');
+
+    // Scroll to the input field or change button text
+    $('#plan_name').focus();
+    $('button[onclick^="savePlan"]').text('Update Plan');
+
+    // Show cancel button if you have one
+    if ($('#cancelBtn').length) {
+        $('#cancelBtn').show();
+    }
+}
+
+function deletePlan(id) {
+    if(confirm("Delete this record?")){
+        $.post(`/plans/delete/${id}/`, {
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        }, function(){
+            $('#row'+id).remove();
+        }).fail(function() {
+            alert('Error deleting record');
+        });
+    }
+}
+
+function clearForm() {
+    $('#plan_id').val('');
+    $('#plan_name').val('');
+    $('#price').val('0');
+    $('button[onclick="savePlan()"]').text('Save Plan');
+    
+    if ($('#cancelBtn').length) {
+        $('#cancelBtn').hide();
+    }
+}
+
+function uploadExcel() {
+    let fileInput = $('#excel_file')[0];
+    if (!fileInput.files.length) {
+        alert('Please select an Excel file');
+        return;
+    }
+    
+    let data = new FormData();
+    data.append('excel_file', fileInput.files[0]);
+    data.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    $('#uploadMessage').html('Uploading...').css('color', 'blue');
+    
+    $.ajax({
+        url: '/plans/upload-excel/',
+        method: 'POST',
+        data: data,
+        processData: false,
+        contentType: false,
+        success: function(response){
+            let message = response.message || 'Upload complete!';
+            $('#uploadMessage').html(message).css('color', 'green');
+            
+            if (response.errors) {
+                let errorHtml = '<br><small>Errors: ' + response.errors.join(', ') + '</small>';
+                $('#uploadMessage').append(errorHtml);
+            }
+            
+            setTimeout(() => location.reload(), 1500);
+        },
+        error: function(xhr){
+            let message = xhr.responseJSON?.message || 'Upload failed';
+            $('#uploadMessage').html('Error: ' + message).css('color', 'red');
+        }
+    });
+}
+
+
+$(document).ready(function() {
+
+    if (!$('#cancelBtn').length) {
+        $('button[onclick="savePlan()"]').after('<button id="cancelBtn" onclick="clearForm()" >Cancel</button>');
+    }
+});
+</script>
+
+{% endblock content %}

@@ -216,7 +216,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div class="col-lg-6">
             <div class="card shadow mb-4">
                 <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-success"> Lab & Drug Requests</h6>
+                    <h6 class="m-0 font-weight-bold text-success"> Drug Requests & Prescriptions</h6>
                 </div>
                 <div class="card-body">
                     <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
@@ -227,7 +227,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
                         </button>
                     </div>
                     <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
-                        <a href="#"data-toggle="modal" data-target="#labTestModal" class="text-success"  style="text-decoration: none;">Request Lab Examination for: &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
+
+                       <a href="#"data-toggle="modal"  data-target="#writePrescriptionModal" class="text-success" style="text-decoration: none;"> Write prescription for : &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
                         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
@@ -238,7 +239,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div class="col-lg-6">
             <div class="card shadow mb-4">
                 <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-warning"> Scan & Other Requests</h6>
+                    <h6 class="m-0 font-weight-bold text-warning"> Scan & Lab Requests</h6>
                 </div>
                 <div class="collapse show" id="collapseCardExample">
                     <div class="card-body">
@@ -249,7 +250,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
                             </button>
                         </div>
                         <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
-                            <a href="#"data-toggle="modal" data-target="#otherServicesModal" class="text-warning"  style="text-decoration: none; font-weight: bold;">Request other Services for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
+                            <a href="#"data-toggle="modal" data-target="#labTestModal" class="text-warning"  style="text-decoration: none;">Request Lab Examination for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
                             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                                 <span aria-hidden="true">&times;</span>
                             </button>
@@ -269,12 +270,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div class="col-lg-6">
             <div class="card shadow mb-4">
                 <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-success"> Drug Requests II (No charges)</h6>
+                    <h6 class="m-0 font-weight-bold text-success"> Request for other Specialist</h6>
                 </div>
                 <div class="card-body">
                     <div class="message text-center alert alert-success alert-dismissible fade show" role="alert" style="font-weight: bold;">
-
-                       <a href="#"data-toggle="modal"  data-target="#writePrescriptionModal" class="text-success" style="text-decoration: none;"> Write prescription for : &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
+                        <a href="#"data-toggle="modal" data-target="#specialistRequestsModal" class="text-success"  style="text-decoration: none; font-weight: bold;">Request new Specialist for: &nbsp;<span class="badge badge-pill badge-success">{{patient.surname}}  {{patient.first_name}}</span></a>
                         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
@@ -285,12 +285,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div class="col-lg-6">
             <div class="card shadow mb-4">
                 <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-warning"> List of other service requested</h6>
+                    <h6 class="m-0 font-weight-bold text-warning"> Request Other services</h6>
                 </div>
                 <div class="collapse show" id="collapseCardExample">
                     <div class="card-body">
                         <div class="message text-center alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold;">
-                            <a href="#"data-toggle="modal" data-target="#servicesResultsModal" class="text-warning"  style="text-decoration: none; font-weight: bold;">Requested other Services for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
+                            <a href="#"data-toggle="modal" data-target="#otherServiceRequetsModal" class="text-warning"  style="text-decoration: none; font-weight: bold;">Request other Services for: &nbsp;<span class="badge badge-pill badge-danger">{{patient.surname}}  {{patient.first_name}}</span></a>
                             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                                 <span aria-hidden="true">&times;</span>
                             </button>
@@ -356,7 +356,7 @@ aria-hidden="true">
                 <thead>
                     <tr>
                         <th>Item</th>
-                        <th>UoM</th>
+                        <!-- <th>UoM</th> -->
                         <th>Store</th>  
                         <th>Route</th>
                         <th>Freq.</th>
@@ -380,7 +380,10 @@ aria-hidden="true">
                 <tfoot>
                     <tr>
                         <td colspan="6" class="text-right"><strong>Total:</strong></td>
-                        <td id="grand-total"> 0.00</td>
+                        <td>
+                            <span id="grand-total">₦0.00</span>
+                            <input type="hidden" id="grand-total-hidden" value="0">
+                        </td>
                         <td></td>
                     </tr>
                 </tfoot>
@@ -397,14 +400,13 @@ aria-hidden="true">
 </div>
 <!-- End of Drug Administration Modal -->
 
-
 <!-- Beginning of Lab Test Request Modal -->
 <div class="modal fade" id="labTestModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
 aria-hidden="true">
 <div class="modal-dialog" role="document">
     <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
         <div class="modal-header">
-            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Lab Request for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Lab Requests for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
             <button class="close" type="button" data-dismiss="modal" aria-label="Close">
                 <span aria-hidden="true">×</span>
             </button>
@@ -468,12 +470,12 @@ aria-hidden="true">
 </div>
 
 <!-- Beginning of Radio Scan Request Modal -->
- <div class="modal fade" id="radioScanModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+<div class="modal fade" id="radioScanModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
 aria-hidden="true">
 <div class="modal-dialog" role="document">
     <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
         <div class="modal-header">
-            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Scan Request for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Scan Requests for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
             <button class="close" type="button" data-dismiss="modal" aria-label="Close">
                 <span aria-hidden="true">×</span>
             </button>
@@ -539,7 +541,6 @@ aria-hidden="true">
         </div>
     </div>
 </div>
-
 
 <!-- Beginning of adjustment Modal -->
 <div class="modal fade" id="modifyRecordModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
@@ -678,15 +679,15 @@ aria-hidden="true">
         </div>
     </div>
 </div>
-<!-- End of Product modification Modal -->
+<!-- End of adjustment Modal -->
 
-<!-- Beginning of request for other services modals-->
-<div class="modal fade" id="otherServicesModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+<!-- Beginning of requests for specialists modals-->
+<div class="modal fade" id="specialistRequestsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
 aria-hidden="true">
 <div class="modal-dialog" role="document">
     <div class="modal-content" style="width: 220%; position: relative; right: 230px;">
         <div class="modal-header">
-           <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Request Other Service</span> 
+           <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Request for Specialist</span> 
            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
                <span aria-hidden="true">×</span>
            </button>
@@ -699,7 +700,7 @@ aria-hidden="true">
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header bg-success text-white">
-                                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Add Other Service</h5>
+                                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Add new Consultation</h5>
                             </div>
                             <div class="card-body">
                                 {% if error %}
@@ -818,43 +819,46 @@ aria-hidden="true">
     </div>
 </div>
 </div>
-<!-- End of request for other services -->
+<!-- End of requests for specialists -->
 
-<!-- Beginning of results for requested other services -->
-<div class="modal fade" id="servicesResultsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+<!-- Beginning of request for other services -->
+<div class="modal fade" id="otherServiceRequetsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
 aria-hidden="true">
-<div class="modal-dialog" role="document">
+    <div class="modal-dialog" role="document">
     <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
         <div class="modal-header">
-            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Requested Services for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
+            <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> Service Requests for <span class="badge badge-danger">{{patient.surname}} {{patient.first_name}}</span></h5>
             <button class="close" type="button" data-dismiss="modal" aria-label="Close">
                 <span aria-hidden="true">×</span>
             </button>
         </div>
-            <div class="table-responsive mt-4">
-                <table class="table table-bordered table-striped" id="dataTable" style="font-size: 13px;">
-                    <thead>
-                        <tr>
-                            <th>Service</th>
-                            <th>Provider</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for service in other_service %}
-                        <tr>
-                            <td>{{ service.purpose }}</td>
-                            <td>Dr. {{ service.provider.fullname }}</td>
-                            <td style="color: brown;">{{service.created_date}}</td>
-                        </tr>
-
-                        {% empty %}
-                        <tr>
-                            <td colspan="9" class="text-center">No history of services rendered to this patient</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+                    <table id="service-table" class="table">
+                        <thead>
+                            <tr>
+                                <th>Services</th>
+                                <th>Rate (₦)</th>
+                                <th style="text-align: center;">Exception Bill</th>
+                                <th>Add</th>
+                                <th>Remove</th>
+                            </tr>
+                        </thead>
+                        <tbody id="service-body">
+                            <tr>
+                                <td>
+                                    <input list="service-options-1" class="form-control service-name" placeholder="first 3 letters" autocomplete="off">
+                                    <datalist id="service-options-1"></datalist>
+                                </td> 
+                                <td><input type="text" class="form-control rate" readonly></td>
+                                <td style="text-align: center;">
+                                    <input type="checkbox" class="service-exception-checkbox" title="Check if this service should NOT be billed">
+                                </td>
+                                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button type="button" id="submitServices" class="btn btn-primary">Send Requests <i class="fa fa-arrow-right"></i></button>
             </div>
         </div>
     </div>
@@ -945,13 +949,15 @@ document.addEventListener('DOMContentLoaded', function () {
             if (query.length < 2) return;
 
             const datalist = e.target.nextElementSibling;
-            const response = await fetch(`/search-lab-tests/?term=${encodeURIComponent(query)}`);
+            const patient_id = "{{ patient.id }}" 
+            const response = await fetch(`/search-lab-tests/?term=${encodeURIComponent(query)}&patient_id=${patient_id}`);
             const data = await response.json();
 
             datalist.innerHTML = '';
             data.forEach(test => {
                 const option = document.createElement('option');
                 option.value = test.test_name;
+                option.label = test.label;
                 option.setAttribute('data-rate', test.price);
                 datalist.appendChild(option);
             });
@@ -1166,26 +1172,30 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const scanBody = document.getElementById('scan-body');
 
-    //  Fetch suggestions dynamically for any row
     scanBody.addEventListener('input', async function (e) {
         if (e.target.classList.contains('scan-name')) {
             const query = e.target.value.trim();
             if (query.length < 2) return;
 
             const datalist = e.target.nextElementSibling;
-            const response = await fetch(`/search-radio-scans/?term=${encodeURIComponent(query)}`);
+            if (!datalist || datalist.tagName !== 'DATALIST') return;
+
+            const patient_id = "{{ patient.id }}"; 
+            const response = await fetch(`/search-radio-scans/?term=${encodeURIComponent(query)}&patient_id=${patient_id}`);
             const data = await response.json();
 
             datalist.innerHTML = '';
             data.forEach(scan => {
                 const option = document.createElement('option');
-                option.value = scan.scan_name;
+                
+                option.value = scan.test_name; 
+                option.label = scan.label; // shows price in dropdown
                 option.setAttribute('data-rate', scan.price);
+                option.setAttribute('data-id', scan.test_id);
                 datalist.appendChild(option);
             });
         }
     });
-
     //  Auto-fill rate when scan is chosen
     scanBody.addEventListener('change', function (e) {
         if (e.target.classList.contains('scan-name')) {
@@ -1374,6 +1384,105 @@ document.addEventListener('DOMContentLoaded', function () {
 <!-- Beginning of Drug request -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
+    // Frequency to per-day count
+    const FREQ_MAP = {
+    'stat': 1, 'om': 1, 'mane': 1, 'nocte': 1,
+    'bd': 2, 'tds': 3, 'qds': 4, 'ac': 3, 'pc': 3,
+    'prn': 1, 'others': 1, 'weekly': 1/7, 'monthly': 1/30, 'alt_die': 0.5
+    };
+
+    function calculateQty(row){
+    const dose = parseInt(row.find('.item-dose').val()) || 0;
+    const duration = parseInt(row.find('.item-duration').val()) || 0;
+    const freqVal = (row.find('.freq-select').val() || '').toLowerCase();
+    let freqNum = FREQ_MAP[freqVal] || 0;
+    if(!dose ||!duration ||!freqNum) return 0;
+    if(freqVal === 'stat') return dose;
+    return Math.ceil(dose * duration * freqNum);
+    }
+
+    function updateGrandTotal(){
+    let total = 0;
+    $('#selected-items.item-row').each(function(){
+        const qty = parseInt($(this).find('.item-quantity').val()) || 0;
+        const rate = parseFloat($(this).find('.item-rate').text()) || 0;
+        const lineTotal = qty * rate;
+        $(this).find('.item-total').text(lineTotal.toFixed(2));
+        total += lineTotal;
+    });
+    $('#grand-total').text('₦' + total.toFixed(2));
+    $('#grand-total-hidden').val(total.toFixed(2));
+    }
+
+    function updateRowQty(uniqueId){
+        const row = $(`tr[data-unique-id="${uniqueId}"]`);
+        if(row.length === 0) return;
+
+        const dose = parseInt(row.find('.item-dose').val()) || 0;
+        const duration = parseInt(row.find('.item-duration').val()) || 0;
+        const freqText = (row.find('.freq-select').val() || 'od').toLowerCase();
+        const isBottle = row.data('is-bottle') === true || row.data('is-bottle') === 'true';
+        const unit = parseInt(row.data('unit')) || 0;
+
+        const freqMap = { 'od':1, 'om':1, 'bd':2, 'tds':3, 'qds':4, 'nocte':1, 'mane':1, 'stat':1, 'weekly':1, 'monthly':1, 'prn':1, 'alt_die':1, 'ac':1, 'pc':1, 'others':1 };
+        const freqNum = freqMap[freqText] || 1;
+
+        if(dose === 0 || duration === 0) return;
+
+        let totalNeeded = dose * freqNum * duration;
+        let qty = totalNeeded;
+
+        if(isBottle && unit > 0){
+            qty = Math.ceil(totalNeeded / unit);
+            // if(isBottle) qty = Math.floor(totalNeeded / unit) || 1; 
+        }
+        // ----------------------------------
+
+        if(qty < 1) qty = 1;
+
+        const stock = parseInt(row.data('stock')) || 9999;
+        if(qty > stock){
+            Swal.fire({icon:'warning', title:'Stock limit', text:`Need ${qty} but only ${stock} left. Set to max.`});
+            qty = stock;
+        }
+
+        row.find('.item-quantity').val(qty);
+        saveCompleteItemState(uniqueId);
+        updateGrandTotal();
+    }
+
+    // Saving full state including auto qty
+    function saveCompleteItemState(uniqueId){
+    const row = $(`tr[data-unique-id="${uniqueId}"]`);
+    if(!row.length) return;
+    const data = {
+        quantity: row.find('.item-quantity').val(),
+        freq: row.find('.freq-select').val(),
+        dose: row.find('.item-dose').val(),
+        duration: row.find('.item-duration').val(),
+        route: row.find('.route-select').val(),
+        start_date: row.find('.item-start-date').val(),
+        notes: row.find('.item-notes').val(),
+        exception_bill: row.find('.exception-bill-check').is(':checked')? 1 : 0
+    };
+    $.post('/update-drug-session-item/', {
+        unique_id: uniqueId,
+        patient_id: $('#patient-id').val(),
+    ...data,
+        csrfmiddlewaretoken: '{{ csrf_token }}'
+    });
+    }
+
+    // Bind auto calc
+    $(document).on('change', '.freq-select,.route-select', function(){
+    const uid = $(this).data('unique-id');
+    if(uid) updateRowQty(uid);
+    });
+    $(document).on('input', '.item-dose,.item-duration', function(){
+    const uid = $(this).data('unique-id');
+    if(uid) updateRowQty(uid);
+    });
+
 $(document).ready(function() {
    
     // Store selected store ID
@@ -1413,7 +1522,9 @@ $(document).ready(function() {
         }
         
         if (query.length > 2) {
-            $.get('/search-products/', {q: query, store: selectedStoreId}, function(data) {
+            // patient_id + tariff
+            const patientId = $('#patient-id').val();
+            $.get('/search-products/', {q: query, store: selectedStoreId, patient_id: patientId}, function(data) {
                 const results = data.results;
                 const resultsList = $('#results-list');
                 resultsList.empty();
@@ -1446,7 +1557,7 @@ $(document).ready(function() {
         }
     });
     
-    // Add product item to list
+        // Add product item to list
     $(document).on('click', '.product-item', function() {
         const productId = $(this).data('id');
         const stock = $(this).data('stock');
@@ -1454,16 +1565,17 @@ $(document).ready(function() {
         const storeName = $(this).data('store-name');
         const patientId = $('#patient-id').val();
         
-        // Check if store matches selected store
         if (storeId !== selectedStoreId) {
             showErrorMessage(`This product is from ${storeName}. Please select ${storeName} from the store dropdown.`);
             return;
         }
         
+        const price = $(this).data('price');
         $.post('/add-drug-item/', {
             product_id: productId,
             store_id: storeId,
-            quantity: 1,
+            quantity: 1, // 
+            price: price,
             patient_id: patientId,
             csrfmiddlewaretoken: '{{ csrf_token }}'
         }, function(data) {
@@ -1471,7 +1583,9 @@ $(document).ready(function() {
                 addItemToTable(data.item, stock, storeName);
                 $('#product-search').val('');
                 $('#search-results').hide();
-                updateGrandTotal();
+                
+                //  trigger auto qty calc
+                setTimeout(() => updateRowQty(data.item.unique_id), 100);
             } else {
                 showErrorMessage('Error: ' + data.error);
             }
@@ -1534,6 +1648,7 @@ $(document).ready(function() {
     $(document).on('change', '.freq-select', function() {
         const uniqueId = $(this).data('unique-id');
         if (uniqueId) {
+            updateRowQty(uniqueId);
             saveCompleteItemState(uniqueId);
         }
     });
@@ -1542,6 +1657,7 @@ $(document).ready(function() {
     $(document).on('input', '.item-dose', function() {
         const uniqueId = $(this).data('unique-id');
         if (uniqueId) {
+            updateRowQty(uniqueId);
             saveCompleteItemState(uniqueId);
         }
     });
@@ -1550,6 +1666,7 @@ $(document).ready(function() {
     $(document).on('input', '.item-duration', function() {
         const uniqueId = $(this).data('unique-id');
         if (uniqueId) {
+            updateRowQty(uniqueId);
             saveCompleteItemState(uniqueId);
         }
     });
@@ -1604,42 +1721,31 @@ $(document).ready(function() {
     });
 
     // Remove item
-    $(document).on('click', '.remove-item', function() {
+    $(document).off('click', '.remove-item').on('click', '.remove-item', function() {
         const uniqueId = $(this).data('unique-id');
-        const row = $(this).closest('tr');
         const patientId = $('#patient-id').val();
-        const itemName = row.find('td:first').text().trim();
-        
-        if (!uniqueId) {
-            showErrorMessage('Error: Cannot identify item to remove');
-            return;
-        }
-        
-        if (!confirm(`Are you sure you want to remove "${itemName}"?`)) {
-            return;
-        }
-        
-        const removeBtn = $(this);
-        removeBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
-        
-        $.post('/remove-drug-item/', {
-            unique_id: uniqueId,
-            patient_id: patientId,
-            csrfmiddlewaretoken: '{{ csrf_token }}'
-        }, function(data) {
-            if (data.success) {
-                row.fadeOut(300, function() {
-                    $(this).remove();
-                    updateGrandTotal();
-                    showSuccessMessage(data.message || 'Item removed successfully');
+        const row = $(this).closest('tr');
+
+        Swal.fire({
+            title: 'Remove?',
+            text: 'Remove this drug from prescription?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Yes, remove'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.post('/remove-drug-item/', {
+                    unique_id: uniqueId,
+                    patient_id: patientId,
+                    csrfmiddlewaretoken: '{{ csrf_token }}'
+                }, function(data) {
+                    if (data.success) {
+                        row.remove();
+                        updateGrandTotal();
+                    }
                 });
-            } else {
-                showErrorMessage('Error removing item: ' + data.error);
-                removeBtn.prop('disabled', false).html('<i class="fa fa-times"></i>');
             }
-        }).fail(function() {
-            showErrorMessage('Network error while removing item');
-            removeBtn.prop('disabled', false).html('<i class="fa fa-times"></i>');
         });
     });
     
@@ -1784,10 +1890,8 @@ $(document).ready(function() {
             const quantity = quantityInput.val().trim();
             const stock = parseInt(row.data('stock')) || 0;
             
-            if (quantity === '') {
-                quantityInput.addClass('is-invalid');
-                errorMessages.push(`Please enter a quantity for "${itemName}"`);
-                rowHasError = true;
+            if(quantity === 0){
+                errorMessages.push(`Quantity auto-calc failed for "${itemName}" - check dose/duration/frequency`);
                 isValid = false;
             } else if (isNaN(quantity) || parseInt(quantity) <= 0) {
                 quantityInput.addClass('is-invalid');
@@ -1857,115 +1961,135 @@ $(document).ready(function() {
     }
 
     function addItemToTable(item, stock, storeName = '', route = '', freq = '', dose = '', duration = '', start_date = '', notes = '') {
-    const stockClass = stock < 5 ? 'stock-warning' : 'stock-ok';
+    const stockClass = stock < 5? 'stock-warning' : 'stock-ok';
     const uniqueId = item.unique_id || `temp_${Date.now()}_${Math.random()}`;
     const today = new Date().toISOString().split('T')[0];
-    const defaultStartDate = start_date && start_date !== '' ? start_date : today;
-    
-    console.log(`Adding item with unique_id: ${uniqueId}`);
-    
-    // Checking if the item was previously marked as exception bill (for session loading)
+    const defaultStartDate = start_date && start_date!== ''? start_date : today;
+
+    // --- for syrups ---
+    const isBottle = item.is_bottle || (item.uom && item.uom.toLowerCase() === 'bottles');
+    const unitVol = parseInt(item.unit || 0);
+    const dosePlaceholder = isBottle? 'no of ml' : 'dose';
+    const bottleInfo = isBottle && unitVol? `(${unitVol}ml/bottle)` : '';
+    // ----------------------------------
+
+    console.log(`Adding item with unique_id: ${uniqueId} | is_bottle: ${isBottle} | unit: ${unitVol}`);
+
     const isExceptionBill = item.exception_bill || false;
-    
+
     $('#drug-items-body').append(`
-        <tr data-unique-id="${uniqueId}" data-id="${item.id}" data-stock="${stock}">
-            <td>${item.name}</td>
-            <td>${item.uom}</td>
+        <tr data-unique-id="${uniqueId}" data-id="${item.id}" data-stock="${stock}" data-is-bottle="${isBottle}" data-unit="${unitVol}">
+            <td>${item.name} <small class="text-muted">${bottleInfo}</small></td>
             <td>
-                <span class="badge badge-info">${storeName || item.store_name || 'IPD Pharmacy 1'}</span> 
-                <span class="${stockClass}" style='font-size:12px;'><br>${stock} quantity left</span> 
+                <span class="badge badge-info">${storeName || item.store_name || 'IPD Pharmacy 1'}</span>
+                <span class="${stockClass}" style='font-size:12px;'><br>${stock} quantity left</span>
             </td>
             <td>
                 <select class="route-select form-control form-control-sm" data-unique-id="${uniqueId}" required>
                     <option value="">Select</option>
-                    <option value="Tab" ${route === 'Tab' ? 'selected' : ''}>Tab</option>
-                    <option value="SC" ${route === 'SC' ? 'selected' : ''}>SC</option>
-                    <option value="ID" ${route === 'ID' ? 'selected' : ''}>ID</option>
-                    <option value="IM" ${route === 'IM' ? 'selected' : ''}>IM</option>
-                    <option value="IV" ${route === 'IV' ? 'selected' : ''}>IV</option>
-                    <option value="PR" ${route === 'PR' ? 'selected' : ''}>PR (Rectal)</option>
-                    <option value="SL" ${route === 'SL' ? 'selected' : ''}>Sublingual</option>
-                    <option value="PV" ${route === 'PV' ? 'selected' : ''}>PV (Vaginal)</option>
-                    <option value="Inhalation" ${route === 'Inhalation' ? 'selected' : ''}>Inhalation</option>
-                    <option value="Nasal" ${route === 'Nasal' ? 'selected' : ''}>Nasal</option>
-                    <option value="Ocular" ${route === 'Ocular' ? 'selected' : ''}>Ocular</option>
-                    <option value="Otic" ${route === 'Otic' ? 'selected' : ''}>Otic</option>
-                    <option value="Topical" ${route === 'Topical' ? 'selected' : ''}>Topical</option>
-                    <option value="Oral" ${route === 'Oral' ? 'selected' : ''}>Oral</option>
-                    <option value="Syp" ${route === 'Syp' ? 'selected' : ''}>Syp</option>
+                    <option value="Tab" ${route === 'Tab'? 'selected' : ''}>Tab</option>
+                    <option value="SC" ${route === 'SC'? 'selected' : ''}>SC</option>
+                    <option value="ID" ${route === 'ID'? 'selected' : ''}>ID</option>
+                    <option value="IM" ${route === 'IM'? 'selected' : ''}>IM</option>
+                    <option value="IV" ${route === 'IV'? 'selected' : ''}>IV</option>
+                    <option value="PR" ${route === 'PR'? 'selected' : ''}>PR (Rectal)</option>
+                    <option value="SL" ${route === 'SL'? 'selected' : ''}>Sublingual</option>
+                    <option value="PV" ${route === 'PV'? 'selected' : ''}>PV (Vaginal)</option>
+                    <option value="Inhalation" ${route === 'Inhalation'? 'selected' : ''}>Inhalation</option>
+                    <option value="Nasal" ${route === 'Nasal'? 'selected' : ''}>Nasal</option>
+                    <option value="Ocular" ${route === 'Ocular'? 'selected' : ''}>Ocular</option>
+                    <option value="Otic" ${route === 'Otic'? 'selected' : ''}>Otic</option>
+                    <option value="Topical" ${route === 'Topical'? 'selected' : ''}>Topical</option>
+                    <option value="Oral" ${route === 'Oral'? 'selected' : ''}>Oral</option>
+                    <option value="Syp" ${route === 'Syp'? 'selected' : ''}>Syp</option>
                 </select>
             </td>
             <td>
                 <select class="freq-select form-control form-control-sm" data-unique-id="${uniqueId}" required>
                     <option value="">Select</option>
-                    <option value="stat" ${freq === 'stat' ? 'selected' : ''}>stat</option>
-                    <option value="om" ${freq === 'om' ? 'selected' : ''}>om</option>
-                    <option value="bd" ${freq === 'bd' ? 'selected' : ''}>bd</option>
-                    <option value="tds" ${freq === 'tds' ? 'selected' : ''}>tds</option>
-                    <option value="qds" ${freq === 'qds' ? 'selected' : ''}>qds</option>
-                    <option value="nocte" ${freq === 'nocte' ? 'selected' : ''}>nocte</option>
-                    <option value="weekly" ${freq === 'weekly' ? 'selected' : ''}>weekly</option>
-                    <option value="monthly" ${freq === 'monthly' ? 'selected' : ''}>monthly</option>
-                    <option value="prn" ${freq === 'prn' ? 'selected' : ''}>PRN (As Needed)</option>
-                    <option value="mane" ${freq === 'mane' ? 'selected' : ''}>Mane (Morning)</option>
-                    <option value="alt_die" ${freq === 'alt_die' ? 'selected' : ''}>Every other day</option>
-                    <option value="ac" ${freq === 'ac' ? 'selected' : ''}>Before Meals</option>
-                    <option value="pc" ${freq === 'pc' ? 'selected' : ''}>After Meals</option>
-                    <option value="others" ${freq === 'others' ? 'selected' : ''}>others</option>
+                    <option value="stat" ${freq === 'stat'? 'selected' : ''}>stat</option>
+                    <option value="om" ${freq === 'om'? 'selected' : ''}>om</option>
+                    <option value="bd" ${freq === 'bd'? 'selected' : ''}>bd</option>
+                    <option value="tds" ${freq === 'tds'? 'selected' : ''}>tds</option>
+                    <option value="qds" ${freq === 'qds'? 'selected' : ''}>qds</option>
+                    <option value="nocte" ${freq === 'nocte'? 'selected' : ''}>nocte</option>
+                    <option value="weekly" ${freq === 'weekly'? 'selected' : ''}>weekly</option>
+                    <option value="monthly" ${freq === 'monthly'? 'selected' : ''}>monthly</option>
+                    <option value="prn" ${freq === 'prn'? 'selected' : ''}>PRN (As Needed)</option>
+                    <option value="mane" ${freq === 'mane'? 'selected' : ''}>Mane (Morning)</option>
+                    <option value="alt_die" ${freq === 'alt_die'? 'selected' : ''}>Every other day</option>
+                    <option value="ac" ${freq === 'ac'? 'selected' : ''}>Before Meals</option>
+                    <option value="pc" ${freq === 'pc'? 'selected' : ''}>After Meals</option>
+                    <option value="others" ${freq === 'others'? 'selected' : ''}>others</option>
                 </select>
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm item-dose" 
-                    style="height:28px; width:50px" min="1" max="999" step="1"
-                    data-unique-id="${uniqueId}" value="${dose || ''}" required>
+                <input type="number" class="form-control form-control-sm item-dose"
+                    style="height:28px; width:90px" min="1" max="999" step="1"
+                    data-unique-id="${uniqueId}" value="${dose || ''}" placeholder="${dosePlaceholder}" required>
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm item-duration" 
+                <input type="number" class="form-control form-control-sm item-duration"
                     style="height:28px; width:50px" min="1" max="365" step="1"
                     data-unique-id="${uniqueId}" value="${duration || ''}" required>
             </td>
             <td>
-                <input type="date" class="form-control form-control-sm item-start-date" 
+                <input type="date" class="form-control form-control-sm item-start-date"
                     style="height:28px; width:120px"
-                    data-unique-id="${uniqueId}" 
-                    value="${defaultStartDate}" 
+                    data-unique-id="${uniqueId}"
+                    value="${defaultStartDate}"
                     min="${today}"
                     required>
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm item-quantity" 
-                    style="height:28px; width:50px" min="1" max="${stock}" step="1"
-                    value="${item.quantity}" data-unique-id="${uniqueId}" required>
+                <input type="number" class="form-control form-control-sm item-quantity"
+                style="height:28px; width:50px; background:#e9ecef" min="1" max="${stock}" step="1"
+                value="${item.quantity}" data-unique-id="${uniqueId}" readonly title="Auto calculated">
             </td>
             <td>
-                <textarea class="form-control form-control-sm item-notes" 
+                <textarea class="form-control form-control-sm item-notes"
                     style="height:28px; width:180px; resize: vertical; font-size: 12px; border: 1px solid #ccc"
-                    data-unique-id="${uniqueId}" 
+                    data-unique-id="${uniqueId}"
                     placeholder="e.g., Take after meals, Shake well, etc."
                     rows="1">${notes || ''}</textarea>
             </td>
             <td class="item-rate" style="display:none">${item.rate}</td>
             <td class="item-total" style="display:none">${item.total}</td>
             <td>
-                <input type="checkbox" class="exception-bill-checkbox" 
+                <input type="checkbox" class="exception-bill-checkbox"
                        data-unique-id="${uniqueId}"
-                       ${isExceptionBill ? 'checked' : ''}
+                       ${isExceptionBill? 'checked' : ''}
                        title="Check if this item should NOT be billed">
-            </td> 
+            </td>
             <td><button class="text-danger text-sm remove-item" data-unique-id="${uniqueId}"><i class='fa fa-times'></i></button></td>
         </tr>
     `);
+
+    // Trigger auto calc immediately for this new row
+    setTimeout(() => updateRowQty(uniqueId), 150);
 }
     
-    function updateGrandTotal() {
-        let grandTotal = 0;
-        $('.item-total').each(function() {
-            grandTotal += parseFloat($(this).text());
-        });
-        $('#grand-total').text(grandTotal.toFixed(2));
+    function updateGrandTotal(){
+    let total = 0;
+    
+    $('.item-row').each(function(){
+        const qty = parseInt($(this).find('.item-quantity').val()) || 0;
+
+        let rateText = $(this).find('.item-rate').text() || $(this).find('.item-rate').val() || 0;
+        const rate = parseFloat(rateText.toString().replace('₦','').replace(',','')) || 0;
+        const lineTotal = qty * rate;
         
-        const hasItems = $('#drug-items-body tr').length > 0;
-        $('#process-casting').prop('disabled', !hasItems);
+        $(this).find('.item-total').text(lineTotal.toFixed(2));
+        total += lineTotal;
+    });
+    
+    // Update both possible IDs
+    $('#grand-total').text('₦' + total.toFixed(2));
+    $('#grand-total').val(total.toFixed(2));
+    $('#grand-total-hidden').val(total.toFixed(2));
+    $('.grand-total').text('₦' + total.toFixed(2));
+    
+    console.log('Grand total:', total); 
     }
 
     // Clear validation on input change
@@ -2388,10 +2512,10 @@ $(document).on('click', '.delete-test', function () {
 });
 </script>
 
-<!-- Other services -->
+<!-- Specialist request -->
 <script>
 $(document).ready(function() {
-    // When service selection changes
+    // When specialist selection changes
     $('#purpose').change(function() {
         var selectedOption = $(this).find('option:selected');
         var price = selectedOption.data('price');
@@ -2455,6 +2579,214 @@ $(document).ready(function() {
         }
     `;
     document.head.appendChild(style);
+});
+</script>
+
+<!-- Javascript for Creating other service Request Modal -->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+    const serviceBody = document.getElementById('service-body');
+
+    if (!serviceBody) return;
+
+    // Fetch suggestions dynamically for any row
+    serviceBody.addEventListener('input', async function (e) {
+        if (e.target.classList.contains('service-name')) {
+            const query = e.target.value.trim();
+            if (query.length < 2) return;
+
+            const datalist = e.target.nextElementSibling;
+            const patient_id = "{{ patient.id|default:'' }}";
+            
+            try {
+                const response = await fetch(`/search-services/?term=${encodeURIComponent(query)}&patient_id=${patient_id}`);
+                const data = await response.json();
+
+                datalist.innerHTML = '';
+                data.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service.service_name;
+                    option.label = service.label;
+                    option.setAttribute('data-rate', service.price);
+                    option.setAttribute('data-service-id', service.service_id);
+                    datalist.appendChild(option);
+                });
+            } catch (err) {
+                console.error("Failed to fetch services:", err);
+            }
+        }
+    });
+
+    // Auto-fill rate and attach service_id when chosen
+    serviceBody.addEventListener('change', function (e) {
+        if (e.target.classList.contains('service-name')) {
+            const input = e.target;
+            const datalist = input.nextElementSibling;
+            const selectedValue = input.value;
+            const option = Array.from(datalist.options).find(opt => opt.value === selectedValue);
+            const row = input.closest('tr');
+            const rateField = row.querySelector('.rate');
+
+            if (option) {
+                rateField.value = option.getAttribute('data-rate');
+                row.dataset.serviceId = option.getAttribute('data-service-id');
+            } else {
+                rateField.value = '';
+                delete row.dataset.serviceId;
+            }
+        }
+    });
+
+    // Add row
+    serviceBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('add-row')) {
+            const firstRow = serviceBody.querySelector('tr');
+            const newRow = firstRow.cloneNode(true);
+
+            const uniqueId = 'service-options-' + Date.now();
+            const serviceInput = newRow.querySelector('.service-name');
+            const datalist = newRow.querySelector('datalist');
+
+            serviceInput.value = '';
+            newRow.querySelector('.rate').value = '';
+            newRow.querySelector('.service-exception-checkbox').checked = false;
+            newRow.classList.remove('table-warning');
+            delete newRow.dataset.exceptionBill;
+            delete newRow.dataset.serviceId;
+
+            datalist.innerHTML = '';
+            datalist.id = uniqueId;
+            serviceInput.setAttribute('list', uniqueId);
+
+            serviceBody.appendChild(newRow);
+        }
+    });
+
+    // Remove row
+    serviceBody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('remove-row')) {
+            const row = e.target.closest('tr');
+            if (serviceBody.querySelectorAll('tr').length > 1) {
+                row.remove();
+            } else {
+                row.querySelector('.service-name').value = '';
+                row.querySelector('.rate').value = '';
+                row.querySelector('.service-exception-checkbox').checked = false;
+                row.classList.remove('table-warning');
+                delete row.dataset.exceptionBill;
+                delete row.dataset.serviceId;
+            }
+        }
+    });
+
+    // Handle exception bill checkbox
+    serviceBody.addEventListener('change', function(e) {
+        if (e.target.classList.contains('service-exception-checkbox')) {
+            const checkbox = e.target;
+            const row = checkbox.closest('tr');
+            const serviceInput = row.querySelector('.service-name');
+            const serviceName = serviceInput ? serviceInput.value.trim() : 'this service';
+            
+            if (checkbox.checked) {
+                Swal.fire({
+                    title: 'Exception Bill',
+                    text: `"${serviceName}" will NOT be billed. Are you sure?`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#3085d6',
+                    confirmButtonText: 'Yes, mark as exception',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        row.classList.add('table-warning');
+                        row.dataset.exceptionBill = 'true';
+                    } else {
+                        checkbox.checked = false;
+                        row.dataset.exceptionBill = 'false';
+                    }
+                });
+            } else {
+                row.classList.remove('table-warning');
+                row.dataset.exceptionBill = 'false';
+            }
+        }
+    });
+
+    // Submit all rows
+    document.getElementById('submitServices').addEventListener('click', async function () {
+        const rows = Array.from(serviceBody.querySelectorAll('tr'));
+        const services = rows.map(r => ({
+            service_name: r.querySelector('.service-name').value,
+            service_id: r.dataset.serviceId || '',
+            rate: parseFloat(r.querySelector('.rate').value || 0),
+            exception_bill: r.dataset.exceptionBill === 'true'
+        })).filter(t => t.service_name);
+
+        if (!services.length) {
+            Swal.fire('Empty Request', 'Please add at least one service.', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/save-service-requests/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({
+                    services: services,
+                    patient_id: "{{ patient.id|default:'' }}",
+                    category_id: "{{ patient.category.id|default:'' }}",
+                    plan_id: "{{ patient.plan.id|default:'' }}",
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                Swal.fire('Success', 'Service requests sent successfully.', 'success');
+                resetTable();
+            } else {
+                Swal.fire('Error', result.error || 'An error occurred.', 'error');
+            }
+        } catch (err) {
+            Swal.fire('Error', 'Server communication failure.', 'error');
+        }
+    });
+
+    function resetTable() {
+        const uniqueId = 'service-options-' + Date.now();
+        serviceBody.innerHTML = `
+            <tr>
+                <td>
+                    <input list="${uniqueId}" class="form-control service-name" placeholder="first 3 letters" autocomplete="off">
+                    <datalist id="${uniqueId}"></datalist>
+                </td>
+                <td><input type="text" class="form-control rate" readonly></td>
+                <td style="text-align: center;">
+                    <input type="checkbox" class="service-exception-checkbox" title="Check if this service should NOT be billed">
+                </td>
+                <td><button type="button" class="btn btn-success add-row">+</button></td>
+                <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+            </tr>
+        `;
+    }
+
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                cookie = cookie.trim();
+                if (cookie.startsWith(name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
 });
 </script>
 {% endblock %}

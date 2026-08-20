@@ -146,7 +146,7 @@
                                     <i class="fa fa-plus"></i> Create Request</a>                                        
                                 {% endif %}
                             {% endif %}
-                            {% if request.user.department.department in 'Laboratory, Radiology, Admin, CMD' %}
+                            {% if request.user.department.department in 'Admin, CMD' %}
                                 {% if page == 'upload-test' %}
                                     <a href="#" data-toggle="modal" data-target="#labTestModal"
                                        class="font-weight-bold text-primary ml-3">
@@ -156,6 +156,11 @@
                                     <a href="#" data-toggle="modal" data-target="#ScanTestModal"
                                        class="font-weight-bold text-primary ml-3">
                                         <i class="fa fa-plus"></i> Add Scan tests
+                                    </a>
+                                {% elif page == 'upload-service' %}
+                                    <a href="#" data-toggle="modal" data-target="#Service2Modal"
+                                       class="font-weight-bold text-primary ml-3">
+                                        <i class="fa fa-plus"></i> Add Services
                                     </a>
                                 {% endif %}
                             {% endif %}
@@ -503,7 +508,7 @@
         </div> 
     </div>
 </div>
-   <!--<audio id="notify-sound" src="{% static 'sounds/notification.mp3' %}" preload="auto"></audio>-->
+    <audio id="notify-sound" src="{% static 'sounds/notification.mp3' %}" preload="auto"></audio>
 
     {{ redirect_to_login_immediately }}
 
@@ -545,11 +550,8 @@
                     $("#" + targetId).text(newCount);
                     if (newCount > prevCount) {
                         const audio = document.getElementById('notify-sound');
-                        if (audio) {
-                            audio.pause(); 
-                            audio.currentTime = 0;
-                            // audio.play().catch(err => console.warn('Audio blocked:', err));
-                        }
+                        audio.pause(); audio.currentTime = 0;
+                        audio.play().catch(err => console.warn('Audio blocked:', err));
                     }
                     prevCount = newCount;
                 });

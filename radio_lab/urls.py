@@ -19,14 +19,6 @@ urlpatterns = [
     path('clear-signature-session/', views.clear_signature_session, name='clear_signature_session'),
     path('investigations-completed/', views.completed_lab_results, name='lab_completed_list'),
 
-    
-    path('lab-inventory', views.upload_labtest_from_excel, name = "lab_inventory"),
-    path('download-test-template', views.download_import_test_template, name = "download_test_template"),
-    path("save-lab-inventory/", views.save_lab_inventory, name="save_lab_inventory"),
-    path("review-lab-inventory/", views.review_lab_inventory, name="review_lab_inventory"),
-    path("lab-test/delete/<int:pk>/", views.delete_lab_test, name="delete_lab_test"),
-    path("lab-test/modify/<int:pk>/", views.modify_lab_test, name="modify_lab_test"),
-
     # Scan test
     path('scan-waiting-list', views.load_scan_queue, name = "scan_waiting"),
     path('scan-queue', views.fetch_scan_queue, name='fetch_scan_queue'),
@@ -41,13 +33,6 @@ urlpatterns = [
     path('get-scanResult-today/<str:key>/', views.get_scan_results_today, name='get_scan_results_today'),
     path('send-scan-results-email/', views.send_scan_results_email, name='send_scan_results_email'),
     path('imaging-completed/', views.completed_scan_results, name='scan_completed_list'),
-
-    path('scan-inventory', views.upload_scantest_from_excel, name = "scan_inventory"),
-    path('download-test-template', views.download_import_test_template, name = "download_test_template"),
-    path("save-scan-inventory/", views.save_scan_inventory, name="save_scan_inventory"),
-    path("review-scan-inventory/", views.review_scan_inventory, name="review_scan_inventory"),
-    path("scan-test/delete/<int:pk>/", views.delete_scan_test, name="delete_scan_test"),
-    path("scan-test/modify/<int:pk>/", views.modify_scan_test, name="modify_scan_test"),
 
 
 ] 

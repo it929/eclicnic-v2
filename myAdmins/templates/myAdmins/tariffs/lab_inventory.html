@@ -1,0 +1,402 @@
+{% extends "admin.html" %}
+{% load custom_tags %}
+
+{% block content %}
+<style>
+    h6{
+        font-weight: bold;
+    }
+    table{
+        font-size: 14px;
+    }
+</style>
+<div class="container-fluid">
+    <!-- Page Heading -->
+    <h1 class="h3 mb-1 text-secondary font-weight-bold" style="color: rgb(42, 41, 41);" ><i class="fas fa-fw fa-cog"></i> Manage Lab Tariff</h1>
+    <p></p>
+    <div class="row">
+        <div class="col-lg-4">
+            <div class="card ">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="fa fa-upload"></i> Upload tests to Lab Inventory</h6>
+                </div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <input type="file" name="excel_file" accept=".xls,.xlsx" required class="form-control">
+                            {% if messages %}
+                                <ul class="mt-3 list-unstyled">
+                                    {% for message in messages %}
+                                        <li class="alert alert-{{ message.tags }} py-1">{{ message }}</li>
+                                    {% endfor %}
+                                </ul>
+                            {% endif %}
+                        </div>
+                        {% if request.user.department.department in 'CMD, Admin' %}
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="fas fa-upload"></i> Upload Data
+                        </button>
+                        <a href="{% url 'lab_inventory' %}" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <div class="card ">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fa fa-filter"></i> Filter Lab Inventory By Tariff</h6>
+                    </div>
+                    <div class="card-body">
+                        <select class="form-control filter_by_tariff" id="filter_by_tariff">
+                            {% for plan in tariff_plans %}
+                                <option value="{{ plan.id }}" data-plan-name="{{ plan.plan }}" {% if selected_plan and plan.id == selected_plan.id %}selected{% endif %}>
+                                    {{ plan.plan }} ({{ plan.code|default:'' }})
+                                </option>
+                            {% empty %}
+                                <option value="">No tariff uploaded yet</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted mt-2 d-block">Default: <b>Single</b> | Showing <b id="currentPlanName">{{ selected_plan.plan|default:'All' }}</b></small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <div class="card ">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fa fa-list"></i> Excel File Requirements</h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="small">
+                            <li>File must be .xlsx format</li>
+                            <li>First row must contain headers</li>
+                            <li>Required columns: <code>item</code>, <code>item_id</code>, <code>rate</code>, <code>plan</code></li>
+                            {% if request.user.department.department in 'CMD, Admin' %}
+                            <li>Download <a href="{% url 'download_test_template' %}">template file</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card ">
+                <div class="card-header d-flex justify-contcard-header">
+                    <h6><span class="badge badge-danger">{{ counts }}</span> <i class="fa fa-flask"></i> Lab Tests - <span id="headerPlanName">{{ selected_plan.plan|default:'All Plans' }}</span></h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered lab_inventory" id="dataTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>     
+                                    <th>Test ID</th>
+                                    <th>Test Name</th>
+                                    <th>Rate</th>
+                                    <th>Tariff</th>
+                                    {% if request.user.department.department in 'CMD, Admin' %}
+                                    <th>Mod</th>
+                                    <th>Del</th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for test in lab_records %}
+                                <tr data-plan="{{ test.plan.id }}">
+                                    <td><a href="#" style="text-decoration: none;" class="text-secondary">{{ test.item_id }}</a></td>
+                                    <td><a href="#" style="text-decoration: none;" class="text-secondary">{{ test.item }}</a></td>
+                                    <td><a href="#" style="color: brown; text-decoration: none;"> {{ test.rate }}</a></td>
+                                    <td><span class="badge badge-info">{{ test.plan.plan }}</span></td>
+                                    {% if request.user.department.department in 'CMD, Admin' %}
+                                    <td class="text-center">
+                                        <i class="fa fa-edit btn-edit" 
+                                        data-id="{{ test.id }}" 
+                                        data-item="{{ test.item }}" 
+                                        data-item_id="{{ test.item_id }}" 
+                                        data-rate="{{ test.rate }}"
+                                        style="cursor: pointer; color: rgb(189, 189, 21);"></i>
+                                    </td>
+                                    <td class="text-center">
+                                        <i class="fa fa-times btn-delete" data-id="{{ test.id }}" data-name="{{ test.item }}" style="cursor: pointer; color: rgb(178, 18, 18)"></i>
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No Test available for {{ selected_plan.plan }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+ <div class="modal fade" id="labTestModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+<div class="modal-dialog" role="document">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+        <div class="modal-header">
+            <h5 class="modal-title text-secondary font-weight-bold" style="margin-left: 30px; " id="exampleModalLabel"> Item(s) to: <span id="inAssetValue2" class="text-primary" style="font-family: cursive;">Lab Inventory</span> </h5>
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table id="item-table" class="table">
+                <thead>
+                    <tr>
+                        <th>Item (Lab Test)</th>
+                        <th>Item ID (SKU)</th>
+                        <th>Rate (₦)</th>
+                        <th>Tariff Code</th>
+                        <th>Add</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="item-body">
+                    <tr>
+                        <td><input type="text" class="form-control item" ></td>
+                        <td><input type="text" class="form-control item_id" ></td>
+                        <td><input type="number" class="form-control rate" ></td>
+                        <td><input type="text" class="form-control plan" ></td>
+                        <td><button type="button" class="btn btn-success add-row">+</button></td>
+                        <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                    </tr>
+                </tbody>
+            </table>
+                <button type="button" id="submitItems" class="btn btn-success">Save Lab Tests</button>
+        </div>
+    </div>
+    </div>
+</div>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function () {
+    // Add new row (clones the current row and clears inputs)
+    $(document).on("click", ".add-row", function () {
+        const currentRow = $(this).closest("tr");
+        const newRow = currentRow.clone(true); 
+        newRow.find("input").val("");
+        $("#item-body").append(newRow);
+    });
+
+    // Remove row but prevent removing the last one
+    $(document).on("click", ".remove-row", function () {
+        const rowCount = $("#item-body tr").length;
+
+        if (rowCount <= 1) {
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Can't remove",
+                    text: "At least one row must remain.",
+                });
+            } else {
+                alert("At least one row must remain.");
+            }
+            return;
+        }
+
+        $(this).closest("tr").remove();
+    });
+
+    // Submiting rows via AJAX
+    $("#submitItems").on("click", function () {
+        const items = [];
+
+        $("#item-body tr").each(function () {
+            const item = $(this).find(".item").val().trim();
+            const item_id = $(this).find(".item_id").val().trim();
+            const rateRaw = $(this).find(".rate").val().trim();
+            const plan = $(this).find(".plan").val().trim();
+
+            // treat only fully filled rows as valid
+            if (item !== "" && rateRaw !== "") {
+                const rate = parseFloat(rateRaw);
+                if (!Number.isNaN(rate)) {
+                    items.push({ item: item, item_id: item_id, rate: rate, plan: plan });
+                }
+            }
+        });
+
+        if (items.length === 0) {
+            if (typeof Swal !== "undefined") {
+                Swal.fire({
+                    icon: "warning",
+                    title: "No items",
+                    text: "Please add at least one item with a rate before saving.",
+                });
+            } else {
+                alert("Please add at least one item with a rate before saving.");
+            }
+            return;
+        }
+
+        // AJAX payload 
+        $.ajax({
+            url: "{% url 'save_lab_inventory' %}",
+            type: "POST",
+            data: JSON.stringify({ items: items }),
+            contentType: "application/json",
+            headers: { "X-CSRFToken": "{{ csrf_token }}" },
+            success: function (resp) {
+                if (resp.success) {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({
+                            icon: "success",
+                            title: "Saved",
+                            text: resp.message || "Items saved successfully",
+                        }).then(() => location.reload());
+                    } else {
+                        alert(resp.message || "Items saved successfully");
+                        location.reload();
+                    }
+                } else {
+                    if (typeof Swal !== "undefined") {
+                        Swal.fire({ icon: "error", title: "Error", text: resp.error || "Save failed" });
+                    } else {
+                        alert("Error: " + (resp.error || "Save failed"));
+                    }
+                }
+            },
+            error: function (xhr) {
+                if (typeof Swal !== "undefined") {
+                    Swal.fire({ icon: "error", title: "Server error", text: xhr.responseText || "Something went wrong." });
+                } else {
+                    alert("Something went wrong. See console for details.");
+                }
+                console.error(xhr);
+            }
+        });
+    });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filterSelect = document.getElementById('filter_by_tariff');
+    
+    // FILTER
+    if(filterSelect){
+        filterSelect.addEventListener('change', function() {
+            const planId = this.value;
+            if(planId){
+                window.location.href = `?plan=${planId}`;
+            }
+        });
+    }
+
+    // Helper to get CSRF
+    function getCSRF(){
+        return document.querySelector('[name=csrfmiddlewaretoken]').value;
+    }
+
+    // DELETE - use delegation so it works with DataTable
+    document.getElementById('dataTable').addEventListener('click', function(e){
+        if(e.target.classList.contains('btn-delete')){
+            const btn = e.target;
+            const id = btn.dataset.id;
+            const name = btn.dataset.name;
+            
+            Swal.fire({
+                title: 'Are you sure?',
+                text: `Delete ${name}? This cannot be undone.`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, delete it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const formData = new FormData();
+                    formData.append('id', id);
+
+                    fetch("{% url 'delete_lab_test' %}", {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": getCSRF()
+                        },
+                        body: formData
+                    })
+                    .then(async res => {
+                        const text = await res.text();
+                        try {
+                            return JSON.parse(text);
+                        } catch {
+                            // show the HTML error in console
+                            console.log("Server returned HTML, not JSON:", text.substring(0,500));
+                            throw new Error("Session expired or server error - check console");
+                        }
+                    })
+                    .then(data => {
+                        if(data.success){
+                            Swal.fire('Deleted!', data.message, 'success').then(() => location.reload());
+                        } else {
+                            Swal.fire('Error!', data.message, 'error');
+                        }
+                    }).catch(err => {
+                        Swal.fire('Error!', err.toString(), 'error');
+                    });
+                }
+            });
+        }
+
+        // EDIT - also delegated
+        if(e.target.classList.contains('btn-edit')){
+            const btn = e.target;
+            const id = btn.dataset.id;
+            const item = btn.dataset.item;
+            const item_id = btn.dataset.item_id;
+            const rate = btn.dataset.rate;
+
+            Swal.fire({
+                title: 'Edit Lab Test',
+                html: `
+                    <input id="swal-item_id" class="swal2-input" placeholder="Test ID" value="${item_id}">
+                    <input id="swal-item" class="swal2-input" placeholder="Test Name" value="${item}">
+                    <input id="swal-rate" class="swal2-input" type="number" step="0.01" placeholder="Rate" value="${rate}">
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Update',
+                preConfirm: () => {
+                    return {
+                        item_id: document.getElementById('swal-item_id').value,
+                        item: document.getElementById('swal-item').value,
+                        rate: document.getElementById('swal-rate').value
+                    }
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const formData = new FormData();
+                    formData.append('id', id);
+                    formData.append('item', result.value.item);
+                    formData.append('item_id', result.value.item_id);
+                    formData.append('rate', result.value.rate);
+
+                    fetch("{% url 'update_lab_test' %}", {
+                        method: "POST",
+                        headers: {"X-CSRFToken": getCSRF()},
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if(data.success){
+                            Swal.fire('Updated!', data.message, 'success').then(() => location.reload());
+                        } else {
+                            Swal.fire('Error!', data.message, 'error');
+                        }
+                    });
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}
