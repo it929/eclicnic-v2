@@ -87,4 +87,16 @@ urlpatterns = [
     path('wards/delete/<int:id>/', views.delete_ward_ajax),
     path('wards/upload-excel/', views.upload_ward_excel_ajax),
 
+    # Packages
+    path('packages/', views.manage_packages, name='manage_packages'),
+    path('packages/edit/<int:pk>/', views.edit_package, name='edit_package'),
+    path('packages/delete/<int:pk>/', views.delete_package, name='delete_package'),
+
+    path('package-data/', views.manage_package_data, name='manage_package_data'),
+    path('search-package-items/', views.search_package_items, name='search_package_items'),
+    path('save-package-data/', views.save_package_data, name='save_package_data'),
+    path('get-package-data-ajax/', views.get_package_data_ajax, name='get_package_data_ajax'),
+    path('edit-package-data/', views.edit_package_data, name='edit_package_data'),
+    path('delete-package-data/', views.delete_package_data, name='delete_package_data'),
+
 ]

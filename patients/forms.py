@@ -57,7 +57,7 @@ class PatientProfileForm(forms.ModelForm):
     class Meta:
         model = PatientProfile
         fields = '__all__'
-        exclude = ['active', 'created_by']
+        exclude = ['active', 'created_by', 'packages', 'deactivated_date', 'deactivated_by']
         widgets = {
             'dob': forms.DateInput(attrs={'type': 'date','class': 'form-control'}),
             'surname': forms.TextInput(attrs={'id': 'surname', 'placeholder':'Surname','class': 'form-control'}),
@@ -213,7 +213,7 @@ class NurseWaitingListForm(forms.ModelForm):
     def __init__(self, *args, **kwargs): 
         super().__init__(*args, **kwargs) 
         # Set the purpose choices from VisitPurpose
-        purposes = VisitPurpose.objects.all()
+        purposes = VisitPurpose.objects.all().order_by('purpose')
         purpose_choices = [(p.purpose, p.purpose) for p in purposes]
         self.fields['purpose'].widget = forms.Select(choices=purpose_choices)
         self.fields['price'].widget.attrs['readonly'] = True

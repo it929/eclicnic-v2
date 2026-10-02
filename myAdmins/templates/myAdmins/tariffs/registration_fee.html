@@ -54,8 +54,13 @@
 
     <hr>
 
-    <h3 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-list"></i> &nbsp;Plan List  </h3>
-    <p></p>
+    <div style="margin: 0px 0px; margin-bottom: 10px;">
+        <input 
+            type="text" class="form-control"
+            id="tableSearchInput" 
+            placeholder="Search Tariff plan by Name or Price" 
+        >
+    </div>
     <hr style="margin-top: -5px;">
 
     <div class="card-body">
@@ -66,16 +71,17 @@
                     <th>Price </th>
                     <th>Actions</th>
                 </tr>
-
-                {% for plan in plans %}
-                <tr id="row{{ plan.id }}">
-                    <td>{{ plan.plan_name }}</td>
-                    <td>₦ {{ plan.price|floatformat:0 }}</td>
-                    <td>
-                        <button onclick="editPlan('{{ plan.id }}','{{ plan.plan_name }}')" class="btn btn-warning btn-sm">Edit <i class="fa fa-pencil"></i></button>
-                        <button onclick="deletePlan('{{ plan.id }}')" class=" btn btn-danger btn-sm">Delete <i class="fa fa-trash"></i></button>
-                    </td>
-                </tr>
+                <tbody id="tariffTableBody">
+                    {% for plan in plans %}
+                    <tr id="row{{ plan.id }}">
+                        <td>{{ plan.plan_name }}</td>
+                        <td>₦ {{ plan.price|floatformat:0 }}</td>
+                        <td>
+                            <button onclick="editPlan('{{ plan.id }}','{{ plan.plan_name }}')" class="btn btn-warning btn-sm">Edit <i class="fa fa-pencil"></i></button>
+                            <button onclick="deletePlan('{{ plan.id }}')" class=" btn btn-danger btn-sm">Delete <i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </tbody>
                 {% endfor %}
             </table>
         </div>
@@ -118,6 +124,27 @@ function savePlan() {
         alert(response?.message || 'Error saving plan');
     });
 }
+
+// Instant client-side table filter
+document.getElementById('tableSearchInput').addEventListener('input', function() {
+    const filterText = this.value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#tariffTableBody tr');
+
+    rows.forEach(row => {
+        // Skip default empty row if present
+        if (row.id === 'emptyRow') return;
+
+        // Extract text content from all columns in the row
+        const rowText = row.textContent.toLowerCase();
+        
+        // Toggle row visibility based on query match
+        if (rowText.includes(filterText)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
 
 function editPlan(id, name, price) {
     $('#plan_id').val(id);

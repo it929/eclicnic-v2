@@ -15,24 +15,22 @@
                         <thead>
                             <tr>
                                 <th>Name</th>
-                                <th>Hospital No.</th>
                                 <th>Category</th>
-                                <th>Plan</th>
                                 <th>Destination</th>
                                 <th>Date</th>
-                                <th>Sent By</th>
+                                <th>Nurse</th>
+                                <th>Doctor in charge</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for patient in patients %}
-                            <tr>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.surname }} {{ patient.patient.other_name }} {{ patient.patient.first_name }}</a> </td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.hospital_number|default:"-" }}</a></td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }}</a></td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.plan.plan|default:"-" }}</a></td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.purpose|default:"-" }}</a></td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"M d, Y" }}</a></td>
-                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
+                            <tr {% if patient.encounter_status == 2 %} class="bg bg-warning" {% elif patient.encounter_status == 3 %} class="bg bg-info" {% endif %}>
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.patient.get_full_name }} [{{patient.patient.hospital_number}}]</a> </td>
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.patient.plan.plan|default:"-" }}</a></td>
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.purpose|default:"-" }}</a></td>
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.created_date|date:"M d, Y" }}</a></td>
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.staff.fullname }}</a></td> 
+                                <td><a href="{% url 'administer_drugs' patient.patient.id %}" style="text-decoration: none; {% if patient.encounter_status == 2 or patient.encounter_status == 3 %}color: #fff; {% endif %}">{{ patient.completed_by|default:"No Doctor yet" }}</a></td>
                             </tr>
                             {% empty %}
                             <tr>

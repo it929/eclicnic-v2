@@ -58,6 +58,7 @@
                     data-parent="#accordionSidebar">
                     <div class="bg-white py-2 collapse-inner rounded">
                         <a class="collapse-item" href="{% url 'search_page' %}">Search for Patients</a>
+                        <a class="collapse-item" href="{% url 'doctor_waiting_list_all' %}">Waiting List (Doctors)</a>
                         <a class="collapse-item" href="{% url 'birthday_list' %}">Today's Birthday List</a>
                         <a class="collapse-item" href="{% url 'family_patients' %}">Family Patients</a>
                         <a class="collapse-item" href="{% url 'anc_patients' %}">ANC Patients</a>
@@ -93,7 +94,6 @@
                 <div id="collapseAttendance" class="collapse" aria-labelledby="headingUtilities"
                     data-parent="#accordionSidebar">
                     <div class="bg-white py-2 collapse-inner rounded">
-                        <a class="collapse-item" href="{% url 'attendants_today' %}">Today's Attendance</a>
                         <a class="collapse-item" href="{% url 'attendants_all' %}">All-time Attendance</a>
                         
                     </div>

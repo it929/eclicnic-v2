@@ -14,9 +14,9 @@
                 <th>Name</th>
                 <th>Hospital No.</th>
                 <th>Category</th>
-                <th>Plan</th>
                 <th>Date</th>
-                <th>Sent By</th>
+                <th>Nurse</th>
+                <th>Doctor in charge</th>
             </tr>
         </thead>
         <tbody></tbody>
@@ -35,47 +35,23 @@ $(document).ready(function () {
             }
         },
         columns: [
-            {
-                data: 'name',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            },
-            {
-                data: 'hospital_number',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            },
-            
-            {
-                data: 'category',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            },
-            {
-                data: 'plan',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            },
-            
-            {
-                data: 'created_date',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            },
-            {
-                data: 'attendant',
-                render: function (data, type, row) {
-                    return `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>`;
-                }
-            }
+            { data: 'name', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` },
+            { data: 'hospital_number', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` },
+            { data: 'plan', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` },
+            { data: 'created_date', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` },
+            { data: 'attendant', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` },
+            { data: 'completed_by', render: (data, type, row) => `<a href="/administer-drugs/${row.patient_id}/" style="color: ${row.critical_request == 1 ? 'brown' : ''}; text-decoration:none">${data}</a>` }
         ],
         rowCallback: function (row, data) {
+            // clear previous colors on reload (important because of setInterval)
+            $(row).removeClass('bg bg-warning bg-info');
 
+            if (data.encounter_status == 2) {
+                $(row).addClass('bg bg-warning');
+            } else if (data.encounter_status == 3) {
+                $(row).addClass('bg bg-info');
+            }
+            // else no background
         }
     });
 

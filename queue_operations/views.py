@@ -1,6 +1,7 @@
 import pandas as pd
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.apps import apps
 from django.contrib import messages
 from django.db.models import Q
 from django.db import transaction
@@ -10,22 +11,22 @@ from decimal import Decimal
 import re
 import traceback
 from django.contrib.auth.decorators import login_required
-from .models import VisitPurpose, NurseWaitingList,PatientBackgroundHealth, DoctorWaitingList,Transcript,PatientFollowUp,PatientReferral,PatientOtherDetails, OtherService, WrittenPrescriptions
+from inventory.decorators import department_required
+from .forms import BackgroundHealthForm,EditPatientBackgroundHealthForm,DoctorWaitingListForm,DoctorWaitingListModifyForm, DiagnosisForm, ICD11SearchForm
+from ANC.forms import PatientAppointmentForm
+from patients.forms import PatientAlergyUpdateForm
+from patients.models import PatientProfile, PatientAppointment, PatientPlan, PatientCategory
+from .models import VisitPurpose, NurseWaitingList,PatientBackgroundHealth, DoctorWaitingList,Transcript,PatientFollowUp,PatientReferral,PatientOtherDetails, OtherService, WrittenPrescriptions, ICD11Code
+from IPD_pharm.models import IPDAdministeredDrugs
+from IPD.models import AdmissionTable
+from Billings.models import TransactionUpdate
 from radio_lab.models import RadioLabInventory, RadiologyLab, ScanResult, LabResult
 from ANC.models import AntenatalVisit
 from inventory.models import Product, PharmacyTariff
 from myAdmins.models import OtherService2, OtherServiceConsumed
-from .forms import BackgroundHealthForm,EditPatientBackgroundHealthForm,DoctorWaitingListForm,DoctorWaitingListModifyForm
-from patients.models import PatientProfile, PatientAppointment, PatientPlan
-from patients.forms import PatientAlergyUpdateForm
-from IPD_pharm.models import Drugs, IPDAdministeredDrugs
-from IPD.models import AdmissionTable
-from Billings.models import TransactionUpdate
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_GET, require_POST
 import json
-from .models import ICD11Code
-from .forms import DiagnosisForm, ICD11SearchForm
 from django.contrib.staticfiles import finders
 from django.template.loader import get_template
 from xhtml2pdf import pisa
@@ -71,6 +72,8 @@ def fetch_waiting_list(request):
     })
 
 
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def load_nurse_queue(request):
     return render(request, 'queue_operations/waiting_list.html',{'page':'nurse-queue-load'})
 
@@ -82,7 +85,8 @@ def nurse_waiting_count(request):
     ).count()
     return JsonResponse({'count': count})
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def nurse_done_list(request):
     my_patients = NurseWaitingList.objects.filter(waiting_status = 1, completed_by=request.user.fullname, created_date__gte=timezone.now() - timedelta(hours=24))
     # all_patients = NurseWaitingList.objects.filter(waiting_status = 1, created_date__gte=timezone.now() - timedelta(hours=24))
@@ -97,7 +101,7 @@ def nurse_done_list(request):
     }
     return render(request, 'queue_operations/done_list.html', context)
 
-@login_required(login_url='login')
+@login_required
 def attendants_today(request):
     today = timezone.now().date()
     now = timezone.localtime(timezone.now())
@@ -115,63 +119,136 @@ def attendants_today(request):
     return render(request, 'queue_operations/attendance.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Front Desk', 'Admin', 'CMD')
 def attendants_all(request):
-    patients = NurseWaitingList.objects.all().select_related('category')
+    from datetime import datetime, time
+    import datetime as dt
+    from django.utils import timezone
+    from django.db.models import Q
 
-    if request.method == 'POST':
-        category = request.POST.get('category', '').strip()
-        date1 = request.POST.get('date1', '').strip()
-        date2 = request.POST.get('date2', '').strip()
+    base_qs = NurseWaitingList.objects.all().select_related('category', 'patient', 'patient__plan')
+    last_24_hours = timezone.now() - timedelta(hours=24)
+    
+    filter_category = request.GET.get('category', '').strip()
+    filter_date1 = request.GET.get('date1', '').strip()
+    filter_date2 = request.GET.get('date2', '').strip()
+    all_categories = PatientCategory.objects.all().order_by('category')
 
-        filters = Q()
+    filters = Q()
+    if filter_category:
+        filters &= Q(category_id=filter_category)
 
-        if category:
-            filters &= Q(category__category=category)
+    if filter_date1 and filter_date2:
+        try:
+            d1 = dt.datetime.strptime(filter_date1, '%Y-%m-%d').date()
+            d2 = dt.datetime.strptime(filter_date2, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d1, time.min))
+            end = timezone.make_aware(datetime.combine(d2, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
+    elif filter_date1:
+        try:
+            d1 = dt.datetime.strptime(filter_date1, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d1, time.min))
+            end = timezone.make_aware(datetime.combine(d1, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
+    elif filter_date2:
+        try:
+            d2 = dt.datetime.strptime(filter_date2, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d2, time.min))
+            end = timezone.make_aware(datetime.combine(d2, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
 
-        if date1 and date2:
-            filters &= Q(created_date__range=[date1, date2])
-        elif date1:
-            filters &= Q(created_date__date=date1)
-        elif date2:
-            filters &= Q(created_date__date=date2)
-
-        patients = patients.filter(filters).order_by('-created_date')
+    if filters:
+        patients = base_qs.filter(filters).order_by('-created_date')
+    else:
+        patients = base_qs.filter(created_date__gte=last_24_hours).order_by('-created_date')
 
     context = {
         'patients': patients,
         'counts': patients.count(),
-        'title': 'All-time Patients Attendance Sheet',
+        'title': 'Patients Attendance Sheet',
         'page': 'attendants-all',
+        'all_categories': all_categories,
+        'filter_category': filter_category,
+        'filter_date1': filter_date1,
+        'filter_date2': filter_date2,
     }
     return render(request, 'queue_operations/attendance.html', context)
 
 
-@login_required(login_url='login')
 def export_to_excel(request):
-    category = request.GET.get('category', '').strip()
+    import pandas as pd
+    import datetime as dt
+    from datetime import datetime, time
+    from django.utils import timezone
+    from django.http import HttpResponse
+    from django.db.models import Q
+
+    category_id = request.GET.get('category', '').strip()
     date1 = request.GET.get('date1', '').strip()
     date2 = request.GET.get('date2', '').strip()
 
-    patients = NurseWaitingList.objects.all().order_by('-created_date')
+    patients = NurseWaitingList.objects.all().select_related(
+        'category', 'patient', 'patient__plan'
+    ).order_by('-created_date')
 
-    if category:
-        patients = patients.filter(category__category=category)
-    
+    filters = Q()
+
+    # 1. Category - immutable record from NurseWaitingList
+    if category_id:
+        try:
+            filters &= Q(category_id=int(category_id))
+        except ValueError:
+            pass
+
+    # 2. Date to include whole end day
     if date1 and date2:
-        patients = patients.filter(created_date__range=(date1, date2))
+        try:
+            d1 = dt.datetime.strptime(date1, '%Y-%m-%d').date()
+            d2 = dt.datetime.strptime(date2, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d1, time.min))
+            end = timezone.make_aware(datetime.combine(d2, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
     elif date1:
-        patients = patients.filter(created_date__date=date1)
+        try:
+            d1 = dt.datetime.strptime(date1, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d1, time.min))
+            end = timezone.make_aware(datetime.combine(d1, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
     elif date2:
-        patients = patients.filter(created_date__date=date2)
+        try:
+            d2 = dt.datetime.strptime(date2, '%Y-%m-%d').date()
+            start = timezone.make_aware(datetime.combine(d2, time.min))
+            end = timezone.make_aware(datetime.combine(d2, time.max))
+            filters &= Q(created_date__range=(start, end))
+        except ValueError:
+            pass
+
+    if filters:
+        patients = patients.filter(filters)
+    else:
+        # No filter = default last 24 hours
+        last_24_hours = timezone.now() - timedelta(hours=24)
+        patients = patients.filter(created_date__gte=last_24_hours)
 
     data = {
-        'Fullname': [f"{result.patient.surname} {result.patient.first_name} {result.patient.other_name}" for result in patients],
-        'Hospital No': [result.patient.hospital_number for result in patients],
-        'Phone No': [result.patient.phone_number for result in patients],
-        'Category': [result.patient.category.category for result in patients],
-        'Plan': [result.patient.plan.plan for result in patients],
-        'Date Taken': [result.created_date.strftime('%Y-%m-%d') for result in patients],
+        'Fullname': [f"{r.patient.surname} {r.patient.first_name} {r.patient.other_name or ''}".strip() for r in patients],
+        'Hospital No': [r.patient.hospital_number for r in patients],
+        'Phone No': [r.patient.phone_number for r in patients],
+        'Category': [r.category.category if r.category else '' for r in patients],
+        'Plan': [r.patient.plan.plan if hasattr(r.patient, 'plan') and r.patient.plan else '' for r in patients],
+        'Date Taken': [timezone.localtime(r.created_date).strftime('%Y-%m-%d %H:%M:%S') for r in patients],
     }
 
     df = pd.DataFrame(data)
@@ -184,7 +261,7 @@ def export_to_excel(request):
     return response
 
 
-@login_required(login_url='login')
+@login_required
 def operations_profile(request, key):
     page = 'operations-profile'
     patient = get_object_or_404(PatientProfile, id=key)
@@ -194,7 +271,7 @@ def operations_profile(request, key):
     }
     return render(request, 'queue_operations/crumbs/operations_profile_doc.html', context)
 
-@login_required(login_url='login')
+@login_required
 def operations_profile_nur(request, key):
     page = 'operations-profile-nur'
     patient = get_object_or_404(PatientProfile, id=key)
@@ -204,7 +281,7 @@ def operations_profile_nur(request, key):
     }
     return render(request, 'queue_operations/crumbs/operations_profile_nur.html', context)
 
-@login_required(login_url='login')
+@login_required
 def operations_profile_lab(request, key):
     page = 'operations-profile-lab'
     patient = get_object_or_404(PatientProfile, id=key)
@@ -214,7 +291,7 @@ def operations_profile_lab(request, key):
     }
     return render(request, 'queue_operations/crumbs/operations_profile_lab.html', context)
 
-@login_required(login_url='login')
+@login_required
 def operations_profile_rad(request, key):
     page = 'operations-profile-rad'
     patient = get_object_or_404(PatientProfile, id=key)
@@ -225,8 +302,9 @@ def operations_profile_rad(request, key):
     return render(request, 'queue_operations/crumbs/operations_profile_rad.html', context)
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@department_required('Nursing', 'Clinical', 'Admin', 'CMD')
+@transaction.atomic
 def background_health(request, key):
     page = 'background-health'
     health_id = 0
@@ -312,36 +390,47 @@ def background_health(request, key):
     return render(request, 'queue_operations/background_health.html', context)
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+STORES_CONFIG = {
+    'ipd_pharm1': {'name': 'IPD Pharmacy 1','app_name': 'IPD_pharm','models_module': 'IPD_pharm.models','drug_model': 'Drugs','transaction_model': 'IPDAdministeredDrugs','display_name': 'IPD Pharmacy 1'},
+    'ipd_pharm2': {'name': 'IPD Pharmacy 2','app_name': 'IPD_pharm2','models_module': 'IPD_pharm2.models','drug_model': 'Ipd2Drugs','transaction_model': 'IPD2AdministeredDrugs','display_name': 'IPD Pharmacy 2'},
+    'ipd_pharm3': {'name': 'IPD Pharmacy 3','app_name': 'IPD_pharm3','models_module': 'IPD_pharm3.models','drug_model': 'Ipd3Drugs','transaction_model': 'IPD3AdministeredDrugs','display_name': 'IPD Pharmacy 3'},
+    'opd_pharm1': {'name': 'OPD Pharmacy 1','app_name': 'OPD_pharm','models_module': 'OPD_pharm.models','drug_model': 'OpdDrugs','transaction_model': 'OPDAdministeredDrugs','display_name': 'OPD Pharmacy 1'},
+    'opd_pharm2': {'name': 'OPD Pharmacy 2','app_name': 'OPD_pharm2','models_module': 'OPD_pharm2.models','drug_model': 'Opd2Drugs','transaction_model': 'OPD2AdministeredDrugs','display_name': 'OPD Pharmacy 2'},
+}
+
+def get_store_model(store_id, model_type='drug'):
+    store_config = STORES_CONFIG.get(store_id)
+    if not store_config:
+        raise ValueError(f"Store {store_id} not found")
+    model_name = store_config['drug_model'] if model_type == 'drug' else store_config['transaction_model']
+    return apps.get_model(store_config['app_name'], model_name)
+
+
+@login_required
+@department_required('Nursing', 'Clinical', 'Admin', 'CMD')
+@transaction.atomic
 def vital_signs(request, key):
     page = 'vital-signs'
     patient = get_object_or_404(PatientProfile, id=key)
     vital_signs_form = DoctorWaitingListForm()
     alergy_form = PatientAlergyUpdateForm(instance=patient)
+    appointment = PatientAppointmentForm()
 
     # Antenatal checks
     current_gestational_age_weeks = ''
-
-    antenatal_visit = AntenatalVisit.objects.filter(
-        patient=patient
-    ).select_related('current_pregnancy').first()
-
+    antenatal_visit = AntenatalVisit.objects.filter(patient=patient).select_related('current_pregnancy').first()
     if antenatal_visit:
         pregnancy_instance = getattr(antenatal_visit, 'current_pregnancy', None)
-
         if pregnancy_instance and pregnancy_instance.last_menstrual_period:
             gest_age = pregnancy_instance.calculate_gestational_age()
-            current_gestational_age_weeks = f'week {gest_age}'  
-        # End Antenatal checks
+            current_gestational_age_weeks = f'week {gest_age}'
 
-    # Get background health record
     try:
         patient_health_hist = PatientBackgroundHealth.objects.get(patient=patient)
     except PatientBackgroundHealth.DoesNotExist:
         return redirect('background_health', key=patient.id)
 
-    # Get the CURRENT active waiting list entry (not completed, most recent)
+    # validate patient's queue
     current_waiting_entry = NurseWaitingList.objects.filter(
         patient=patient, waiting_status = 0,
         completed__in = [0, 3],
@@ -351,10 +440,50 @@ def vital_signs(request, key):
         messages.error(request, "This patient doesn't have an active nurse queue entry.")
         return redirect('waiting_list')
 
+    # For immunization tab - getting previously administered vaccines
+    administered_vaccines = []
+    for sid in STORES_CONFIG:
+        try:
+            t_model = get_store_model(sid, 'transaction')
+            qs = []
+            try:
+                qs = list(t_model.objects.filter(patient=patient, UoM__iexact='immuno').order_by('-id')[:5])
+            except Exception as e:
+                print(f"{sid} UoM filter failed: {e}")
+
+
+            for obj in qs:
+                obj.store_id = sid
+                # ensure completed exists
+                if not hasattr(obj, 'completed'):
+                    obj.completed = getattr(obj, 'completed', 0) or 0
+                administered_vaccines.append(obj)
+                
+            print(f"{sid}: Found {len(qs)} immuno records")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            continue
+
+    # Sort newest first
+    administered_vaccines.sort(key=lambda x: x.id, reverse=True)
+
+    # getting the nearest upcoming appointments
+    nearest_appointment = (
+        PatientAppointment.objects.filter(
+            patient=patient,
+            arrival_date__gte=today,
+        )
+        .order_by("arrival_date", "arrival_time")
+        .first()
+    )
+
+    # Hnadling post requests
     if request.method == 'POST':
         if 'save_vitals' in request.POST:
             vital_signs_form = DoctorWaitingListForm(request.POST)
-            if request.POST['weight'] != '' and request.POST['height'] != '':
+            if request.POST['weight']!= '' and request.POST['height']!= '':
                 if request.POST['unit'] == 'cm':
                     get_bmi = round((float(request.POST['weight'])/((float(request.POST['height'])/100)*(float(request.POST['height'])/100))),2)
                 else:
@@ -363,7 +492,6 @@ def vital_signs(request, key):
                 get_bmi = 0
             if request.user.pin == int(request.POST.get('pin_code')):
                 if vital_signs_form.is_valid():
-                    # Save vitals
                     get_vitals = vital_signs_form.save(commit=False)
                     get_vitals.patient = patient
                     get_vitals.staff = request.user
@@ -374,22 +502,35 @@ def vital_signs(request, key):
                     get_vitals.anc_weeks = current_gestational_age_weeks
                     get_vitals.purpose = re.sub(r'\s*\([^)]*\)', '', current_waiting_entry.purpose).strip()
                     get_vitals.save()
-
-                    # Update ONLY THE CURRENT waiting list entry
                     current_waiting_entry.waiting_status = 1
                     current_waiting_entry.completed_by = request.user.fullname
                     current_waiting_entry.save()
-
                     messages.success(request, 'Vitals saved! Patient sent to doctor queue.')
                     return redirect('waiting_list')
                 else:
-                    print("Form Errors:", vital_signs_form.errors) 
-                    
-                    # displaying the exact errors to the user on the frontend
                     error_msg = ", ".join([f"{k}: {v[0]}" for k, v in vital_signs_form.errors.items()])
                     messages.error(request, f'Invalid form data: {error_msg}')
             else:
                 messages.error(request, 'Incorrect PIN')
+
+        elif 'appoints' in request.POST:
+            appointment = PatientAppointmentForm(request.POST)
+            if appointment.is_valid():
+                if request.user.pin == int(request.POST.get('pin_code')):
+                    try:
+                        a_form = appointment.save(commit=False)
+                        a_form.provider = request.user
+                        a_form.patient = patient
+                        a_form.clinician = 'Nurse '+ request.user.fullname
+                        a_form.save()
+                        messages.success(request, f'Appointment Created with {patient.surname} {patient.first_name}')
+                    except Exception as e:
+                        messages.error(request, f'Error creating request: {str(e)}')
+                else:
+                    messages.error(request, 'Incorrect Pin Code Entry')
+            else:
+                messages.error(request, 'Error Occurred!')
+
         elif 'allergy' in request.POST:
             alergy_form = PatientAlergyUpdateForm(request.POST, instance=patient)
             if alergy_form.is_valid():
@@ -411,11 +552,16 @@ def vital_signs(request, key):
         'vital_signs_form': vital_signs_form,
         'patient_health_hist': patient_health_hist,
         'alergy_form': alergy_form,
+        'appointment':appointment,
+        'nearest_appointment':nearest_appointment,
+        'stores': STORES_CONFIG, # for immunization
+        'administered_vaccines': administered_vaccines,
     }
     return render(request, 'queue_operations/vital_signs.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Clinical', 'Admin', 'CMD')
 def manage_vital_signs(request, key):
     page = 'manage-vitals'
     patient = get_object_or_404(PatientProfile, id=key)
@@ -459,7 +605,6 @@ def manage_vital_signs(request, key):
         mod_vital_signsform = DoctorWaitingListModifyForm()
         messages.error(request, "This patient is not in the doctor waiting list.")
         return redirect('doctor_waiting_list')  
-    
 
     if request.method == 'POST':
 
@@ -499,7 +644,6 @@ def manage_vital_signs(request, key):
             else:
                 messages.error(request, 'Error Occurred!')
 
-
     context = {
         'patient': patient,
         'page': page,
@@ -511,8 +655,148 @@ def manage_vital_signs(request, key):
     return render(request, 'queue_operations/nurse_vitals_view.html', context)
 
 
+def search_vaccines(request):
+    query = request.GET.get('q', '').strip()
+    store_id = request.GET.get('store', 'ipd_pharm1')
+    patient_id = request.GET.get('patient_id')
+    if len(query) < 2:
+        return JsonResponse({'results': []})
+    try:
+        drug_model = get_store_model(store_id, 'drug')
+
+        products = drug_model.objects.filter(
+            activation_status=1,
+            minimum_UoM__iexact='immuno',  # ONLY vaccines
+            product_name__icontains=query
+        )[:20]
+
+        # plan / tariff logic 
+        default_plan = PatientPlan.objects.filter(plan__iexact='Single').first()
+        patient_plan = default_plan
+        if patient_id:
+            try:
+                p = PatientProfile.objects.select_related('plan').get(id=patient_id)
+                patient_plan = p.plan or default_plan
+            except: pass
+        product_codes = [p.product_id for p in products]
+        tariff_map = {t.product_id.lower(): t.rate for t in PharmacyTariff.objects.filter(product_id__in=product_codes, plan=patient_plan)}
+
+        results = []
+        for product in products:
+            key = (product.product_id or '').lower()
+            tariff_price = tariff_map.get(key, product.price)
+            results.append({
+                'pk_id': product.id,  
+                'id': product.id, 
+                'text': f"{product.product_name} - ₦{tariff_price} (Stock: {product.stock})",
+                'stock': product.stock,
+                'price': str(tariff_price),
+                'original_name': product.product_name,
+                'store_id': store_id,
+                'product_code': product.product_id,  
+                'uom': product.minimum_UoM,
+            })
+        return JsonResponse({'results': results})
+    except Exception as e:
+        return JsonResponse({'results': [], 'error': str(e)})
+
+
+@login_required
+@transaction.atomic
+def administer_vaccine(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid method'})
+    try:
+        data = json.loads(request.body)
+        patient = get_object_or_404(PatientProfile, id=data.get('patient_id'))
+        store_id = data.get('store_id')
+        product_code = data.get('product_code')  
+        product_name = data.get('product_name')
+        price = data.get('price')
+        qty = int(data.get('quantity', 1))
+
+        drug_model = get_store_model(store_id, 'drug')
+        trans_model = get_store_model(store_id, 'transaction')
+
+        product_obj = drug_model.objects.get(product_id=product_code)
+
+        if product_obj.stock < qty:
+            return JsonResponse({'success': False, 'error': f'Insufficient stock: {product_obj.stock}'})
+
+        trans_model.objects.create(
+            product=product_obj,  
+            item=product_name,   
+            rate=price,          
+            quantity=qty,         
+            UoM='immuno',         
+            patient=patient,
+            category=patient.category,
+            plan=patient.plan,
+            staff=request.user
+        )
+
+        product_obj.stock -= qty
+        product_obj.save()
+
+        # update TransactionUpdate model from Billings app
+        obj, created = TransactionUpdate.objects.get_or_create(
+            patient=patient,
+            completed=0,
+            defaults={
+                'invoice_raised': 0, 
+                'receipt_given': 0
+                    }
+        )
+
+        return JsonResponse({'success': True})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@transaction.atomic
+def delete_vaccine(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid method'})
+    try:
+        data = json.loads(request.body)
+        record_id = data.get('record_id')
+        store_id = data.get('store_id')
+        
+        t_model = get_store_model(store_id, 'transaction')
+        record = get_object_or_404(t_model, id=record_id)
+
+        # ONLY allow delete if payment had not been made
+        completed_val = getattr(record, 'completed', 0) or 0
+        if int(completed_val) != 0:
+            return JsonResponse({'success': False, 'error': 'Cannot delete - transaction already completed/billed'})
+
+        # Restore stock
+        try:
+            drug_model = get_store_model(store_id, 'drug')
+            if hasattr(record, 'product') and record.product:
+                product_obj = record.product
+                product_obj.stock += record.quantity
+                product_obj.save()
+        except:
+            pass
+
+        record.delete()
+        return JsonResponse({'success': True})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)})
+    
+
+
 # Beginning of Doctor's Views
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Clinical', 'Admin', 'CMD')
 def doctor_waiting_list(request):
     today = timezone.now().date()
     clean_purpose = re.sub(r'\s*\([^)]*\)', '', request.user.purpose.purpose).strip()
@@ -531,22 +815,23 @@ def fetch_doctors_queue(request):
     filter_by_specialty = re.sub(r'\s*\([^)]*\)', '', request.user.purpose.purpose).strip()
     queue = DoctorWaitingList.objects.filter(
         completed=0,
-        waiting_status=0,purpose=filter_by_specialty,
+        waiting_status=0, purpose=filter_by_specialty,
         created_date__gte=timezone.now() - timedelta(hours=24)
-    )
-    data = []
+    ).select_related('patient', 'staff') # faster
 
+    data = []
     for record in queue:
         patient = record.patient
         data.append({
             'patient_id': patient.id if patient else '',
             'name': f"{patient.surname} {patient.other_name} {patient.first_name}" if patient else "N/A",
             'hospital_number': f"{patient.hospital_number} " if patient else "N/A",
-            'category': f"{patient.category}" if patient else "N/A",
             'plan': f"{patient.plan} " if patient else "N/A",
             'attendant': f"{record.staff.fullname} " if record.staff else "N/A",
             'created_date': record.created_date.strftime('%Y-%m-%d %H:%M'),
             'critical_request': getattr(record, 'critical_request', 0),
+            'encounter_status': record.encounter_status, 
+            'completed_by': f"{record.completed_by} " if record.completed_by else "No Doctor yet",
         })
 
     return JsonResponse({
@@ -555,6 +840,8 @@ def fetch_doctors_queue(request):
     })
 
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def load_doctor_queue(request):
     return render(request, 'queue_operations/doctors_queue.html')
 
@@ -568,13 +855,16 @@ def doctor_waiting_count(request):
     ).count()
     return JsonResponse({'count': count})
 
-def doctor_waiting_list_all(request): # (Admin and CMD)
+
+@login_required
+@department_required('Front Desk', 'Nursing', 'Clinical', 'Admin', 'CMD')
+def doctor_waiting_list_all(request): # (Admin and CMD, Doctors, Nursing, and FrontDesk)
     page = 'doctor_queue_all'
     now = timezone.localtime(timezone.now())
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    patients = DoctorWaitingList.objects.filter(completed=0, waiting_status = 0, created_date__gte=timezone.now() - timedelta(hours=24))
+    patients = DoctorWaitingList.objects.filter(completed=0, waiting_status = 0, created_date__gte=timezone.now() - timedelta(hours=24)).select_related('category', 'patient', 'plan')
     context = {
         'page':page,
         'patients':patients
@@ -614,6 +904,8 @@ def fetch_lab_results_queue(request):
     })
 
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def load_lab_results_queue(request):
     page = 'lab-results-queue'
     context = {
@@ -665,6 +957,8 @@ def fetch_scan_results_queue(request):
     })
 
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def load_scan_results_queue(request):
     page = 'scan-results-queue'
     context = {
@@ -684,7 +978,8 @@ def scan_results_waiting_count(request):
     return JsonResponse({'count': count})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def doctor_done_list(request):
     patients = DoctorWaitingList.objects.filter(waiting_status = 1, completed_by = request.user.fullname, created_date__gte=timezone.now() - timedelta(hours=24))
 
@@ -697,15 +992,20 @@ def doctor_done_list(request):
     return render(request, 'queue_operations/done_list.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def doctor_nurse_report(request, key):
     page = 'doctor-nurse-report'
     patient = get_object_or_404(PatientProfile, id=key)
 
+    current_waiting_entry = DoctorWaitingList.objects.filter(
+            patient=patient, waiting_status = 0,
+            completed = 0, encounter_status__in = [0,3]
+        ).order_by('-created_date').first()
+    
+    
     # check the last modified bg-health-record
     bg_health_last_modified_by = ''
-
-
     last_bg_health = PatientBackgroundHealth.objects.filter(patient=patient).last()
 
     if last_bg_health:
@@ -806,10 +1106,53 @@ def doctor_nurse_report(request, key):
         'vital_signs':vital_signs,
         'mod_vital_signsform':mod_vital_signsform,
         'bg_health_last_modified_by':bg_health_last_modified_by,
+        
+        #for updating waiting/encounter status
+        'current_waiting_entry': current_waiting_entry,
+        'current_waiting_entry_id': current_waiting_entry.id if current_waiting_entry else None,
     }
     return render(request, 'queue_operations/doctor_consultation.html', context)
 
 
+@login_required
+@require_POST
+def update_encounter_status(request, pk):
+    try:
+        entry = DoctorWaitingList.objects.select_related('patient').get(pk=pk)
+    except DoctorWaitingList.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'Waiting list entry not found.'}, status=404)
+
+    # Prevent double click / race condition
+    if entry.encounter_status not in [0,3]:
+        return JsonResponse({
+            'success': False,
+            'message': f'Already handled (status={entry.encounter_status}).'
+        }, status=400)
+
+    # supports both form-encoded and JSON
+    action = request.POST.get('action')
+    if not action:
+        try:
+            action = json.loads(request.body).get('action')
+        except:
+            pass
+
+    if action == 'confirm':
+        entry.encounter_status = 2 # started
+        entry.completed_by = request.user.fullname
+        msg = f'Encounter started for {entry.patient.get_full_name()}.'
+    elif action == 'cancel':
+        entry.encounter_status = 0 # cancelled
+        msg = f'Encounter cancelled for {entry.patient.get_full_name()}.'
+    else:
+        return JsonResponse({'success': False, 'message': 'Invalid action'}, status=400)
+
+    entry.save(update_fields=['encounter_status'])
+    return JsonResponse({'success': True, 'message': msg, 'encounter_status': entry.encounter_status})
+
+
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def complaint_search(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
     other_details_value = referrals_value = encounters_value = followups_value = appointments_value = ""
@@ -871,7 +1214,6 @@ def complaint_search(request, patient_id):
     return render(request, 'queue_operations/presenting_complaints.html',context)
 
 
-from django.views.decorators.http import require_POST
 from .models import PresentingComplaint, PatientEncounter
 
 @login_required
@@ -1125,6 +1467,7 @@ def edit_encounter(request, encounter_id):
         }
     
     return JsonResponse(data)
+
 
 @login_required
 @csrf_exempt
@@ -1653,6 +1996,8 @@ def delete_appointment(request, pk):
     })
 
 
+@login_required
+@department_required('Nursing', 'Clinical', 'Billings', 'Admin', 'CMD')
 def get_case_note(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
     
@@ -1718,7 +2063,7 @@ def get_case_note(request, patient_id):
                 staff=request.user,
                 patient=patient,
                 # pharm_waiting_status=0,
-                # completed=0,
+                completed=1,
                 created_date__gte=timezone.now() - timedelta(hours=24)
             ).select_related('product')
             
@@ -1739,15 +2084,18 @@ def get_case_note(request, patient_id):
     radiology_scan = RadiologyLab.objects.filter(
         patient=patient, 
         item_type='R',
+        completed=1,
         created_date__gte=one_day_ago
     )
     laboratory_lab = RadiologyLab.objects.filter(
         patient=patient, 
+        completed=1,
         item_type='L',
         created_date__gte=one_day_ago
     )
     other_services = OtherService.objects.filter(
         patient=patient,
+        completed=1,
         created_date__gte=one_day_ago
     )
 
@@ -1809,12 +2157,12 @@ def get_filtered_case_note(request, patient_id):
         #  BASE QUERYSETS - GET EVERYTHING FOR THIS PATIENT FIRST
         vital_signs_qs = DoctorWaitingList.objects.filter(patient=patient).order_by('created_date')
         encounters_qs = PatientEncounter.objects.filter(patient=patient).order_by('created_at')
-        investigations_qs = RadiologyLab.objects.filter(patient=patient).order_by('created_date')
+        investigations_qs = RadiologyLab.objects.filter(patient=patient,completed=1).order_by('created_date')
         other_details_qs = PatientOtherDetails.objects.filter(patient=patient).order_by('created_at')
         followups_qs = PatientFollowUp.objects.filter(patient=patient).order_by('created_at')
         referrals_qs = PatientReferral.objects.filter(patient=patient).order_by('created_at')
         appointments_qs = PatientAppointment.objects.filter(patient=patient).order_by('created_date')
-        other_services_qs = OtherService.objects.filter(patient=patient).order_by('created_date')
+        other_services_qs = OtherService.objects.filter(patient=patient,completed=1).order_by('created_date')
         written_prescriptions_qs = WrittenPrescriptions.objects.filter(patient=patient).order_by('created_date')
 
         #  FETCH DRUGS FROM ALL STORES
@@ -1822,7 +2170,7 @@ def get_filtered_case_note(request, patient_id):
         for store_id, config in STORES_CONFIG.items():
             try:
                 transaction_model = get_store_model(store_id, 'transaction')
-                drugs = transaction_model.objects.filter(patient=patient).select_related('product').order_by('created_date')
+                drugs = transaction_model.objects.filter(patient=patient,completed=1).select_related('product').order_by('created_date')
                 
                 for drug in drugs:
                     drug.store_id = store_id
@@ -1901,10 +2249,14 @@ def get_filtered_case_note(request, patient_id):
             
             vital_provider_prefix = ""
             if vital.staff and hasattr(vital.staff, 'department') and vital.staff.department:
-                if vital.staff.department.department == 'Clinical':
+                if vital.staff.department.department in 'Clinical, CMD':
                     vital_provider_prefix = 'Dr. '
                 elif vital.staff.department.department == 'Nursing':
                     vital_provider_prefix = 'Nurse '
+                elif vital.staff.department.department == 'Admin':
+                    vital_provider_prefix = 'Admin, '
+                else:
+                    vital_provider_prefix = 'Intruder '
             
             grouped_data[date_str]['vital_signs'].append({
                 'height': str(vital.height) if vital.height else None,
@@ -1955,7 +2307,18 @@ def get_filtered_case_note(request, patient_id):
                     'referrals': [], 'appointments': [], 'other_services': [],
                     'written_prescriptions': [],
                 }
-            
+
+            vital_provider_prefix = ""
+            if drug.staff and hasattr(drug.staff, 'department') and drug.staff.department:
+                if drug.staff.department.department in 'Clinical, CMD':
+                    drug_provider_prefix = 'Dr. '
+                elif drug.staff.department.department == 'Nursing':
+                    drug_provider_prefix = 'Nurse '
+                elif drug.staff.department.department == 'Admin':
+                    drug_provider_prefix = 'Admin, '
+                else:
+                    drug_provider_prefix = 'Intruder '
+
             grouped_data[date_str]['administered_drugs'].append({
                 'item': drug.item or 'Unknown',
                 'UoM': drug.UoM or '',
@@ -1965,7 +2328,7 @@ def get_filtered_case_note(request, patient_id):
                 'duration': drug.duration or '',
                 'quantity': str(drug.quantity) if drug.quantity else '',
                 'start_date': str(drug.start_date) if drug.start_date else '',
-                'provider': f"Dr. {drug.staff.fullname}" if drug.staff else 'Unknown',
+                'provider': f"{drug_provider_prefix}{drug.staff.fullname}" if drug.staff else 'Unknown',
                 'created_date': drug.created_date.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2000,7 +2363,7 @@ def get_filtered_case_note(request, patient_id):
                     'referrals': [], 'appointments': [], 'other_services': [],
                     'written_prescriptions': [],
                 }
-            
+
             grouped_data[date_str]['other_details'].append({
                 'condition_status': detail.condition_status or 'Not specified',
                 'to_be_admitted': detail.to_be_admitted or 'Not specified',
@@ -2094,7 +2457,7 @@ def get_filtered_case_note(request, patient_id):
             grouped_data[date_str]['other_services'].append({
                 'purpose': service.purpose or 'Not specified',
                 'provider': f"Dr. {service.provider.fullname}" if service.provider else 'Unknown',
-                'created_at': service.created_date.strftime('%Y-%m-%d %H:%M'),
+                'created_date': service.created_date.strftime('%Y-%m-%d %H:%M'),
             })
 
         # Process written prescriptions
@@ -2158,6 +2521,8 @@ def use_transcriptor(request, patient_id):
     return render(request, 'queue_operations/transcriptions.html',context)
 
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def clinical_results(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
     
@@ -2372,6 +2737,8 @@ def print_clinical_results_pdf(request, patient_id):
     return response
 
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def print_clinical_results_browser(request, patient_id):
     """Browser print version (backup plan)"""
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -2574,7 +2941,7 @@ def get_store_model(store_id, model_type='drug'):
 
 
 
-@login_required(login_url='login')
+@login_required
 def search_products(request):
     query = request.GET.get('q', '').strip()
     store_id = request.GET.get('store', 'ipd_pharm1')
@@ -2797,7 +3164,7 @@ def update_drug_start_date(request):
 
 
 @login_required
-@transaction.atomic()
+@transaction.atomic
 def update_drug_quantity(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
@@ -2918,7 +3285,7 @@ def update_exception_bill_status(request):
 
 # REMOVE ITEM 
 
-@login_required(login_url='login')
+@login_required
 def remove_drug_item(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
@@ -2936,7 +3303,7 @@ def remove_drug_item(request):
 #  CLEAR SESSION 
 
 @login_required
-@transaction.atomic()
+@transaction.atomic
 def clear_drug_session(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
@@ -2960,8 +3327,8 @@ def clear_drug_session(request):
 
 #  ADD DRUG ITEM 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def add_drug_item(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
@@ -3034,7 +3401,7 @@ def add_drug_item(request):
 
 #  GET SESSION ITEMS
 
-@login_required(login_url='login')
+@login_required
 def update_drug_session_item(request):
     if request.method == 'POST':
         patient_id = request.POST.get('patient_id')
@@ -3090,8 +3457,9 @@ def get_session_items(request):
     return JsonResponse({'success': False, 'error': 'Invalid request'})
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
+@transaction.atomic
 @csrf_exempt
 def administer_drugs(request, patient_id):
     page = 'doc-request'
@@ -3150,7 +3518,7 @@ def administer_drugs(request, patient_id):
         # End Antenatal checks
 
     # Get existing OtherService records for this patient
-    other_service = OtherService.objects.filter(patient=patient)
+    other_service = NurseWaitingList.objects.filter(patient=patient)
     other_services = other_service.filter(completed__in=PrescriptionStatus.ACTIVE_STATUSES(),created_date__gte=timezone.now() - timedelta(hours=60))
 
 
@@ -3302,17 +3670,17 @@ def administer_drugs(request, patient_id):
                 completed = 3 if exception_bill == '1' else 0
                 
                 # Create the OtherService record
-                OtherService.objects.create(
+                NurseWaitingList.objects.create(
                     patient=patient,
-                    provider=request.user,
+                    attendant=request.user,
                     category=category,
                     plan=plan,
                     purpose=selected_purpose.purpose,
                     price=selected_purpose.price,
+                    visit_type='Review',
                     waiting_status=0,
                     completed=completed,
                     exception_bill=exception_bill == '1',
-                    anc_weeks=current_gestational_age_weeks,
                 )
                 
                 # Update TransactionUpdate model
@@ -3391,7 +3759,7 @@ def administer_drugs(request, patient_id):
 
 
 
-@login_required(login_url='login')
+@login_required
 @transaction.atomic
 def delete_drug_by_store(request, store_id, record_id):
     """
@@ -3451,7 +3819,7 @@ def delete_drug_by_store(request, store_id, record_id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@login_required(login_url='login')
+@login_required
 @transaction.atomic
 def edit_administered_ipd_products(request, product_id):
     try:
@@ -3491,8 +3859,8 @@ def edit_administered_ipd_products(request, product_id):
 
 # Begining of Drugs prescriptions II - Write Drug Prescription (with no charges)
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def search_inventory(request):
     query = request.GET.get('term', '')
     if not query:
@@ -3515,9 +3883,9 @@ def search_inventory(request):
     return JsonResponse(data, safe=False)
 
 
-@login_required(login_url='login')
+@login_required
 @require_POST  
-@transaction.atomic()
+@transaction.atomic
 def save_prescription(request, patient_id):
     """
     Dedicated endpoint to save prescriptions independently.
@@ -3825,8 +4193,8 @@ def product_search_laboratory(request):
 
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def save_lab_requests(request):
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "Invalid request method"})
@@ -3885,8 +4253,8 @@ def save_lab_requests(request):
     
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def delete_requested_test(request, product_id):
     try:
         export_record = RadiologyLab.objects.get(id=product_id)
@@ -3945,8 +4313,8 @@ def product_search_radiology(request):
 
     return JsonResponse(data, safe=False)
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def save_radio_requests(request):
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "Invalid request method"})
@@ -4006,8 +4374,8 @@ def save_radio_requests(request):
         return JsonResponse({"success": False, "error": str(e)})
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def delete_requested_scan(request, product_id):
     try:
         export_record = RadiologyLab.objects.get(id=product_id)
@@ -4046,10 +4414,10 @@ def get_visit_purpose_price(request):
 
 @login_required
 def delete_other_service(request, service_id):
-    """Delete an OtherService record"""
+    """Delete Specialist Consultation record"""
     if request.method == 'POST':
         try:
-            service = OtherService.objects.get(id=service_id)
+            service = NurseWaitingList.objects.get(id=service_id)
             patient_id = service.patient.id
             service.delete()
             messages.success(
@@ -4057,7 +4425,7 @@ def delete_other_service(request, service_id):
                 f'Service {service.purpose} deleted successfully'
             )
             return redirect('administer_drugs', patient_id=patient_id)
-        except OtherService.DoesNotExist:
+        except NurseWaitingList.DoesNotExist:
             messages.error(request, 'Service not found')
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
@@ -4106,8 +4474,8 @@ def services_search(request):
 
     return JsonResponse(data, safe=False)
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def save_service_requests(request):
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "Invalid request method"})
@@ -4143,15 +4511,24 @@ def save_service_requests(request):
 
             real_rate = tariff.rate if tariff else Decimal(t.get("rate", 0))
 
-            OtherServiceConsumed.objects.create(
-                service=t["service_name"],
-                rate=real_rate, 
+            OtherService.objects.create(
+                purpose=t["service_name"],
+                price=real_rate, 
                 patient=patient,
-                category_id=category_id,
+                category=patient.category,
                 plan=actual_plan, 
-                staff=request.user,
+                provider=request.user,
                 exception_bill=exception_bill,
                 completed=3 if exception_bill else 0
+            )
+            # Update TransactionUpdate model
+            obj, created = TransactionUpdate.objects.get_or_create(
+                patient=patient,
+                completed=0,
+                defaults={
+                    'invoice_raised': 0, 
+                    'receipt_given': 0
+                }
             )
 
         return JsonResponse({"success": True})
@@ -4161,8 +4538,8 @@ def save_service_requests(request):
     
 
 
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def delete_requested_service(request, product_id):
     try:
         export_record = OtherServiceConsumed.objects.get(id=product_id)
@@ -4177,11 +4554,34 @@ def delete_requested_service(request, product_id):
     
 # End of Other Service requesets
 
+@login_required
+@department_required('Clinical', 'Admin', 'CMD')
 def mark_for_completion(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
+    current_waiting_entry = DoctorWaitingList.objects.filter(
+        patient=patient, waiting_status = 0,
+        completed = 0
+    ).order_by('-created_date').first()
+
+    if request.method == 'POST':
+        if 'cancel_encounter' in request.POST:
+            current_waiting_entry.encounter_status = 0
+            current_waiting_entry.save()
+            messages.success(request, f'Encounter for {patient.surname} {patient.first_name} successfully cancelled')
+        elif 'update_encounter' in request.POST:
+            if current_waiting_entry.encounter_status == 3:
+                current_waiting_entry.encounter_status = 2
+                current_waiting_entry.save()
+                messages.success(request, f'Encounter for {patient.surname} {patient.first_name} successfully restarted')
+            else:
+                current_waiting_entry.encounter_status = 3
+                current_waiting_entry.save()
+                messages.success(request, f'Encounter for {patient.surname} {patient.first_name} successfully paused')
+
     context = {
         'patient':patient,
-        'page':'mark_for_completion'
+        'page':'mark_for_completion',
+        'current_waiting_entry':current_waiting_entry
     }
 
     return render(request, 'queue_operations/mark_for_completion.html',context)

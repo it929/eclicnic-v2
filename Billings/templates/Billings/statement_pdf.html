@@ -58,7 +58,7 @@
         }
         th, td {
             border: 0.5px solid #000;
-            padding: 3px 2px;
+            padding: 2px 2px;
             text-align: left;
             word-wrap: break-word;
         }
@@ -103,21 +103,21 @@
 
     <div class="title">ACCOUNT STATEMENTS</div>
     <div class="meta">
-        <strong>Prepared by:</strong> {{ request.user.get_full_name|default:request.user.username }} | 
+        <strong>Prepared by:</strong> {{ request.user.fullname }} | 
         <strong>Date Generated:</strong> {% now "d M Y, H:i" %}
     </div>
 
-    <table repeat="1"> <!-- repeat="1" = repeat thead on each page -->
+    <table repeat="1">
         <thead>
             <tr>
-                <th width="11%">Reference</th>
-                <th width="9%">Date</th>
-                <th width="7%">Type</th>
-                <th width="31%">Details</th>
-                <th width="9%">Debit (₦)</th>
-                <th width="9%">Credit (₦)</th>
-                <th width="9%">RB (₦)</th>
-                <th width="15%">User</th>
+                <th >Reference</th>
+                <th >Date</th>
+                <th >Type</th>
+                <th >Details</th>
+                <th >Debit (₦)</th>
+                <th >Credit (₦)</th>
+                <th >Refund (₦)</th>
+                <th >RB (₦)</th>
             </tr>
         </thead>
         <tbody>
@@ -125,24 +125,20 @@
             <tr class="bg-gray">
                 <td colspan="7"><strong>Balance before {{ statement_data.0.trans_date|date:"d M Y" }}</strong></td>
                 <td class="text-right"><strong>{{ opening_balance|floatformat:2 }}</strong></td>
+                <td></td>
             </tr>
-            
             {% for item in statement_data %}
             <tr>
                 <td>{{ item.reference|default:"-" }}</td>
                 <td>{{ item.trans_date|date:"d M Y" }}</td>
                 <td>{{ item.trans_type }}</td>
-                <td>{{ item.details|truncatechars:35 }}</td>
+                <td>{{ item.details|truncatechars:30 }}</td>
                 <td class="text-right">{{ item.debit|floatformat:2 }}</td>
                 <td class="text-right">{{ item.credit|floatformat:2 }}</td>
+                <td class="text-right" style="color:red;">{{ item.refund|floatformat:2 }}</td>
                 <td class="text-right">{{ item.rib|floatformat:2 }}</td>
-                <td>{{ item.user|truncatechars:12 }}</td>
             </tr>
             {% endfor %}
-            {% else %}
-            <tr>
-                <td colspan="8" class="text-center">No transactions found</td>
-            </tr>
             {% endif %}
         </tbody>
         <tfoot>
@@ -150,6 +146,7 @@
                 <td colspan="4" class="text-right"><strong>Totals:</strong></td>
                 <td class="text-right"><strong>{{ total_debits|floatformat:2 }}</strong></td>
                 <td class="text-right"><strong>{{ total_credits|floatformat:2 }}</strong></td>
+                <td class="text-right"><strong>{{ total_refunds|floatformat:2 }}</strong></td>
                 <td class="text-right"><strong>{{ balance_due|floatformat:2 }}</strong></td>
                 <td></td>
             </tr>

@@ -36,13 +36,16 @@
     .c p{
         margin-top: -3px;
     }
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        padding-bottom: -10px;
+        gap: 10px;
+    }
 </style>
 
 <div class="container-fluid">
-            <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 <!-- Navbar -->
 <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
     <div class="collapse navbar-collapse" id="navbarText">
@@ -75,10 +78,13 @@
     <div id="accordion">
         <div class="message text-left alert alert-warning alert-dismissible fade show" role="alert" style="font-weight: bold; ">
             <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
-                Collect Vital Signs
+                <i class="fa fa-list"></i> Collect Vital Signs
             </a>
             <a href="#" data-toggle="modal" class="text-danger" data-target="#allergyViewModal" style="padding-block: 5px; font-family: cursive; margin-left: 20px;">
-                View Allergies
+                <i class="fa fa-eye"></i> View Allergies
+            </a>
+            <a href="#" data-toggle="modal" class="text-info" data-target="#immunizationsModal" style="padding-block: 5px; font-family: cursive; margin-left: 20px;">
+                <i class="fa fa-syringe"></i> Immunizations
             </a>
         
             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
@@ -141,7 +147,7 @@
             </div>
         </div>
     </div>
-    <div class="modal fade" id="vitalSignsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+<div class="modal fade" id="vitalSignsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
     aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
@@ -230,6 +236,146 @@
         </div>
     </div>
 </div>
+<!-- -----------Immunizations modal--------------- -->
+<div class="modal fade" id="immunizationsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content" style="width: 120%;">
+            <div class="modal-header bg-info text-white">
+                <h6 class="modal-title font-weight-bold"><i class="fa fa-syringe"></i> Immunizations - {{patient.surname}} {{patient.first_name}} ({{patient.hospital_number}})</h6>
+                <button class="close text-white" type="button" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-4" style="border-right:1px solid #eee;">
+                        <label class="font-weight-bold text-primary">Select Pharmacy</label>
+                        <select id="store-select" class="form-control form-control-sm mb-2">
+                            {% for sid, cfg in stores.items %}
+                                <option value="{{ sid }}">{{ cfg.display_name }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <label class="font-weight-bold text-primary">Search Vaccine</label>
+                        <input type="text" id="vaccine-search" class="form-control form-control-sm" placeholder="Type 2 letters e.g BCG, Polio..." autocomplete="off">
+                        <div id="search-results" class="list-group mt-2" style="max-height:200px; overflow-y:auto;"></div>
+
+                        <div id="selected-vaccine-card" style="display:none; border:1px dashed #17a2b8; padding:10px; border-radius:5px; margin-top:10px; background:#f0f9ff;">
+                            <h6 id="sel-name" class="font-weight-bold text-dark mb-1"></h6>
+                            <small>Price: <span id="sel-price" class="badge badge-success"></span> | Stock: <span id="sel-stock" class="badge badge-warning"></span> | UoM: immuno</small>
+                            <input type="hidden" id="sel-id"><input type="hidden" id="sel-code"><input type="hidden" id="sel-store">
+                            <div class="form-group mt-2 mb-2">
+                                <label class="mb-0"><small>Quantity (doses)</small></label>
+                                <input type="number" id="sel-qty" class="form-control form-control-sm" value="1" min="1">
+                            </div>
+                            <button id="btn-administer" class="btn btn-info btn-sm btn-block"><i class="fa fa-check"></i> Give Vaccine</button>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <h6 class="font-weight-bold text-secondary"><i class="fa fa-history"></i> Given Vaccines</h6>
+                        <div style="max-height:300px; overflow-y:auto;">
+                            <table class="table table-sm table-bordered">
+                                <thead class="thead-light"><tr><th>Vaccine</th><th>Qty</th><th>Date</th><th>By</th><th>Delete</th></tr></thead>
+                                <tbody id="vaccine-history-body">
+                                {% for v in administered_vaccines %}
+                                <tr>
+                                    <td><small>{{ v.item }}</small></td>
+                                    <td>{{ v.quantity }}</td>
+                                    <td><small>{{ v.created_date }}</small></td>
+                                    <td><small>{{ v.staff.fullname }}</small></td>
+                                    <td class="text-center">
+                                        {% if v.completed == 0 %}
+                                            <button class="btn btn-sm btn-danger btn-delete-vaccine" 
+                                                    data-id="{{ v.id }}" 
+                                                    data-store="{{ v.store_id }}" 
+                                                    data-name="{{ v.item }}"
+                                                    title="Delete">
+                                                <i class="fa fa-trash"></i>
+                                            </button>
+                                        {% elif v.completed == 2 %}
+                                            <span class="text-danger">Cancelled</span>
+                                        {% else %}
+                                            <span class="text-muted" title="Already billed/completed"><i class="fa fa-lock"></i></span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center text-muted"><small>No vaccine yet</small></td></tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <h6 class="font-weight-bold text-secondary"><i class="fa fa-arrow-right"></i> Next Appointment</h6>
+                        <div style="max-height:300px; overflow-y:auto;">
+                            <table class="table table-sm table-bordered">
+                                <thead class="thead-light"><tr><th>Purpose</th><th>Visit Type</th><th>Date</th><th>Created By</th></tr></thead>
+                                <tbody id="vaccine-history-body">
+                                {% if nearest_appointment %}
+                                <tr>
+                                    <td><small>{{ nearest_appointment.purpose }}</small></td>
+                                    <td><small>{{ nearest_appointment.visit_type }}</small></td>
+                                    <td><small>{{ nearest_appointment.arrival_date }}</small> - <small style="color: brown;">{{ nearest_appointment.arrival_time }}</small></td>
+                                    <td><small>Nurse {{ nearest_appointment.provider.fullname }}</small></td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="5" class="text-center text-muted"><small>No upcoming appointment yet</small></td></tr>
+                                {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="#" data-toggle="modal" data-target="#appointmentsModal" class="btn btn-primary"><i class="fa fa-plus"></i> Create Appointment</a>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Vaccines's Appointments -->
+<div class="modal fade" id="appointmentsModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content" style="margin-top: -20px;">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"> <i class="fas fa-bell"></i> Create Appointments </h5>
+
+                <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <form method="post">
+                            {% csrf_token %}
+                            {{appointment.as_p}}
+                            <a href="#" data-toggle="modal" data-target="#appointmentPinModal" class="btn btn-info">Create Appointment <i class="fa fa-bell"></i></a>
+                    </div>
+                </div>
+            </div>
+    </div>
+</div>
+<div class="modal fade" id="appointmentPinModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h6 class="modal-title font-weight-bold" id="myModalLabel2">You are about to save this information</h6>
+            </div>
+            <div>
+                <div style="padding-inline: 30px; padding-block: 20px;">
+                    <input type="password" name="pin_code" placeholder="enter pin code" class="form-control" required/>       
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" name="appoints" class="btn btn-primary" style="margin-top: 10px;"><i class="fa fa-bell"></i> Create Appointment </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                </div>
+            </form>
+            </div>
+        </div> 
+    </div>
+</div>
+
     <!-- Background health history -->
     <div class="card shadow mb-4">
         <div class="card-header py-3">
@@ -303,4 +449,105 @@
         </button>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+
+// search vaccine
+let debounceTimer;
+document.getElementById('vaccine-search').addEventListener('input', function(){
+    clearTimeout(debounceTimer);
+    const query = this.value.trim();
+    const storeId = document.getElementById('store-select').value;
+    if(query.length < 2){ document.getElementById('search-results').innerHTML=''; return; }
+    debounceTimer = setTimeout(()=>{
+        fetch(`/search-vaccines/?q=${encodeURIComponent(query)}&store=${storeId}&patient_id={{patient.id}}`)
+       .then(r=>r.json()).then(res=>{
+            const container = document.getElementById('search-results');
+            container.innerHTML='';
+            if(res.results.length===0){ container.innerHTML='<div class="list-group-item text-muted"><small>No immuno found</small></div>'; return; }
+            res.results.forEach(item=>{
+                const a = document.createElement('a'); a.href='#'; a.className='list-group-item list-group-item-action py-1'; a.innerHTML=`<small>${item.text}</small>`;
+                a.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    document.getElementById('sel-code').value = item.product_code;
+                    document.getElementById('sel-name').textContent = item.original_name;
+                    document.getElementById('sel-price').textContent = '₦'+item.price;
+                    document.getElementById('sel-store').value = item.store_id;
+                    document.getElementById('sel-stock').textContent = item.stock;
+                    document.getElementById('selected-vaccine-card').style.display='block';
+                    container.innerHTML=''; document.getElementById('vaccine-search').value=item.original_name;
+                });
+                container.appendChild(a);
+            });
+        });
+    },400);
+});
+
+// administer vaccine
+document.getElementById('btn-administer').addEventListener('click', function(){
+    const productCode = document.getElementById('sel-code').value; 
+    const productName = document.getElementById('sel-name').textContent;
+    const priceRaw = document.getElementById('sel-price').textContent;
+    const price = priceRaw.replace(/[₦,#]/g,'').replace('5800.00','5800').trim(); // clean
+    const qty = document.getElementById('sel-qty').value;
+    const storeId = document.getElementById('sel-store').value;
+
+    console.log("Sending:", productCode, productName, price, qty, storeId);
+
+    if(!productCode){ Swal.fire('Error','Select vaccine again','error'); return; }
+
+    Swal.fire({title:`Give ${productName}?`, text:`${qty} dose(s) - ₦${price}`, icon:'question', showCancelButton:true, confirmButtonText:'Yes, Give'}).then(r=>{
+        if(r.isConfirmed){
+            fetch('/administer-vaccine/',{
+                method:'POST',
+                headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+                body:JSON.stringify({
+                    patient_id:"{{patient.id}}", 
+                    store_id:storeId, 
+                    product_code:productCode,  // ONLY send code, no id
+                    product_name:productName, 
+                    price:price, 
+                    quantity:qty
+                })
+            }).then(res=>res.json()).then(data=>{
+                if(data.success){ Swal.fire('Success', productName+' given','success').then(()=>location.reload()); }
+                else{ Swal.fire('Error', data.error,'error'); }
+            });
+        }
+    });
+});
+
+// Delete vaccine
+document.addEventListener('click', function(e){
+    const btn = e.target.closest('.btn-delete-vaccine');
+    if(!btn) return;
+    
+    const recordId = btn.dataset.id;
+    const storeId = btn.dataset.store;
+    const name = btn.dataset.name;
+
+    Swal.fire({
+        title: `Delete ${name}?`,
+        text: "Stock will be restored",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Yes, Delete'
+    }).then(r=>{
+        if(!r.isConfirmed) return;
+        fetch('/delete-vaccine/',{
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+            body:JSON.stringify({record_id: recordId, store_id: storeId})
+        }).then(res=>res.json()).then(data=>{
+            if(data.success){
+                Swal.fire('Deleted','','success').then(()=>location.reload());
+            }else{
+                Swal.fire('Error', data.error,'error');
+            }
+        });
+    });
+});
+</script>
 {% endblock content %}

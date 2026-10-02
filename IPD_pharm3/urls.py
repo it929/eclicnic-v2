@@ -46,5 +46,10 @@ urlpatterns = [
 
     path('pharm3-patient-profile/<int:patient_id>/', views.pharm3_patient_profile, name='pharm3_patient_profile'),
 
+    path('ipd3-cancelled-drugs/', views.ipd3_cancelled_product_list, name='ipd3_cancelled_product_list'),
+    path('ipd3-staled-drugs/', views.ipd3_staled_product_list, name='ipd3_staled_product_list'),
+    path('ipd3-cancelled-drugs/restore/<int:pk>/', views.ipd3_restore_single_drug, name='ipd3_restore_single_drug'),
+    path('ipd3-cancelled-drugs/restore-all/', views.ipd3_restore_all_drugs, name='ipd3_restore_all_drugs'),
+
 
 ]

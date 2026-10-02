@@ -44,11 +44,7 @@
 </style>
 
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
-<!-- Navbar -->
+    {% include 'queue_operations/crumbs/doc_header.html' %}
  {% if request.user.department.department != 'Nursing' %}
 <div id="medical-module-wrapper">
     <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
@@ -58,9 +54,9 @@
                     <a class="nav-link" href="#">Nurse Report <span class="sr-only">(current)</span></a>
                 </li>
 
-                {% if patient.category.category == 'ANC' %}
+                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                    <a class="nav-link" href="{% url 'get_anc' patient.id %}">Antenatal Care</a>
                 </li>
                 {% endif %}
 
@@ -387,4 +383,94 @@ aria-hidden="true">
     </div>
 </div>
 </div>
+<!--  ENCOUNTER LOCK SCREEN  -->
+
+{% if current_waiting_entry_id %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+(function() {
+    const ENTRY_ID = {{ current_waiting_entry_id }};
+    const PATIENT_NAME = "{{ patient.get_full_name|escapejs }}";
+    const UPDATE_URL = "{% url 'update_encounter_status' 0 %}".replace('0', ENTRY_ID);
+
+    // standard Django CSRF getter
+    function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie!== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === ('csrftoken' + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    function postAction(action) {
+        return fetch(UPDATE_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: `action=${encodeURIComponent(action)}`
+        }).then(r => r.json());
+    }
+
+    // REAL lock screen
+    Swal.fire({
+        title: 'Begin Encounter?',
+        html: `Do you want to begin encounter for <b>${PATIENT_NAME}</b>?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Begin',
+        cancelButtonText: 'No, Cancel',
+        confirmButtonColor: '#28a745',
+        cancelButtonColor: '#dc3545',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        backdrop: `rgba(0,0,0,0.8)`, //  the lock effect
+    }).then((result) => {
+        let action = null;
+        if (result.isConfirmed) {
+            action = 'confirm';
+        } else if (result.dismiss === Swal.DismissReason.cancel) {
+            action = 'cancel';
+        }
+
+        if (!action) return;
+
+        Swal.fire({ title: action === 'confirm'? 'Starting...' : 'Cancelling...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+        postAction(action)
+       .then(data => {
+            if (data.success) {
+                Swal.fire({
+                    icon: data.encounter_status === 2? 'success' : 'info',
+                    title: data.encounter_status === 2? 'Encounter Started' : 'Cancelled',
+                    text: data.message,
+                    timer: 1500,
+                    showConfirmButton: false
+                }).then(() => {
+                    if (data.encounter_status === 0) {
+                        window.location.href = "{% url 'administer_drugs' patient.id %}";
+                    }
+                    // if confirm, just stay on page - modal disappears
+                });
+            } else {
+                Swal.fire('Error', data.message, 'error');
+            }
+        })
+       .catch(err => {
+            Swal.fire('Network Error', err.message || 'Failed to update', 'error');
+        });
+    });
+})();
+</script>
+{% endif %}
+
 {% endblock content %}

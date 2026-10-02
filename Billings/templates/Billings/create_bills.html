@@ -25,10 +25,7 @@
 <link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
 
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 
     <!-- Navbar -->
     <div id="billing-module-wrapper" style="margin-top: -15px;">
@@ -69,7 +66,13 @@
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
                     <div class="dropdown-divider"></div>
+                    {% if patient.plan.plan == 'Family' %}
+                    <a class="dropdown-item" href="{% url 'get_family_statements' patient.id %}">Family Statements</a>
+                    <div class="dropdown-divider"></div>
+                    {% endif %}
                     <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Patient Case Note</a>
                 </div>
             </li>
             
@@ -461,7 +464,22 @@
             </table>
             <!-- Calculate the sum total from the checked record -->
              <hr>
-            <div id="total_sum" style="margin-left: 45%;">Total: ₦0.00</div>
+            <div style="margin-left: 35%; display:flex; gap: 30px;">
+                <div id="total_discount" class="text-warning" style="font-size: 13px; font-weight: bold;">Total Discount: ₦0.00 (0%)</div>
+                <div id="total_sum" class="text-primary">Total: ₦0.00</div>
+                <select id="payment_type_select" required style="padding-inline:5px;">
+                    <option value="">Payment Option</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Claim">Claim</option>
+                    <option value="Transfer">Bank Transfer</option>
+                    <option value="POS">Merchant POS</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Bank Deposit">Bank Deposit</option>
+                    <option value="Staff Salary">Staff Salary</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <br>
             <span>Balance: ₦ {{ total_deposits | currency }}</span> 
             <button type="button" class="btn btn-primary" id="open_invoice_modal_btn" data-toggle="modal" data-target="#pinInvoiceModal" style="float: right;"><i class="fa fa-plus"></i> Create Invoice</button>
             <button type="button" class="btn btn-warning" id="open_clear_transaction_modal_btn" data-toggle="modal" data-target="#pinClearTransactionModal" style="float: right; margin-right: 10px;"><i class="fa fa-save"></i> Clear Transactions</button>        
@@ -561,7 +579,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const patientId = "{{ patient.id }}"; 
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value; 
-    const patientCategory = "{{ patient_category_name }}"; 
+
+    const paymentTypeSelect = document.getElementById('payment_type_select');
+    const patientCategory = "{{ patient.category.category }}"; 
+
+    // Default to Claim for HMO
+    if (patientCategory === 'HMO' || "{{ patient_category_name }}" === 'HMO') {
+        if (paymentTypeSelect) paymentTypeSelect.value = 'Claim';
+    }
+
 
     function calculateRowTotal(row) {
         const qtyEl = row.querySelector('.qty-display');
@@ -586,15 +612,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateTotalSum() {
         let grandTotal = 0;
+        let grandOriginalTotal = 0;
+        let grandDiscountAmount = 0;
+
         billRows.forEach(row => {
             const billCheckbox = row.querySelector('.bill');
             const rowTotalInput = row.querySelector('.total');
-            // KEY FIX: Check if billCheckbox exists before reading .checked
+            const qtyEl = row.querySelector('.qty-display');
+            const rateEl = row.querySelector('.rate-display');
+
             if (billCheckbox && billCheckbox.checked && rowTotalInput) {
-                grandTotal += parseFloat(rowTotalInput.value) || 0;
+                const qty = parseFloat(qtyEl.textContent) || 0;
+                const rate = parseFloat(rateEl.textContent) || 0;
+                const original = qty * rate;
+                const discounted = parseFloat(rowTotalInput.value) || 0;
+
+                grandTotal += discounted;
+                grandOriginalTotal += original;
+                grandDiscountAmount += (original - discounted);
             }
         });
+
+        let overallDiscountPercent = 0;
+        if (grandOriginalTotal > 0) {
+            overallDiscountPercent = (grandDiscountAmount / grandOriginalTotal) * 100;
+        }
+
         totalSumDisplay.textContent = `Total: ₦${grandTotal.toFixed(2)}`;
+        
+        const totalDiscountDisplay = document.getElementById('total_discount');
+        if (totalDiscountDisplay) {
+            totalDiscountDisplay.textContent = `Total Discount: ₦${grandDiscountAmount.toFixed(2)} (${overallDiscountPercent.toFixed(1)}%)`;
+        }
     }
 
     // 1. "Bill All" checkbox functionality
@@ -611,7 +660,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (checkbox) checkbox.addEventListener('change', updateTotalSum); 
     });
 
-    // Loop through each row to attach event listeners and perform initial calculations
+    // Looping through each row to attach event listeners and perform initial calculations
     billRows.forEach(row => {
         const paymentOptionSelect = row.querySelector('.payment_option');
         const amountOrPaCodeInput = row.querySelector('.amount_or_pacode');
@@ -645,10 +694,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // --- Create Invoice Logic ---
+    // --- Creating Invoice Logic ---
     if (createInvoiceWithPinBtn) {
         createInvoiceWithPinBtn.addEventListener('click', function(event) {
             event.preventDefault(); 
+
+            // Get global payment once
+            const paymentSelect = document.getElementById('payment_type_select');
+            const globalPaymentOption = paymentSelect ? paymentSelect.value.trim() : '';
+
+            if (!globalPaymentOption) {
+                Swal.fire({ icon: 'warning', title: 'Payment Required', text: 'Please select Payment Option' });
+                return;
+            }
 
             const selectedItems = [];
             billRows.forEach(row => {
@@ -660,12 +718,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         rate: parseFloat(row.querySelector('.rate-display')?.textContent) || 0,
                         discount: parseFloat(row.querySelector('.discount')?.value) || 0, 
                         total: parseFloat(row.querySelector('.total')?.value) || 0,
-                        payment_option: row.querySelector('.payment_option')?.value, 
+                        payment_option: globalPaymentOption, //  ENFORCING GLOBAL
                         original_id: row.dataset.originalId, 
                         original_model: row.dataset.originalModel 
                     });
                 }
             });
+
 
             if (selectedItems.length === 0) {
                 Swal.fire({
@@ -689,6 +748,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            
+            
             fetch(`/patient/${patientId}/create_invoice/`, { 
                 method: 'POST',
                 headers: {
@@ -697,7 +758,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 body: JSON.stringify({ 
                     selected_items: selectedItems,
-                    pin_code: pinCode 
+                    pin_code: pinCode,
+                    payment_option: globalPaymentOption 
                 })
             })
             .then(response => {

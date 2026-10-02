@@ -1,0 +1,329 @@
+{% extends 'admin.html' %}
+{% load static %}
+{% block content %}
+
+<style>
+    .restore-all-btn {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        padding: 10px 22px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+    }
+    .restore-all-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(40, 167, 69, 0.45);
+        color: #fff;
+    }
+    .restore-all-btn:disabled {
+        background: #b7b7b7;
+        box-shadow: none;
+        transform: none;
+        cursor: not-allowed;
+    }
+    .restore-btn {
+        background: #0d6efd;
+        border: none;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 16px;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+    .restore-btn:hover {
+        background: #0b5ed7;
+        color: #fff;
+        transform: scale(1.05);
+    }
+    .restore-btn:disabled {
+        background: #b7b7b7;
+        cursor: not-allowed;
+        transform: none;
+    }
+    .card-header-custom {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: #fff;
+        border-radius: 10px 10px 0 0 !important;
+        padding: 18px 24px;
+    }
+    .table thead th {
+        background: #f1f3f9;
+        font-weight: 700;
+        color: #333;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+    }
+    .table tbody tr:hover {
+        background: #f8f9ff;
+    }
+    .badge-quantity {
+        background: #fff3cd;
+        color: #856404;
+        font-weight: 700;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #888;
+    }
+    .empty-state i {
+        font-size: 60px;
+        color: #ccc;
+        margin-bottom: 15px;
+    }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="card shadow-sm" style="border-radius: 10px; overflow: hidden;">
+        <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap">
+            <div>
+                <h4 class="mb-0">
+                    <i class="fas fa-undo-alt me-2"></i> Staled Products from IPD Pharmacy 1 
+                </h4>
+                <small class="opacity-75">Restore back to <strong>IPD Pharmacy 1</strong> store</small>
+            </div>
+            <div class="d-flex align-items-center gap-2 mt-2 mt-md-0">
+                <span class="badge bg-light text-dark" style="font-size: 14px; padding: 8px 14px;">
+                    Total: <strong id="totalCount">{{ total_count }}</strong>
+                </span>
+                &nbsp;
+                <button type="button" class="restore-all-btn" id="restoreAllBtn"
+                        {% if not staled_drugs %}disabled{% endif %}>
+                    <i class="fas fa-layer-group me-1"></i> Restore All
+                </button>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            {% if staled_drugs %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="staledDrugsTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Product</th>
+                            <th>UoM</th>
+                            <th>Qty</th>
+                            <th>Patient</th>
+                            <th>Requested On</th>
+                            <th>Requested By</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drug in staled_drugs %}
+                        <tr id="row-{{ drug.id }}" data-id="{{ drug.id }}" data-name="{{ drug.item|escapejs }}">
+                            <td>{{ forloop.counter }}</td>
+                            <td>
+                                <strong>{{ drug.item }}</strong>
+                                {% if drug.product %}
+                                <br><small class="text-muted">Stock on hand: {{ drug.product.stock }}</small>
+                                {% else %}
+                                <br><small class="text-danger"><i class="fas fa-exclamation-triangle"></i> No linked product</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ drug.UoM|default:"-" }}</td>
+                            <td><span class="badge-quantity">{{ drug.quantity }}</span></td>
+                            <td>{{ drug.patient.get_full_name|default:"-" }}</td>
+                            <td>{{ drug.created_date|date:"d-m-Y H:i" }}</td>
+                            <td>{{ drug.staff.fullname }}</td>
+                            <td class="text-center">
+                                <button type="button" class="restore-btn"
+                                        onclick="restoreSingle('{{ drug.id }}', '{{ drug.item|escapejs }}')"
+                                        {% if not drug.product %}disabled title="No linked product"{% endif %}>
+                                    <i class="fas fa-undo me-1"></i> Restore
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-check-circle"></i>
+                <h5>No Staled Product Transaction</h5>
+                <p>There are currently no Staled IPD Pharmacy 1 Product Transaction to be restored.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+// CSRF token setup
+const CSRF_TOKEN = '{{ csrf_token }}';
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+/**
+ * Restore a single staled drug record
+ */
+function restoreSingle(id, drugName) {
+    Swal.fire({
+        title: 'Restore this drug?',
+        html: `Are you sure you want to restore <strong>${drugName}</strong> back to IPD Pharmacy 1 Store?<br>
+               <small class="text-muted">This will add the quantity back to the stock and remove the record.</small>`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#0d6efd',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '<i class="fas fa-undo"></i> Yes, restore it!',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        preConfirm: () => {
+            return fetch(`/ipd1-cancelled-drugs/restore/${id}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': CSRF_TOKEN,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            })
+            .then(response => response.json().then(data => ({ status: response.status, data })))
+            .then(({ status, data }) => {
+                if (!data.success) {
+                    throw new Error(data.message || 'Restore failed.');
+                }
+                return data;
+            })
+            .catch(error => {
+                Swal.showValidationMessage(`Request failed: ${error.message}`);
+            });
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Restored!',
+                text: result.value.message,
+                timer: 2000,
+                showConfirmButton: false,
+            }).then(() => {
+                // Smoothly remove the row
+                const row = document.getElementById(`row-${id}`);
+                if (row) {
+                    row.style.transition = 'opacity 0.4s ease';
+                    row.style.opacity = '0';
+                    setTimeout(() => {
+                        row.remove();
+                        updateTotalCount();
+                        checkIfEmpty();
+                    }, 400);
+                }
+            });
+        }
+    });
+}
+
+/**
+ * Restore ALL staled drugs
+ */
+document.getElementById('restoreAllBtn')?.addEventListener('click', function () {
+    const total = document.querySelectorAll('#staledDrugsTable tbody tr').length;
+
+    Swal.fire({
+        title: 'Restore ALL staled drugs?',
+        html: `You are about to restore <strong>${total}</strong> record(s) back to IPD Pharmacy 1 store.<br>
+               <small class="text-danger">This action cannot be undone.</small>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#28a745',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '<i class="fas fa-layer-group"></i> Yes, restore all!',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        preConfirm: () => {
+            return fetch(`/ipd1-cancelled-drugs/restore-all/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': CSRF_TOKEN,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            })
+            .then(response => response.json().then(data => ({ status: response.status, data })))
+            .then(({ status, data }) => {
+                if (!data.success) {
+                    throw new Error(data.message || 'Restore all failed.');
+                }
+                return data;
+            })
+            .catch(error => {
+                Swal.showValidationMessage(`Request failed: ${error.message}`);
+            });
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            Swal.fire({
+                icon: 'success',
+                title: 'All Restored!',
+                text: result.value.message,
+                timer: 2500,
+                showConfirmButton: false,
+            }).then(() => {
+                // Reload the page to reflect the changes
+                window.location.reload();
+            });
+        }
+    });
+});
+
+/**
+ * Update the total count badge after row removal
+ */
+function updateTotalCount() {
+    const remaining = document.querySelectorAll('#staledDrugsTable tbody tr').length;
+    const totalEl = document.getElementById('totalCount');
+    if (totalEl) totalEl.textContent = remaining;
+
+    if (remaining === 0) {
+        document.getElementById('restoreAllBtn').disabled = true;
+    }
+}
+
+/**
+ * Show empty state if all rows are gone
+ */
+function checkIfEmpty() {
+    const rows = document.querySelectorAll('#staledDrugsTable tbody tr');
+    if (rows.length === 0) {
+        const tableWrapper = document.querySelector('.table-responsive');
+        if (tableWrapper) {
+            tableWrapper.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-check-circle"></i>
+                    <h5>All Restored</h5>
+                    <p>All staled drugs have been restored to IPD Pharmacy 1 Store.</p>
+                </div>`;
+        }
+    }
+}
+
+</script>
+
+{% endblock %}

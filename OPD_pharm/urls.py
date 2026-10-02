@@ -44,5 +44,11 @@ urlpatterns = [
     path('send-opd-report-email/', views.send_opd_prescription_email, name='send_opd_prescription_email'),
 
     path('opd-pharm-patient-profile/<int:patient_id>/', views.opdpharm_patient_profile, name='opdpharm_patient_profile'),
+
+    path('opd1-cancelled-drugs/', views.opd1_cancelled_product_list, name='opd1_cancelled_product_list'),
+    path('opd1-staled-drugs/', views.opd1_staled_product_list, name='opd1_staled_product_list'),
+    path('opd1-cancelled-drugs/restore/<int:pk>/', views.opd1_restore_single_drug, name='opd1_restore_single_drug'),
+    path('opd1-cancelled-drugs/restore-all/', views.opd1_restore_all_drugs, name='opd1_restore_all_drugs'),
+    
     
 ] 

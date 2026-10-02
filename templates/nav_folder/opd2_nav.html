@@ -73,3 +73,16 @@
         </div>
     </div>
 </li>
+<li class="nav-item">
+    <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseRestorePoint"
+        aria-expanded="true" aria-controls="collapseRestorePoint">
+        <i class="fas fa-fw fa-undo"></i>
+        <span>Product Restore Point</span>
+    </a>
+    <div id="collapseRestorePoint" class="collapse" aria-labelledby="headingRestorePoint" data-parent="#accordionSidebar">
+        <div class="bg-white py-2 collapse-inner rounded">
+            <a class="collapse-item" href="{% url 'opd2_cancelled_product_list' %}">Cancelled Transaction</a>
+            <a class="collapse-item" href="{% url 'opd2_staled_product_list' %}">Staled Transaction</a>
+        </div>
+    </div>
+</li>

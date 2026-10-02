@@ -180,6 +180,8 @@ def upload_bed_excel_ajax(request):
 
 # Bed Allocation
 
+from django.db.models import Count, Q
+
 def allocate_bed_page(request, patient_id):
     """Main page for bed allocation for a specific patient"""
     try:
@@ -190,7 +192,13 @@ def allocate_bed_page(request, patient_id):
             is_active=True
         ).select_related('bed', 'ward').first()
         
-        wards = Ward.objects.all()
+        # Annotate wards with available bed count
+        wards = Ward.objects.annotate(
+            available_beds=Count(
+                'beds',
+                filter=Q(beds__bed_status=0, beds__is_occupied=False)
+            )
+        )
         
         return render(request, 'IPD/allocate_bed.html', {
             'patient': patient,

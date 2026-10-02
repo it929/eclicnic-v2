@@ -485,43 +485,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <div class="container-fluid">
-        <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+        {% include 'queue_operations/crumbs/doc_header.html' %}
 <!-- Navbar -->
 
-    {% if request.user.department.department != 'Nursing' %}
-        {% include 'queue_operations/crumbs/doctors_general_nav2.html' %}
+    {% if request.user.department.department == 'Nursing' %}
+        {% include 'queue_operations/crumbs/nurse_general_nav.html' %}
+
+    {% elif request.user.department.department == 'Billings' %}
+        {% include 'queue_operations/crumbs/billings_general_nav.html' %}
+    
     {% else %}
-    <div id="medical-module-wrapper">
-        <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
-            <div class="collapse navbar-collapse" id="navbarText">
-            <ul class="navbar-nav mr-auto">
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'vital_signs' patient.id %}">Collect Vital Signs</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'modify_vital_signs' patient.id %}">Modify Vital Signs</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'background_health' patient.id %}">Background Health</a>
-                </li>
-                <li class="nav-item active">
-                    <a class="nav-link" href="{% url 'get_case_note' patient.id %}">Case Note</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#" data-toggle="modal" data-target="#allergyUpdateModal">Update Allergies</a>
-                </li>
-                <li class="nav-item">
-                    {% if patient.is_admitted %}
-                    <a class="nav-link active" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
-                    {% endif %}
-                </li>
-            </ul>
-            </div>
-        </nav>
-    </div>
+        {% include 'queue_operations/crumbs/doctors_general_nav2.html' %}
     {% endif %}
         <div class="header">
             <div>

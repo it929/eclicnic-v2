@@ -1,0 +1,236 @@
+{% extends 'admin.html' %}
+
+{% block content %}
+
+<div class="container-fluid">
+    <h1 class="h3 mb-1 text-gray-800 font-weight-bold" style="color: rgb(42, 41, 41);"><i class="fa fa-plus"></i> &nbsp;Package Management  </h1>
+<p></p>
+<hr style="margin-top: -5px;">
+<div class="row">
+    <div class="col-lg-6">
+    <!-- Single Text Entry -->
+        <div class="card border-info">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0"><i class="fa fa-plus"></i> Add Single Package</h6>
+            </div>
+            <div class="card-body">
+                <div class="form-section">
+                    <form id="textForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="text_entry" value="1">
+                        <input type="text" name="name" id="textInput" placeholder="Package name" required class="form-control">
+                        <p></p>
+                        <button type="submit" class="btn btn-primary"><i class="fa fa-plus"></i> Add Package</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Excel File Upload -->
+     <div class="col-lg-6">
+        <div class="card border-info">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0"><i class="fa fa-upload"></i> Bulk Upload Packages (Excel)</h6>
+            </div>
+            <div class="card-body">
+            <div class="form-section">
+                <form id="fileForm" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="file_upload" value="1">
+                    <input type="file" name="file" accept=".xlsx, .xlsm" required>
+                    <p></p>
+                    <button type="submit" class="btn btn-primary"><i class="upload"> </i>Upload Excel File</button>
+                </form>
+            </div>
+        </div>
+    </div>
+  </div>
+  <div class="row">
+        <!-- Records Table -->
+         <div style="margin: 20px 30px; margin-bottom: 10px;">
+            <input 
+                type="text" class="form-control"
+                id="tableSearchInput" 
+                placeholder="Search Packages by ID, name, staff and Date Created" 
+                style="width: 600px;"
+            >
+        </div>
+        <div class="table-responsive" style="padding-block: 10px; padding-inline: 30px;">
+            <table id="item-table" class="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Package Name</th>
+                        <th>Created By</th>
+                        <th>Created Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="packageTableBody">
+                    {% for package in packages %}
+                    <tr id="row-{{ package.pk }}">
+                        <td>{{ forloop.counter }}</td>
+                        <td class="package-name text-primary">{{ package.name }}</td>
+                        <td>{{ package.staff.fullname|default:package.staff.username }}</td>
+                        <td>{{ package.created_date|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <button class="btn btn-edit text-warning" onclick="editPackage({{ package.pk }}, '{{ package.name|escapejs }}')">Edit</button>
+                            <button class="btn btn-delete text-danger" onclick="deletePackage({{ package.pk }})">Delete</button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr id="emptyRow">
+                        <td colspan="5">No packages found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+    <script>
+        // Utility function to get CSRF Token
+        function getCSRFToken() {
+            return document.querySelector('[name=csrfmiddlewaretoken]').value;
+        }
+
+        // 1. AJAX Single Entry Form Submit
+        document.getElementById('textForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+
+            fetch("{% url 'manage_packages' %}", {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCSRFToken() },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    Swal.fire('Success!', data.message, 'success').then(() => location.reload());
+                } else if(data.status === 'warning') {
+                    Swal.fire('Warning', data.message, 'warning');
+                } else {
+                    Swal.fire('Error', data.message, 'error');
+                }
+            });
+        });
+
+        // 2. AJAX File Upload Form Submit
+        document.getElementById('fileForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+
+            Swal.fire({
+                title: 'Uploading...',
+                text: 'Processing Excel file, please wait.',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            fetch("{% url 'manage_packages' %}", {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCSRFToken() },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    Swal.fire('Completed!', data.message, 'success').then(() => location.reload());
+                } else {
+                    Swal.fire('Error', data.message, 'error');
+                }
+            });
+        });
+
+        // Instant client-side table filter
+        document.getElementById('tableSearchInput').addEventListener('input', function() {
+            const filterText = this.value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#packageTableBody tr');
+
+            rows.forEach(row => {
+                // Skip default empty row if present
+                if (row.id === 'emptyRow') return;
+
+                // Extract text content from all columns in the row
+                const rowText = row.textContent.toLowerCase();
+                
+                // Toggle row visibility based on query match
+                if (rowText.includes(filterText)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        // 3. Inline Edit with SweetAlert2 Prompt
+        function editPackage(pk, currentName) {
+            Swal.fire({
+                title: 'Edit Package Name',
+                input: 'text',
+                inputValue: currentName,
+                showCancelButton: true,
+                confirmButtonText: 'Save Changes',
+                inputValidator: (value) => {
+                    if (!value.trim()) {
+                        return 'Package name cannot be empty!';
+                    }
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const formData = new FormData();
+                    formData.append('name', result.value.trim());
+
+                    fetch(`/packages/edit/${pk}/`, {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': getCSRFToken() },
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Update row DOM without refreshing
+                            document.querySelector(`#row-${pk} .package-name`).innerText = data.new_name;
+                            Swal.fire('Updated!', data.message, 'success');
+                        } else {
+                            Swal.fire('Error', data.message, 'error');
+                        }
+                    });
+                }
+            });
+        }
+
+        // 4. In-Place AJAX Delete with Confirmation
+        function deletePackage(pk) {
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "This action cannot be undone!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'Yes, delete it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    fetch(`/packages/delete/${pk}/`, {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': getCSRFToken() }
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Remove element from DOM in real-time
+                            const row = document.getElementById(`row-${pk}`);
+                            if (row) row.remove();
+                            Swal.fire('Deleted!', data.message, 'success');
+                        } else {
+                            Swal.fire('Error', data.message, 'error');
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+{% endblock content %}

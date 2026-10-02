@@ -10,8 +10,11 @@ import os
 from django.conf import settings
 from .forms import PatientPlanUploadForm, PatientPlanForm, PatientProfileForm, PatientImportForm, ImageUploadForm, PatientProfileUpdateForm, ExcelImportForm, ServiceListForm, NurseWaitingListForm, PatientAppointmentForm
 from .models import PatientPlan, PatientCategory, PatientProfile, PatientAppointment
-from queue_operations.models import VisitPurpose, NurseWaitingList, RegFee,GetRegistrationFee
+from queue_operations.models import VisitPurpose, NurseWaitingList, RegFee, GetRegistrationFee, DoctorWaitingList
 from Billings.models import TransactionUpdate
+from myAdmins.models import Packages, PackagesData
+from radio_lab.models import RadiologyLab
+from queue_operations.models import OtherService
 from django.db.models import F
 import logging
 from django.views.decorators.http import require_POST
@@ -406,7 +409,7 @@ def patient_registered_today(request):
     
     page = 'registered-today'
     
-    # Use filter range and select_related
+    # Use filter range 
     patients = PatientProfile.objects.select_related('category', 'plan').filter(
         created_date__range=(start_of_day, end_of_day),
         active=1
@@ -595,22 +598,35 @@ def retainership_patients(request):
         'title': 'Retainership Patients',
         'counts':retainership__patients.count
     })
+
  
-@login_required(login_url='login')
-@transaction.atomic()
+@login_required
+@transaction.atomic
 def patient_profile(request, key):
     page = 'patient-profile'
     referer = request.META.get('HTTP_REFERER')
     patient = get_object_or_404(PatientProfile, id=key)
-    # check for transactions that are still within 24 hours
-    verify_transaction = NurseWaitingList.objects.filter(created_date__gte=timezone.now() - timedelta(hours=24), patient=patient).select_related('patient')
+
+    # get the last five encounters with specialist
+    encounters = DoctorWaitingList.objects.filter(
+        patient=patient
+    ).select_related('patient').order_by('-created_date')[:5]
+
+    # check for transaction that is within 24 hours
+    verify_transaction = NurseWaitingList.objects.filter(
+        created_date__gte=timezone.now() - timedelta(hours=24), 
+        patient=patient
+    ).select_related('patient')
+
     form = ImageUploadForm(instance=patient)
+    unique_packages = Packages.objects.all().order_by('name')
     form1 = PatientAppointmentForm()
     queue_form = NurseWaitingListForm()
+
     if request.method == 'POST':
         if 'upload' in request.POST:
-            avatars = request.FILES['avatar']
-            if avatars.size > 200000:
+            avatars = request.FILES.get('avatar')
+            if avatars and avatars.size > 200000:
                 messages.error(request, 'File Size is too big, maximum of 200 (kb) is required')
                 return redirect('patient_profile', key=patient.id)
             else:
@@ -624,80 +640,152 @@ def patient_profile(request, key):
                     return redirect('patient_profile', key=patient.id)
 
         elif 'deactivate' in request.POST:
-            if request.user.pin == int(request.POST.get('pin_code')):
+            if request.user.pin == int(request.POST.get('pin_code') or 0):
                 if patient.active == 1:
                     patient.active = 0
                     patient.deactivated_date = timezone.now()
                     patient.deactivated_by = request.user.fullname
                     patient.save()
                     messages.success(request, 'This patient was successfully deactivated')
-                    return redirect('patient_profile', key = patient.id)
                 else:
                     patient.active = 1
                     patient.save()
                     messages.success(request, 'This patient was successfully re-activated')
-                    return redirect('patient_profile', key = patient.id)
+                return redirect('patient_profile', key=patient.id)
             else:
                 messages.error(request, 'Incorrect Pin Code')
-                return redirect('patient_profile',key=patient.id)
+                return redirect('patient_profile', key=patient.id)
+
         elif 'queue' in request.POST:
-            if request.POST['criticality'] != 'critic':
+            if request.POST.get('criticality') != 'critic':
                 if not verify_transaction.exists():
-                    if not (request.POST['purpose'] == 'Antenatal' and patient.gender != 'Female'):
+                    if not (request.POST.get('purpose','').lower() == 'antenatal' and patient.gender != 'Female'):
                         queue_form = NurseWaitingListForm(request.POST)
                         if queue_form.is_valid(): 
+                            purpose_selected = queue_form.cleaned_data.get('purpose')
+                            package_id = request.POST.get('package')
+
+                            is_package = purpose_selected and purpose_selected.lower() == 'packages'
+                            package_obj = None
+                            package_items = None
+
+                            if is_package:
+                                if not package_id:
+                                    messages.error(request, 'Please select a Package')
+                                    return redirect('patient_profile', key=patient.id)
+                                try:
+                                    package_obj = Packages.objects.get(id=package_id)
+                                except Packages.DoesNotExist:
+                                    messages.error(request, 'Invalid Package selected')
+                                    return redirect('patient_profile', key=patient.id)
+
+                                package_items = PackagesData.objects.filter(package=package_obj)
+                                if not package_items.exists():
+                                    messages.error(request, f'No items found in {package_obj.name} package')
+                                    return redirect('patient_profile', key=patient.id)
+
+                            # Create NurseWaitingList
                             update_queue = queue_form.save(commit=False)
                             update_queue.patient = patient
                             update_queue.attendant = request.user
                             update_queue.category = patient.category
                             update_queue.plan = patient.plan
-                            update_queue.critical_request = int(request.POST['criticality'])
+                            update_queue.critical_request = int(request.POST.get('criticality') or 0)
+
+                            if is_package and package_obj:
+                                update_queue.purpose = package_obj.name
                             
-                            # Handle exception bill
                             exception_bill = request.POST.get('exception_bill', False)
                             if exception_bill == 'on' or exception_bill == 'True' or exception_bill == '1':
                                 update_queue.exception_bill = True
-                                update_queue.completed = 3  
-                                messages.success(
-                                    request, 
-                                    f'Consultation Activated (EXCEPTION - Not Billable)! Patient sent to Nurse Queue'
-                                )
+                                update_queue.completed = 3
                             else:
                                 update_queue.exception_bill = False
-                                update_queue.completed = 0  
-                                messages.success(
-                                    request, 
-                                    'Consultation Activated! Patient sent to Nurse Queue'
-                                )
+                                update_queue.completed = 0
                             
                             update_queue.save()
-                            
-                            # Update TransactionUpdate model from Billings app
+
+                            # Package Billing
+                            if is_package and package_items:
+                                exception_flag = update_queue.exception_bill
+                                for pkg_data in package_items:
+                                    if pkg_data.type == 'r':
+                                        RadiologyLab.objects.create(
+                                            item=pkg_data.item,
+                                            item_type='R',
+                                            rate=pkg_data.rate,
+                                            patient=patient,
+                                            category=patient.category,
+                                            plan=patient.plan,
+                                            staff=request.user,
+                                            exception_bill=exception_flag,
+                                        )
+                                    elif pkg_data.type == 'l':
+                                        RadiologyLab.objects.create(
+                                            item=pkg_data.item,
+                                            item_type='L',
+                                            rate=pkg_data.rate,
+                                            patient=patient,
+                                            category=patient.category,
+                                            plan=patient.plan,
+                                            staff=request.user,
+                                            exception_bill=exception_flag,
+                                        )
+                                    elif pkg_data.type == 's':
+                                        OtherService.objects.create(
+                                            purpose=pkg_data.item,
+                                            price=pkg_data.rate,
+                                            patient=patient,
+                                            category=patient.category,
+                                            plan=patient.plan,
+                                            provider=request.user,
+                                            exception_bill=exception_flag,
+                                        )
+
+                                if package_obj and package_obj.name.lower() == 'antenatal':
+                                    patient.packages = 1
+                                    patient.save(update_fields=['packages'])
+                                # else:
+                                #     if any(d.item.lower() == 'antenatal' for d in package_items):
+                                #         patient.packages = 1
+                                #         patient.save(update_fields=['packages'])
+
+                                messages.success(request, f'Consultation Activated! {package_obj.name} package billed: {package_items.count()} items')
+                            else:
+                                if update_queue.exception_bill:
+                                    messages.success(request, 'Consultation Activated (EXCEPTION - Not Billable)! Patient sent to Nurse Queue')
+                                else:
+                                    messages.success(request, 'Consultation Activated! Patient sent to Nurse Queue')
+
+                            # TransactionUpdate
                             obj, created = TransactionUpdate.objects.get_or_create(
                                 patient=patient,
                                 completed=0,
-                                defaults={
-                                    'invoice_raised': 0, 
-                                    'receipt_given': 0
-                                }
+                                defaults={'invoice_raised': 0, 'receipt_given': 0}
                             )
+                            return redirect('patient_profile', key=patient.id)
                         else:
                             messages.error(request, 'Error occurred! Please try again')
+                            return redirect('patient_profile', key=patient.id)
                     else:
                         messages.error(request, 'Wrong Selection: Antenatal Patient must be a Female')
+                        return redirect('patient_profile', key=patient.id)
                 else:
                     messages.error(request, 'This Patient is still on the queue! Please contact the Billing department for clearance')
                     return redirect('patient_profile', key=patient.id)
             else:
                 messages.error(request, 'Please select the level of Criticality of this request')
+                return redirect('patient_profile', key=patient.id)
+
     context = {
         'patient':patient,
         'form':form,
         'page':page,
         'form1':form1,
         'referer':referer,
-        # 'verify_transaction':verify_transaction,
+        'unique_packages':unique_packages,
         'queue_form':queue_form,
+        'encounters':encounters
     }
     return render(request, 'patients/patient_profile.html', context)
 

@@ -453,7 +453,7 @@ def get_clinical_records(request, patient_id):
         
         print(f"Clinical Records - Patient: {patient.id}, Selected Week: '{selected_week}'")
         
-        # Base querysets - start with empty ones (nothing shown until filter selected)
+        # Base querysets - starting with empty ones (nothing shown until filter selected)
         appointments = PatientAppointment.objects.none()
         radiology_labs = RadiologyLab.objects.none()
         ipd_drugs = IPDAdministeredDrugs.objects.none()

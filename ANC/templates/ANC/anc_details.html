@@ -155,7 +155,6 @@
     }
 
     /* for clinical records */
-    /* Clinical Records Modal Styles - Add to your existing styles */
 .clinical-modal .modal-dialog {
     max-width: 95%;
     width: 95%;
@@ -371,10 +370,7 @@
     }
 </style>
 <div class="container-fluid">
-        <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 <!-- Navbar -->
 <div id="medical-module-wrapper">
     <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd; margin-top: -15px;">
@@ -385,7 +381,7 @@
                     <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
                 </li>
 
-                {% if patient.category.category == 'ANC' %}
+                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                 <li class="nav-item active">
                     <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
                 </li>
@@ -538,7 +534,7 @@
         </div>
     </div>
 </div>
-    <!-- ================= EMPTY MODAL CONTAINERS ================= -->
+    <!-- EMPTY MODAL CONTAINERS  -->
     <!-- Obstetric History Modal -->
     <div class="modal fade" id="ObstetricHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
@@ -667,7 +663,7 @@ aria-hidden="true">
                             <form method="post">
                                 {% csrf_token %}
                                 {{appoint.as_p}}
-                                <button type="submit" name="appoints" class="btn btn-info" style="margin-top: 10px;">Create Appointment <i class="fa fa-bell"></i></button>                       
+                                <button type="submit" name="appoints" class="btn btn-info">Create Appointment <i class="fa fa-bell"></i></button>                       
                             </form>
 
                         </div>
@@ -675,7 +671,7 @@ aria-hidden="true">
             
                 </div>
             </div>
-        </div>
+    </div>
     
     <!-- Vital signs modal -->
     <div class="modal fade" id="vitalSignModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
@@ -776,7 +772,6 @@ aria-hidden="true">
             </div>
         </div>
     </div>
-    <!-- ================= SCRIPTS ================= -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
     <script>
@@ -803,7 +798,7 @@ aria-hidden="true">
             headers: { "X-CSRFToken": getCookie('csrftoken') }
         });
 
-        /* ================= LAZY LOAD MODALS ================= */
+        /* LAZY LOAD MODALS */
         var loadedModals = {
             obstetric: false,
             current_pregnancy: false,
@@ -860,9 +855,8 @@ aria-hidden="true">
             loadModalContent('investigations', '#investigations-modal-content');
         });
 
-        /* ================= FORM SUBMISSION ================= */
+        /* FORM SUBMISSION */
         // event delegation for dynamically loaded forms
-        /* ================= FORM SUBMISSION ================= */
         $(document).on('submit', 'form[id="obstetricForm"], form[id="currentPregnancyForm"], form[id="generalMedicalForm"], form[id="testsForm"]', function(e) {
             e.preventDefault();
             
@@ -912,7 +906,7 @@ aria-hidden="true">
                         console.error('Form errors:', response.errors);
                         showNotification('Error: Please check the form fields', 'error');
                         
-                        // Optional: Display errors next to fields
+                        // Opt: Display errors next to fields
                         displayFormErrors($form, response.errors);
                     }
                 },
@@ -955,7 +949,7 @@ aria-hidden="true">
             });
         }
 
-        /* ================= AUTO SAVE ================= */
+        /* AUTO SAVE */
         $(document).on('change', '.autosave', function() {
             let fieldName = $(this).attr("name");
             let value = $(this).val();
@@ -988,7 +982,7 @@ aria-hidden="true">
             });
         });
 
-        /* ================= PREGNANCY CALCULATOR ================= */
+        /* PREGNANCY CALCULATOR */
         function initializePregnancyCalculator() {
             const lmpField = document.getElementById("id_last_menstrual_period");
             const gaField = document.getElementById("id_gestational_age_weeks");
@@ -1029,7 +1023,7 @@ aria-hidden="true">
             initializePregnancyCalculator();
         }
 
-        /* ================= NOTIFICATION ================= */
+        /* NOTIFICATION */
         function showNotification(message, type) {
             var $notification = $('<div>', {
                 class: 'notification',
@@ -1056,7 +1050,7 @@ aria-hidden="true">
         }
 
 
-        /* ================= CLINICAL RECORDS MODAL ================= */
+        /* CLINICAL RECORDS MODAL */
         var clinicalRecordsLoaded = false;
 
         // Function to load clinical records by week

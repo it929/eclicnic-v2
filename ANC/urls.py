@@ -2,7 +2,7 @@ from django.urls import path
 from. import views
 
 urlpatterns = [
-    path('<int:patient_id>/', views.get_anc, name='get_anc'),
+    path('new-ANC-patient/<int:patient_id>/', views.get_anc, name='get_anc'),
 
     path(
     'anc/details/<int:patient_id>/',

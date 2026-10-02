@@ -964,3 +964,146 @@ def opdpharm_patient_profile(request, patient_id):
         'page': 'opd-patient-profile'
     }
     return render(request,'OPD_pharm/opd_operations_profile.html',context)
+
+
+@login_required
+def opd1_cancelled_product_list(request):
+    """Display all cancelled OPD Pharmacy 1 administered drugs """
+    cancelled_drugs = OPDAdministeredDrugs.objects.filter(
+        completed=2
+    ).select_related('product', 'patient', 'staff').order_by('-created_date')
+    
+    context = {
+        'cancelled_drugs': cancelled_drugs,
+        'total_count': cancelled_drugs.count(),
+    }
+    return render(request, 'OPD_pharm/opd1_cancelled_transaction.html', context)
+
+
+@login_required
+def opd1_staled_product_list(request):
+    """Display all staled OPD Pharmacy 1 administered drugs """
+    staled_drugs = OPDAdministeredDrugs.objects.filter(
+    completed=0,
+    created_date__lte=timezone.now() - timedelta(hours=72)
+).select_related('product', 'patient', 'staff').order_by('-created_date')
+    
+    context = {
+        'staled_drugs': staled_drugs,
+        'total_count': staled_drugs.count(),
+    }
+    return render(request, 'OPD_pharm/opd1_staled_transaction.html', context)
+
+
+@login_required
+@require_POST
+def opd1_restore_single_drug(request, pk):
+    """Restore a single cancelled drug back to inventory"""
+    try:
+        with transaction.atomic():
+            record = OPDAdministeredDrugs.objects.select_related('product').get(pk=pk)
+            
+            # Validate it's actually cancelled
+            if record.completed not in [0,2]:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'This record is not cancelled and cannot be restored.'
+                }, status=400)
+            
+            # Validate product exists
+            if not record.product:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No linked product found for this record.'
+                }, status=400)
+            
+            product = record.product
+            quantity = record.quantity or 0
+            drug_name = record.item or product.product_name
+            
+            # 1. Update the stock of the source model
+            OpdDrugs.objects.filter(pk=product.pk).update(
+                stock=F('stock') + quantity
+            )
+            
+            # 2. Remove the product from the destinated model
+            record.delete()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'"{drug_name}" ({quantity} units) restored successfully to inventory.'
+            })
+    
+    except OPDAdministeredDrugs.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Record not found. It may have already been restored.'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'An error occurred: {str(e)}'
+        }, status=500)
+
+
+@login_required
+@require_POST
+def opd1_restore_all_drugs(request):
+    """Restore all cancelled drugs back to OPD pharmacy 1 store"""
+    try:
+        with transaction.atomic():
+            cancelled_records = OPDAdministeredDrugs.objects.filter(
+                completed=2
+            ).select_related('product')
+            
+            total = cancelled_records.count()
+            
+            if total == 0:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No cancelled records found to restore.'
+                }, status=400)
+            
+            # Aggregate quantities per product for efficient bulk update
+            product_quantities = {}
+            records_to_delete = []
+            skipped = 0
+            
+            for record in cancelled_records:
+                if not record.product:
+                    skipped += 1
+                    continue
+                
+                product_id = record.product_id
+                product_quantities[product_id] = (
+                    product_quantities.get(product_id, 0) + (record.quantity or 0)
+                )
+                records_to_delete.append(record.pk)
+            
+            # Bulk update stock for each product
+            for product_id, qty in product_quantities.items():
+                OpdDrugs.objects.filter(pk=product_id).update(
+                    stock=F('stock') + qty
+                )
+            
+            # Bulk delete the records
+            deleted_count, _ = OPDAdministeredDrugs.objects.filter(
+                pk__in=records_to_delete
+            ).delete()
+            
+            message = f'{len(records_to_delete)} record(s) restored successfully.'
+            if skipped > 0:
+                message += f' {skipped} record(s) skipped (no linked product).'
+            
+            return JsonResponse({
+                'success': True,
+                'message': message,
+                'restored_count': len(records_to_delete),
+                'skipped_count': skipped,
+            })
+    
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'An error occurred: {str(e)}'
+        }, status=500)

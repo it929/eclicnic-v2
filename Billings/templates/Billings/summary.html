@@ -5,10 +5,7 @@
 {% block content %}
 <link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 
     <!-- Navbar -->
     <div id="billing-module-wrapper" style="margin-top: -15px;">
@@ -49,9 +46,16 @@
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
                     <div class="dropdown-divider"></div>
+                    {% if patient.plan.plan == 'Family' %}
+                    <a class="dropdown-item" href="{% url 'get_family_statements' patient.id %}">Family Statements</a>
+                    <div class="dropdown-divider"></div>
+                    {% endif %}
                     <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Patient Case Note</a>
                 </div>
             </li>
+
 
             <li class="nav-item">
             <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">

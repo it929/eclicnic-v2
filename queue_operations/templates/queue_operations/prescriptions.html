@@ -129,10 +129,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 </style>
 
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 <!-- Navbar -->
 {% if request.user.department.department != 'Nursing' %}
 <div id="medical-module-wrapper">
@@ -143,9 +140,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
                     <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
                 </li>
 
-                {% if patient.category.category == 'ANC' %}
+                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                    <a class="nav-link" href="{% url 'get_anc' patient.id %}">Antenatal Care</a>
                 </li>
                 {% endif %}
 
@@ -370,7 +367,6 @@ aria-hidden="true">
                         <!-- <th>total</th> -->
                         <!-- <th>Rate (₦)</th> -->
                          <!-- <td class="item-rate">${item.rate}</td> -->
-                        <th style="text-align: center; width: 10px;"><i class="fa fa-info"></i></th> 
                         <th style="text-align: center; width: 30px">Del</th>
                     </tr>
                 </thead>
@@ -442,7 +438,9 @@ aria-hidden="true">
                             <tr>
                                 <th>Test (Investigation)</th>
                                 <th>Rate (₦)</th>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <th style="text-align: center;">Exception Bill</th>
+                                {% endif %}
                                 <th>Add</th>
                                 <th>Remove</th>
                             </tr>
@@ -454,10 +452,12 @@ aria-hidden="true">
                                     <datalist id="test-options"></datalist>
                                 </td> 
                                 <td><input type="text" class="form-control rate" readonly></td>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <td style="text-align: center;">
                                     <input type="checkbox" class="lab-exception-checkbox" 
                                         title="Check if this test should NOT be billed">
                                 </td>
+                                {% endif %}
                                 <td><button type="button" class="btn btn-success add-row">+</button></td>
                                 <td><button type="button" class="btn btn-danger remove-row">-</button></td>
                             </tr>
@@ -514,7 +514,9 @@ aria-hidden="true">
                             <tr>
                                 <th>Scan</th>
                                 <th>Rate (₦)</th>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <th style="text-align: center;">Exception Bill</th>
+                                {% endif %}
                                 <th>Add</th>
                                 <th>Remove</th>
                             </tr>
@@ -526,10 +528,12 @@ aria-hidden="true">
                                     <datalist id="scan-options"></datalist>
                                 </td> 
                                 <td><input type="text" class="form-control rate" readonly></td>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <td style="text-align: center;">
                                     <input type="checkbox" class="scan-exception-checkbox" 
                                         title="Check if this scan should NOT be billed">
                                 </td>
+                                {% endif %}
                                 <td><button type="button" class="btn btn-success add-row">+</button></td>
                                 <td><button type="button" class="btn btn-danger remove-row">-</button></td>
                             </tr>
@@ -838,7 +842,9 @@ aria-hidden="true">
                             <tr>
                                 <th>Services</th>
                                 <th>Rate (₦)</th>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <th style="text-align: center;">Exception Bill</th>
+                                {% endif %}
                                 <th>Add</th>
                                 <th>Remove</th>
                             </tr>
@@ -850,9 +856,11 @@ aria-hidden="true">
                                     <datalist id="service-options-1"></datalist>
                                 </td> 
                                 <td><input type="text" class="form-control rate" readonly></td>
+                                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                                 <td style="text-align: center;">
                                     <input type="checkbox" class="service-exception-checkbox" title="Check if this service should NOT be billed">
                                 </td>
+                                {% endif %}
                                 <td><button type="button" class="btn btn-success add-row">+</button></td>
                                 <td><button type="button" class="btn btn-danger remove-row">-</button></td>
                             </tr>
@@ -2055,12 +2063,7 @@ $(document).ready(function() {
             </td>
             <td class="item-rate" style="display:none">${item.rate}</td>
             <td class="item-total" style="display:none">${item.total}</td>
-            <td>
-                <input type="checkbox" class="exception-bill-checkbox"
-                       data-unique-id="${uniqueId}"
-                       ${isExceptionBill? 'checked' : ''}
-                       title="Check if this item should NOT be billed">
-            </td>
+            
             <td><button class="text-danger text-sm remove-item" data-unique-id="${uniqueId}"><i class='fa fa-times'></i></button></td>
         </tr>
     `);

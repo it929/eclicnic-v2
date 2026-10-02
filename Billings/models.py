@@ -16,7 +16,7 @@ class TransactionUpdate(models.Model):
     
     
     def __str__(self):
-        return f"Transaction Update for {self.patient.surname} {self.patient.first_name} ({self.completed}) -- {self.updated_date}"
+        return f"Transaction Update for {self.patient.surname} {self.patient.first_name} ({self.completed}) -- {self.created_date}"
 
 class Invoice(models.Model):
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
@@ -25,7 +25,7 @@ class Invoice(models.Model):
     qty = models.PositiveIntegerField(default=0)
     discount = models.PositiveIntegerField(default=0)
     price = models.PositiveIntegerField(default=0)
-    payment_option = models.CharField(null=True, max_length=12)
+    payment_option = models.CharField(null=True, max_length=20)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
     completed = models.PositiveIntegerField(default=0)
     original_source_model = models.CharField(max_length=50, null=True, blank=True) 

@@ -53,6 +53,7 @@ class PatientProfile(models.Model):
     avatar = models.ImageField(null=True, default="patient-profile/avatar.svg", upload_to="patient-profile/")
     allergies = models.TextField(null=True, blank=True)
     active = models.PositiveIntegerField(default=1, db_index=True)
+    packages = models.PositiveIntegerField(default=0, blank=True)
     created_date = models.DateTimeField(auto_now_add=True, null=True)
     created_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
     deactivated_date = models.DateTimeField(auto_now_add=False, null=True, blank=True)

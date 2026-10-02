@@ -1,9 +1,7 @@
 {% extends "admin.html" %}
 
 {% block content %}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 
 
 <style>
@@ -40,138 +38,189 @@
     }
 </style>
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.get_full_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
     {% if request.user.department.department != 'Nursing' %}
     <div id="medical-module-wrapper">
-    <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
-        <div class="collapse navbar-collapse" id="navbarText">
-            <ul class="navbar-nav mr-auto">
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
-                </li>
+        <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
+            <div class="collapse navbar-collapse" id="navbarText">
+                <ul class="navbar-nav mr-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
+                    </li>
 
-                {% if patient.category.category == 'ANC' %}
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
-                </li>
-                {% endif %}
-
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
-                </li>
-
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
-                </li>
-
-                <li class="nav-item dropdown hover-dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                        View Reports
-                    </a>
-                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
-                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
-                    </div>
-                </li>
-
-                <li class="nav-item">
-                    {% if patient.is_admitted %}
-                    <a class="nav-link" href="#" style="color: brown;">Admitted</a>
-                    {% else %}
-                    <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                    {% if patient.category.category == 'ANC' or patient.packages == 1 %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'get_anc' patient.id %}">Antenatal Care</a>
+                    </li>
                     {% endif %}
-                </li>
 
-                <li class="nav-item dropdown hover-dropdown ">
-                    <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                        Prints
-                    </a>
-                    <div class="dropdown-menu" aria-labelledby="reportDropdown">
-                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
-                        <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
-                    <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
-                        <div class="dropdown-divider"></div>
-                        <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
-                        <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
-                        <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
-                        <div class="dropdown-divider"></div>
-                        <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
-                        <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
-                    </div>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'complaint_search' patient.id %}">Documentation</a>
+                    </li>
 
-                <li class="nav-item active">
-                    <a class="nav-link " href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
-                </li>
-                
-            </ul>
-        </div>
-    </nav>
-</div>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'administer_drugs' patient.id %}">Requests</a>
+                    </li>
+
+                    <li class="nav-item dropdown hover-dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            View Reports
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                            <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Case Notes</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{% url 'clinical_results' patient.id %}">Clinical Results</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{% url 'patient_admission' patient.id %}">Admission Records</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{% url 'get_notes' patient.id %}">Admission Notes</a>
+                        </div>
+                    </li>
+
+                    <li class="nav-item">
+                        {% if patient.is_admitted %}
+                        <a class="nav-link" href="#" style="color: brown;">Admitted</a>
+                        {% else %}
+                        <a class="nav-link" href="#" data-toggle="modal" class="text-danger" data-target="#admitPatientModal">Admit Patient</a>
+                        {% endif %}
+                    </li>
+
+                    <li class="nav-item dropdown hover-dropdown ">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Prints
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="reportDropdown">
+                            <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Investigations</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{% url 'get_lab_results' patient.id %}">Lab Results</a>
+                            <a class="dropdown-item" href="{% url 'get_scan_results' patient.id %}">Scan Results</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-success font-weight-bold" href="#" style="text-decoration: underline;">Medications</a>
+                        <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{% url 'download_written_prescriptions' patient.id %}">From Written Prescriptions</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-info" href="{% url 'ipd_download_prescriptions' patient.id %}">From IPD Pharmacy 1 Store</a>
+                            <a class="dropdown-item text-info" href="{% url 'ipd2_download_prescriptions' patient.id %}">From IPD Pharmacy 2 Store</a>
+                            <a class="dropdown-item text-info" href="{% url 'ipd3_download_prescriptions' patient.id %}">From IPD Pharmacy 3 Store</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-primary" href="{% url 'opd_download_prescriptions' patient.id %}">From OPD Pharmacy 1 Store</a>
+                            <a class="dropdown-item text-primary" href="{% url 'opd2_download_prescriptions' patient.id %}">From OPD Pharmacy 2 Store</a>
+                        </div>
+                    </li>
+
+                    <li class="nav-item active">
+                        <a class="nav-link " href="{% url 'mark_for_completion' patient.id %}">Mark for completion</a>
+                    </li>
+                    
+                </ul>
+            </div>
+        </nav>
+    </div>
     {% endif %}
-         <div class="card-body div-grid">    
-            <!-- Column 1: Printable fields         -->
-                <div class="row" style="margin: 5px -20px;">
-                    <div class="message text-left alert alert-secondary alert-dismissible fade show" role="alert" style="font-weight: bold; width: 92%; margin-left: 3%;">
-                        <span class="badge badge-pill badge-info">Info:</span>
-                        <p></p>
-                        <p>
-                            Clicking <span class="text-warning"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed</span> button, means you've seen and read the lab result for this patient, this automatically removes the result from the list, for queue management purpose
-                        </p>
-                        <p>
-                            Clicking <span class="text-success"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed</span> button, means you've seen and read the scan result for this patient, this automatically removes the result from the list, for queue management purpose
-                        </p>
-                         <p>
-                            Clicking <span class="text-info"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed</span> button, means you've seen and completed your encounter with this patient today, this automatically removes the patient from the waiting list, for queue management purpose
-                        </p>
-                        <p>
-                            This action is important and required, as it helps to clean up the waiting list, thereby preventing the doctors from the mistake of picking up an already completed test result, scan result or encounter
-                        </p>
-                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                </div>
-             <!-- Column 2: Toolbars         -->
-                <div class="table-responsive">
-                    <div style="padding: 5px; border-radius: 4px;">
-                        
-                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markLabResultsAsCompleted({{patient.id}})">
-                            <div class="message text-center alert alert-warning text-warning" role="alert" style="padding-left: 10px;">
-                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed
-                            </div>
-                        </button>
-                        
-                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markScanResultsAsCompleted({{patient.id}})">
-                            <div class="message text-center alert alert-success text-success" role="alert" style="padding-left: 10px;">
-                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed
-                            </div>
-                        </button>
-                        
-                        <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markEncounterAsCompleted({{patient.id}})">
-                            <div class="message text-center alert alert-info" role="alert" style="padding-left: 10px;">
-                                <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed
-                            </div>
-                        </button>
-
-                    </div>
-                </div>
+    <div class="card-body div-grid">    
+    <!-- Column 1: Printable fields         -->
+        <div class="row" style="margin: 5px -20px;">
+            <div class="message text-left alert alert-secondary alert-dismissible fade show" role="alert" style="font-weight: bold; width: 92%; margin-left: 3%;">
+                <span class="badge badge-pill badge-info">Info:</span>
+                <p></p>
+                <p>
+                    Clicking <span class="text-warning"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed</span> button, means you've seen and read the lab result for this patient, this automatically removes the result from the list, for queue management purpose
+                </p>
+                <p>
+                    Clicking <span class="text-success"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed</span> button, means you've seen and read the scan result for this patient, this automatically removes the result from the list, for queue management purpose
+                </p>
+                    <p>
+                    Clicking <span class="text-info"><i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed</span> button, means you've seen and completed your encounter with this patient today, this automatically removes the patient from the waiting list, for queue management purpose
+                </p>
+                <p>
+                    This action is important and required, as it helps to clean up the waiting list, thereby preventing the doctors from the mistake of picking up an already completed test result, scan result or encounter
+                </p>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
         </div>
+        <!-- Column 2: Toolbars         -->
+        <div class="table-responsive">
+            <div style="padding: 5px; border-radius: 4px;">
+                
+                <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markLabResultsAsCompleted({{patient.id}})">
+                    <div class="message text-center alert alert-warning text-warning" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Lab Results as completed
+                    </div>
+                </button>
+                
+                <button type="button" style="width: 106%; margin-left: -3%; border: none; background: none;" onclick="markScanResultsAsCompleted({{patient.id}})">
+                    <div class="message text-center alert alert-success text-success" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Scan Results as completed
+                    </div>
+                </button>
 
+                <a class="nav-link" href="#" data-toggle="modal" data-target="#cancelEncounterModal" style="width: 114%; margin: -8px -6%;">
+                    <div class="message text-center alert alert-danger text-danger" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-times"></i>  Cancel this Encounter
+                    </div>
+                </a>
+                {% if current_waiting_entry.encounter_status == 3 %}
+                <a class="nav-link" href="#" data-toggle="modal" data-target="#pauseEncounterModal" style="width: 114%; margin: -15px -6%;">
+                    <div class="message text-center alert alert-success text-success" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-play"></i>  Restart this Encounter
+                    </div>
+                </a>
+                {% else %}
+                <a class="nav-link" href="#" data-toggle="modal" data-target="#pauseEncounterModal" style="width: 114%; margin: -15px -6%;">
+                    <div class="message text-center alert alert-warning text-warning" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-pause"></i>  Pause this Encounter
+                    </div>
+                </a>
+                {% endif %}
+                
+                <button type="button" style="width: 106%; margin: 7px -3%; border: none; background: none;" onclick="markEncounterAsCompleted({{patient.id}})">
+                    <div class="message text-center alert alert-info" role="alert" style="padding-left: 10px;">
+                        <i class="fas fa-check"></i><i class="fas fa-check"></i>  Mark Encounter as completed
+                    </div>
+                </button>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="cancelEncounterModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-times"></i> Want to cancel this encounter? </h5>
+                <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+            <div class="modal-footer">
+                <form method="post">
+                    {% csrf_token %}
+                    <button type="submit" name="cancel_encounter" class="btn btn-primary">Cancel Now <i class="fa fa-times"></i></button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+            </div> 
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="pauseEncounterModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-primary font-weight-bold" id="exampleModalLabel"><i class="fa fa-pause"></i> Want to {% if current_waiting_entry.encounter_status == 3 %}restart{% else %}pause{% endif %} this encounter? </h5>
+                <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+            <div class="modal-footer">
+                    <button type="submit" name="update_encounter" class="btn btn-primary">{% if current_waiting_entry.encounter_status == 3 %}Restart Now <i class="fa fa-play"></i>{% else %}Pause Now <i class="fa fa-pause"></i>{% endif %}</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No,Thanks!</button>
+                </form>
+            </div> 
+        </div>
+    </div>
+</div>
 <script>
 // Get CSRF token from cookies
 function getCookie(name) {
@@ -259,7 +308,7 @@ async function requestPinAndMarkComplete(patientId, actionType, apiUrl, successM
                     timer: 3000,
                     timerProgressBar: true
                 }).then(() => {
-                    // Optional: Reload page or update UI
+                    // Reload page or update UI
                     location.reload();
                 });
             } else {
@@ -316,9 +365,9 @@ function markEncounterAsCompleted(patientId) {
     );
 }
 
-// Optional: Add keyboard event listener for Enter key
+//  keyboard event listener for Enter key
 document.addEventListener('DOMContentLoaded', function() {
-    // You can add any initialization code here
+    // initialization code here
     console.log('Page loaded with patient ID: {{patient.id}}');
 });
 </script>

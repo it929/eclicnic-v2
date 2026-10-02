@@ -221,7 +221,7 @@
                 
                 <div class="filter-group">
                     <label>Payment Type</label>
-                    <select name="payment_type" id="payment_type">
+                    <select name="payment_type">
                         <option value="All" {% if payment_type == 'All' %}selected{% endif %}>All Payments</option>
                         {% for po in payment_options %}
                             <option value="{{ po }}" {% if payment_type == po %}selected{% endif %}>{{ po }}</option>

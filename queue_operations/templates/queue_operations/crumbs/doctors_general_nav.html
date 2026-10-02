@@ -6,9 +6,9 @@
                     <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
                 </li>
 
-                {% if patient.category.category == 'ANC' %}
+                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                    <a class="nav-link" href="{% url 'get_anc' patient.id %}">Antenatal Care</a>
                 </li>
                 {% endif %}
 

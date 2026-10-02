@@ -151,10 +151,7 @@
         }
     </style>
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 <!-- Navbar -->
 <div id="medical-module-wrapper">
     <nav class="navbar navbar-expand-lg navbar-light custom-nav" style="background-color: #e3f2fd; margin-top: -15px;">
@@ -164,9 +161,9 @@
                     <a class="nav-link" href="{% url 'doctor_consultation' patient.id %}">Nurse Report <span class="sr-only">(current)</span></a>
                 </li>
 
-                {% if patient.category.category == 'ANC' %}
+                {% if patient.category.category == 'ANC' or patient.packages == 1 %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{% url 'get_anc_details' patient.id %}">Antenatal Care</a>
+                    <a class="nav-link" href="{% url 'get_anc' patient.id %}">Antenatal Care</a>
                 </li>
                 {% endif %}
 

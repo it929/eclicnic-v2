@@ -30,10 +30,7 @@
 <link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
 
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.surname}} {{patient.other_name}} {{patient.first_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
 
     <!-- Navbar -->
     <div id="billing-module-wrapper" style="margin-top: -15px;">
@@ -74,7 +71,11 @@
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
                     <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_family_statements' patient.id %}">Family Statements</a>
+                        <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Patient Case Note</a>
                 </div>
             </li>
 
@@ -135,18 +136,13 @@
                             <td><label for="payment_type_select">Payment Type</label></td>
                             <td>
                                 <select class="form-control" id="payment_type_select">
-                                    <option value="Cash">Cash</option>
-                                    <option value="Transfer">Bank Transfer</option>
-                                    <option value="POS">Merchant POS</option>
-                                    <option value="Cheque">Cheque</option>
-                                    <option value="Bank Deposit">Bank Deposit</option>
-                                    <option value="Staff Salary">Staff Salary</option>
-                                    <option value="Other">Other</option>
+                                    <option value="{{original_payment_option}}">{{original_payment_option}}</option>
                                 </select>
+                                <small class="text-muted">You can reset the invoice to select a <b>new payment type</b> </small>
                             </td>
                             <td><label for="process_fund" style="margin-left: 20px;">Fund Process</label></td>
                             <td>
-                                <select class="form-control" id="process_fund">
+                                <select class="form-control" id="process_fund" style="margin-top: -17px;">
                                     <option value="fresh_payment">Fresh Payment</option>
                                     <option value="my_deposit">From my deposit</option>
                                     <option value="deposit_and_fresh_payment">My deposit + Fresh Payment</option>
@@ -277,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Explicitly set payment_type based on process_fund to avoid disabled field issue
+        // Explicitly set payment_type based on process_fund
         const processFund = processFundSelect.value;
         let finalPaymentType = paymentTypeSelect.value;
         if (processFund === "my_deposit") {
@@ -289,7 +285,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let payload = {
             amount_paid: document.getElementById('amount_paid_input').value,
             remarks: document.getElementById('remarks_textarea').value,
-            payment_type: finalPaymentType,  // Use our calculated value, not disabled field
+            payment_type: finalPaymentType,  // Use the calculated value
             invoice_number: document.getElementById('invoice_number_hidden').value,
             pin_code: pinCodeInputReceipt.value,
             process_fund: processFund

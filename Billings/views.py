@@ -42,192 +42,142 @@ from haystack.query import SearchQuerySet
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
 
-
 today = date.today()
 now = timezone.localtime(timezone.now())
 time_threshold = timezone.now() - timedelta(hours=24)
 
-# Beginning of all transactions within the space of 24 Hours
+import logging
+logger = logging.getLogger(__name__)
 
-@login_required(login_url='login')
+
+def _apply_date_filter(queryset, request, date_field):
+    """
+    Apply a date range filter. Defaults to the last 24 hours if
+    neither `date_from` nor `date_to` are provided.
+    """
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
+
+    logger.info(f"[date-filter] field={date_field} from={date_from!r} to={date_to!r}")
+
+    if date_from or date_to:
+        if date_from:
+            try:
+                d_from = datetime.strptime(date_from, '%Y-%m-%d').date()
+                start = datetime.combine(d_from, time.min)
+                if timezone.is_naive(start):
+                    start = timezone.make_aware(start)
+                queryset = queryset.filter(**{f'{date_field}__gte': start})
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid date_from '{date_from}': {e}")
+
+        if date_to:
+            try:
+                d_to = datetime.strptime(date_to, '%Y-%m-%d').date()
+                end = datetime.combine(d_to, time.max)
+                if timezone.is_naive(end):
+                    end = timezone.make_aware(end)
+                queryset = queryset.filter(**{f'{date_field}__lte': end})
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid date_to '{date_to}': {e}")
+    else:
+        cutoff = timezone.now() - timedelta(hours=24)
+        queryset = queryset.filter(**{f'{date_field}__gte': cutoff})
+
+    logger.info(f"[date-filter] resulting SQL: {queryset.query}")
+    return queryset
+
+
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
-def get_transactions(request):
-    page = 'awaiting-bills'
+def get_transactions_all(request):
+    page = 'awaiting-bills-all'
+    awaiting_bills = TransactionUpdate.objects.filter(completed=0)
+    # For awaiting bills
+    awaiting_bills = _apply_date_filter(awaiting_bills, request, 'created_date')
+    awaiting_bills = awaiting_bills.order_by('-created_date')
 
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    awaiting_bills = TransactionUpdate.objects.filter(created_date__range=(start_of_day, end_of_day), completed=0).order_by('receipt_given_date')
     context = {
-        'awaiting_bills':awaiting_bills,
-        'page':page,
+        'awaiting_bills': awaiting_bills,
+        'page': page,
     }
-    return render(request,'Billings/transactions.html',context)
+    return render(request, 'Billings/transactions_all.html', context)
 
-@login_required(login_url='login')
+
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
-def get_partially_paid_transactions(request):
-    page = 'partially-paid'
+def get_partially_paid_transactions_all(request):
+    page = 'partially_paid-bills-all'
 
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    # Base queryset of ALL partially paid records (completed=2)
+    base_qs = TransactionUpdate.objects.filter(completed=2)
+    base_qs = _apply_date_filter(base_qs, request, 'receipt_given_date')
 
+    # Get the latest transaction per patient from the *filtered* set
     latest_tx_ids = (
-        TransactionUpdate.objects.filter(completed=2, receipt_given_date__range=(start_of_day, end_of_day))
+        base_qs
         .values('patient')
         .annotate(latest_id=Max('id'))
         .values_list('latest_id', flat=True)
     )
 
-    # Fetching specific transactions and optimizing database performance using select_related
-    partially_paid = (
+    partially_paid_bills = (
         TransactionUpdate.objects.filter(id__in=latest_tx_ids)
         .select_related('patient', 'patient__category', 'patient__plan')
-        .order_by('receipt_given_date')
+        .order_by('-receipt_given_date')
     )
 
     context = {
-        'partially_paid':partially_paid,
-        'page':page,
+        'partially_paid_bills': partially_paid_bills,
+        'page': page,
     }
-    return render(request,'Billings/transactions.html',context)
+    return render(request, 'Billings/transactions_all.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
-def get_completed_transactions(request):
-    page = 'completed-bills'
+def get_completed_transactions_all(request):
+    page = 'completed-bills-all'
 
-    current_time = timezone.now()
-    
-    start_of_day = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = current_time.replace(hour=23, minute=59, second=59, microsecond=999999)
+    base_qs = TransactionUpdate.objects.filter(completed=1)
+    base_qs = _apply_date_filter(base_qs, request, 'receipt_given_date')
 
-    # Getting the latest transaction ID for each unique patient today
     latest_tx_ids = (
-        TransactionUpdate.objects.filter(
-            completed=1, 
-            receipt_given_date__range=(start_of_day, end_of_day)
-        )
+        base_qs
         .values('patient')
         .annotate(latest_id=Max('id'))
         .values_list('latest_id', flat=True)
     )
 
-    # Fetch those specific transactions and added select_related to stop the "N+1" database slowness
     completed_bills = (
         TransactionUpdate.objects.filter(id__in=latest_tx_ids)
         .select_related('patient', 'patient__category', 'patient__plan')
-        .order_by('receipt_given_date')
+        .order_by('-receipt_given_date')
     )
 
     context = {
         'completed_bills': completed_bills,
         'page': page,
     }
-    return render(request, 'Billings/transactions.html', context)
+    return render(request, 'Billings/transactions_all.html', context)
 
 
-@login_required(login_url='login')
-@department_required('Billings', 'Admin', 'CMD')
-def get_transactions_table(request):
-    page = 'transaction-table'
-
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    transaction_tables = TransactionUpdate.objects.filter(created_date__range=(start_of_day, end_of_day)).order_by('receipt_given_date')
-    context = {
-        'transaction_tables':transaction_tables,
-        'page':page,
-    }
-    return render(request,'Billings/transactions.html',context)
-
-# End of all transactions within the space of 24 Hours
-
-# Beginning of all transactions older than 24 hours
-
-@login_required(login_url='login')
-@department_required('Billings', 'Admin', 'CMD')
-def get_transactions_all(request):
-    page = 'awaiting-bills-all'
-
-    awaiting_bills = TransactionUpdate.objects.filter(created_date__lt=time_threshold, completed=0).order_by('receipt_given_date')
-    context = {
-        'awaiting_bills':awaiting_bills,
-        'page':page,
-    }
-    return render(request,'Billings/transactions_all.html',context)
-
-
-@login_required(login_url='login')
-@department_required('Billings', 'Admin', 'CMD')
-def get_partially_paid_transactions_all(request):
-    page = 'partially_paid-bills-all'
-
-    latest_tx_ids = (
-        TransactionUpdate.objects.filter(receipt_given_date__lt=time_threshold, completed=2).order_by('receipt_given_date')
-        .values('patient')
-        .annotate(latest_id=Max('id'))
-        .values_list('latest_id', flat=True)
-    )
-
-    # Fetching specific transactions and optimizing database performance using select_related
-    partially_paid_bills = (
-        TransactionUpdate.objects.filter(id__in=latest_tx_ids)
-        .select_related('patient', 'patient__category', 'patient__plan')
-        .order_by('receipt_given_date')
-    )
-
-    context = {
-        'partially_paid_bills':partially_paid_bills,
-        'page':page,
-    }
-    return render(request,'Billings/transactions_all.html',context)
-
-
-@login_required(login_url='login')
-@department_required('Billings', 'Admin', 'CMD')
-def get_completed_transactions_all(request):
-    page = 'completed-bills-all'
-
-    #  Getting the latest transaction ID for each unique patient for below today's window
-    latest_tx_ids = (
-        TransactionUpdate.objects.filter(receipt_given_date__lt=time_threshold, completed=1)
-        .values('patient')
-        .annotate(latest_id=Max('id'))
-        .values_list('latest_id', flat=True)
-    )
-
-    # Fetching specific transactions and optimizing database performance using select_related
-    completed_bills = (
-        TransactionUpdate.objects.filter(id__in=latest_tx_ids)
-        .select_related('patient', 'patient__category', 'patient__plan')
-        .order_by('receipt_given_date')
-    )
-
-    context = {
-        'completed_bills':completed_bills,
-        'page':page,
-    }
-    return render(request,'Billings/transactions_all.html',context)
-
-
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_transactions_table_all(request):
     page = 'transaction-table-all'
+    transaction_tables = TransactionUpdate.objects.all()
+    transaction_tables = _apply_date_filter(transaction_tables, request, 'created_date')
+    transaction_tables = transaction_tables.order_by('-receipt_given_date')
 
-    transaction_tables = TransactionUpdate.objects.filter(created_date__lt=time_threshold).order_by('-receipt_given_date')
     context = {
-        'transaction_tables':transaction_tables,
-        'page':page,
+        'transaction_tables': transaction_tables,
+        'page': page,
     }
-    return render(request,'Billings/transactions_all.html',context)
+    return render(request, 'Billings/transactions_all.html', context)
 
-# End of all transactions older than 24 hours
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_billings(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -287,260 +237,249 @@ def get_billings(request, patient_id):
     return render(request, 'Billings/create_bills.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def create_invoice(request, patient_id):
-    if request.method == 'POST':
-        patient = get_object_or_404(PatientProfile, id=patient_id)
-        staff = request.user
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
 
-        data = json.loads(request.body)
-        selected_items_data = data.get('selected_items', [])
-        pin_code = data.get('pin_code')
+    patient = get_object_or_404(PatientProfile, id=patient_id)
+    staff = request.user
 
-        # --- PIN Authentication ---
-        if not pin_code:
-            return JsonResponse({'status': 'error', 'message': 'PIN code is required.'}, status=400)
-        try:
-            if staff.pin != int(pin_code):
-                return JsonResponse({'status': 'error', 'message': 'Incorrect PIN input.'}, status=403)
-        except (ValueError, TypeError):
-            return JsonResponse({'status': 'error', 'message': 'Invalid PIN format or user PIN not set.'}, status=400)
+    data = json.loads(request.body)
+    selected_items_data = data.get('selected_items', [])
+    pin_code = data.get('pin_code')
+    global_payment_option = data.get('payment_option') or data.get('payment_type')
+    # if not global_payment_option and selected_items_data:
+    #     global_payment_option = selected_items_data[0].get('payment_option')
 
-        if not selected_items_data:
-            return JsonResponse({'status': 'error', 'message': 'No items selected for invoicing.'}, status=400)
+    # if global_payment_option:
+    #     global_payment_option = str(global_payment_option).strip()
 
-        # --- Check for outstanding transaction ---
-        outstanding_transaction = TransactionUpdate.objects.filter(
-            patient=patient,
-            invoice_ids__isnull=False,
-            receipt_ids__isnull=True,
-        ).first()
-        if outstanding_transaction:
-            return JsonResponse({
-                'status': 'error',
-                'message': f'An outstanding invoice ({outstanding_transaction.invoice_ids}) for this patient needs to be cleared first.'
-            }, status=403)
+    # ALLOWED_PAYMENT_OPTIONS = ['Cash','Claim','Transfer','POS','Cheque','Bank Deposit','Staff Salary','Other','Capitation']
 
-        # 1. total_invoiced_items = what user selected now
-        total_invoiced_items = len(selected_items_data)
+    # if not global_payment_option:
+    #     return JsonResponse({'status': 'error', 'message': 'Payment Option is required. Please select a payment option.'}, status=400)
 
-        # 2. total_available_items = all billable items with completed=0 at this moment
-        total_available_items = 0
-        total_available_items += GetRegistrationFee.objects.filter(patient=patient, completed=0).count()
-        total_available_items += NurseWaitingList.objects.filter(patient=patient, completed=0).count()
-        total_available_items += RadiologyLab.objects.filter(patient=patient, completed=0).count()  
-        total_available_items += IPDAdministeredDrugs.objects.filter(patient=patient, completed=0).count()
-        total_available_items += IPD2AdministeredDrugs.objects.filter(patient=patient, completed=0).count()
-        total_available_items += IPD3AdministeredDrugs.objects.filter(patient=patient, completed=0).count()
-        total_available_items += OPDAdministeredDrugs.objects.filter(patient=patient, completed=0).count()
-        total_available_items += OPD2AdministeredDrugs.objects.filter(patient=patient, completed=0).count()
-        total_available_items += OtherService.objects.filter(patient=patient, completed=0).count()
-        total_available_items += AdmissionFee.objects.filter(patient=patient, completed=0).count()
+    # --- Allowed options ---
+    ALLOWED_PAYMENT_OPTIONS = [
+        'Cash', 'Claim', 'Transfer', 'POS', 
+        'Cheque', 'Bank Deposit', 'Staff Salary', 'Other',
+        'Capitation' # keep for backward compatibility
+    ]
 
-        # --- Finding the specific TransactionUpdate record ---
-        transaction_update_qs = TransactionUpdate.objects.filter(
-            patient=patient,
-            invoice_ids__isnull=True,
-            receipt_ids__isnull=True,
-        ).order_by('-updated_date')
+    # --- PIN Auth ---
+    if not pin_code:
+        return JsonResponse({'status': 'error', 'message': 'PIN code is required.'}, status=400)
+    try:
+        if staff.pin != int(pin_code):
+            return JsonResponse({'status': 'error', 'message': 'Incorrect PIN input.'}, status=403)
+    except (ValueError, TypeError):
+        return JsonResponse({'status': 'error', 'message': 'Invalid PIN format.'}, status=400)
 
-        transaction_to_operate_on = None
-        create_new_transaction_update = False
+    if not selected_items_data:
+        return JsonResponse({'status': 'error', 'message': 'No items selected.'}, status=400)
 
-        if transaction_update_qs.count() == 1:
-            transaction_to_operate_on = transaction_update_qs.first()
-        elif transaction_update_qs.count() > 1:
-            return JsonResponse({'status': 'error','message': 'Multiple ambiguous transaction records found.'}, status=500)
-        else:
-            create_new_transaction_update = True
+    # ---  Payment Option Validation ---
+    if not global_payment_option or str(global_payment_option).strip() == "":
+        return JsonResponse({'status': 'error', 'message': 'Payment Option is required. Please select a payment option.'}, status=400)
+    
+    if global_payment_option not in ALLOWED_PAYMENT_OPTIONS:
+        return JsonResponse({'status': 'error', 'message': f'Invalid Payment Option: {global_payment_option}'}, status=400)
 
-        invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
-        total_invoice_amount_for_transaction = 0.0 
-        invoices_to_create = [] 
+    # Outstanding invoice check
+    outstanding_transaction = TransactionUpdate.objects.select_for_update().filter(
+        patient=patient, invoice_ids__isnull=False, receipt_ids__isnull=True,
+    ).first()
+    if outstanding_transaction:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'An outstanding invoice ({outstanding_transaction.invoice_ids}) needs to be cleared first.'
+        }, status=403)
 
-        try:
-            for item_data in selected_items_data:
-                product_name = item_data.get('product')
-                qty = item_data.get('qty')
-                discount_percentage = item_data.get('discount', 0)
-                price = float(item_data.get('total'))
-                payment_option = item_data.get('payment_option')
-                item_category = patient.category
-                original_id = item_data.get('original_id')
-                original_model = item_data.get('original_model')
+    total_invoiced_items = len(selected_items_data)
+    total_available_items = (
+        GetRegistrationFee.objects.filter(patient=patient, completed=0).count() +
+        NurseWaitingList.objects.filter(patient=patient, completed=0).count() +
+        RadiologyLab.objects.filter(patient=patient, completed=0).count() +
+        IPDAdministeredDrugs.objects.filter(patient=patient, completed=0).count() +
+        IPD2AdministeredDrugs.objects.filter(patient=patient, completed=0).count() +
+        IPD3AdministeredDrugs.objects.filter(patient=patient, completed=0).count() +
+        OPDAdministeredDrugs.objects.filter(patient=patient, completed=0).count() +
+        OPD2AdministeredDrugs.objects.filter(patient=patient, completed=0).count() +
+        OtherService.objects.filter(patient=patient, completed=0).count() +
+        AdmissionFee.objects.filter(patient=patient, completed=0).count()
+    )
 
-                invoices_to_create.append(Invoice(
-                    patient=patient,
-                    invoice_number=invoice_number,
-                    product=product_name,
-                    qty=qty,
-                    discount=discount_percentage,
-                    price=price,
-                    payment_option=payment_option,
-                    category=item_category,
-                    staff=staff,
-                    completed=0,
-                    original_source_model=original_model,
-                    original_source_id=original_id,
-                ))
-                total_invoice_amount_for_transaction += price
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': f'Error processing items: {str(e)}'}, status=500)
+    transaction_qs = TransactionUpdate.objects.select_for_update().filter(
+        patient=patient, invoice_ids__isnull=True, receipt_ids__isnull=True,
+    ).order_by('-updated_date')
+    
+    transaction_to_operate_on = transaction_qs.first()
+    create_new = transaction_to_operate_on is None
+    if transaction_to_operate_on and transaction_qs.count() > 1:
+        transaction_qs.exclude(pk=transaction_to_operate_on.pk).delete()
 
-        Invoice.objects.bulk_create(invoices_to_create)
+    invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
+    total_amount = 0.0
+    invoices_to_create = []
 
-        try:
-            if create_new_transaction_update:
-                TransactionUpdate.objects.create(
-                    patient=patient,
-                    invoice_ids=invoice_number,
-                    invoice_raised=total_invoice_amount_for_transaction,
-                    staff=staff,
-                    updated_date=timezone.now(),
-                    total_available_items=total_available_items,  
-                    total_invoiced_items=total_invoiced_items,    
-                )
-            else:
-                transaction_to_operate_on.invoice_ids = invoice_number
-                transaction_to_operate_on.invoice_raised = total_invoice_amount_for_transaction
-                transaction_to_operate_on.staff = staff
-                transaction_to_operate_on.updated_date = timezone.now()
-                transaction_to_operate_on.total_available_items = total_available_items  
-                transaction_to_operate_on.total_invoiced_items = total_invoiced_items    
-                transaction_to_operate_on.save()
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': f'Error updating/creating TransactionUpdate: {str(e)}'}, status=500)
+    try:
+        for item_data in selected_items_data:
+            payment_option = global_payment_option or item_data.get('payment_option')
+            
+            if not payment_option:
+                return JsonResponse({'status': 'error', 'message': 'Payment Option is required for all items.'}, status=400)
 
-        return JsonResponse({'status': 'success', 'message': f'Invoice {invoice_number} created successfully.', 'invoice_number': invoice_number})
+            price = float(item_data.get('total'))
 
-    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
+            invoices_to_create.append(Invoice(
+                patient=patient,
+                invoice_number=invoice_number,
+                product=item_data.get('product'),
+                qty=item_data.get('qty'),
+                discount=item_data.get('discount', 0),
+                price=price, # price as total amount after discount
+                payment_option=payment_option, 
+                category=patient.category,
+                staff=staff,
+                completed=0,
+                original_source_model=item_data.get('original_model'),
+                original_source_id=item_data.get('original_id'),
+            ))
+            total_amount += price
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': f'Error processing items: {str(e)}'}, status=500)
+
+    Invoice.objects.bulk_create(invoices_to_create)
+
+    if create_new:
+        TransactionUpdate.objects.create(
+            patient=patient, invoice_ids=invoice_number,
+            invoice_raised=total_amount, staff=staff,
+            updated_date=timezone.now(),
+            total_available_items=total_available_items,
+            total_invoiced_items=total_invoiced_items,
+        )
+    else:
+        transaction_to_operate_on.invoice_ids = invoice_number
+        transaction_to_operate_on.invoice_raised = total_amount
+        transaction_to_operate_on.staff = staff
+        transaction_to_operate_on.updated_date = timezone.now()
+        transaction_to_operate_on.total_available_items = total_available_items
+        transaction_to_operate_on.total_invoiced_items = total_invoiced_items
+        transaction_to_operate_on.save()
+
+    return JsonResponse({'status': 'success', 'message': f'Invoice {invoice_number} created.', 'invoice_number': invoice_number})
 
 
-
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def reset_invoice(request, patient_id):
-    if request.method == 'POST':
-        # Ensure user is authenticated
-        if not request.user.is_authenticated:
-            return JsonResponse({'status': 'error', 'message': 'Authentication required.'}, status=401)
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
 
-        patient = get_object_or_404(PatientProfile, id=patient_id)
-        staff = request.user
+    if not request.user.is_authenticated:
+        return JsonResponse({'status': 'error', 'message': 'Authentication required.'}, status=401)
 
-        data = json.loads(request.body)
-        pin_code = data.get('pin_code')
+    patient = get_object_or_404(PatientProfile, id=patient_id)
+    staff = request.user
 
-        # --- PIN Authentication Start ---
-        if not pin_code:
-            return JsonResponse({'status': 'error', 'message': 'PIN code is required.'}, status=400)
+    data = json.loads(request.body)
+    pin_code = data.get('pin_code')
 
-        try:
-            if staff.pin != int(pin_code):
-                return JsonResponse({'status': 'error', 'message': 'Incorrect PIN input.'}, status=403)
-        except (ValueError, TypeError):
-            return JsonResponse({'status': 'error', 'message': 'Invalid PIN format or user PIN not set.'}, status=400)
-        except AttributeError:
-            return JsonResponse({'status': 'error', 'message': 'User does not have a PIN set or it is inaccessible.'}, status=500)
-        # --- PIN Authentication End ---
+    if not pin_code:
+        return JsonResponse({'status': 'error', 'message': 'PIN code is required.'}, status=400)
+    try:
+        if staff.pin != int(pin_code):
+            return JsonResponse({'status': 'error', 'message': 'Incorrect PIN input.'}, status=403)
+    except (ValueError, TypeError, AttributeError):
+        return JsonResponse({'status': 'error', 'message': 'Invalid PIN format or user PIN not set.'}, status=400)
 
-        # --- Find the specific TransactionUpdate record that has an outstanding invoice ---
-        try:
+    # --- Find outstanding invoice with lock ---
+    # Don't filter by completed, and handle duplicates
+    transaction_qs = TransactionUpdate.objects.select_for_update().filter(
+        patient=patient,
+        invoice_ids__isnull=False,
+        receipt_ids__isnull=True,
+    ).order_by('-updated_date')
 
-            transaction_to_reset = TransactionUpdate.objects.get(
-                patient=patient,
-                invoice_ids__isnull=False,  # An invoice has been assigned
-                receipt_ids__isnull=True,     # But no receipt has been assigned
-                completed=0,
+    if not transaction_qs.exists():
+        return JsonResponse({
+            'status': 'error',
+            'message': 'No outstanding invoice found to reset for this patient. It might already be paid or cleared.'
+        }, status=404)
 
-            )
-            # Get the invoice_number from this record
-            invoice_number_to_reset = transaction_to_reset.invoice_ids
+    transaction_to_reset = transaction_qs.first()
+    invoice_number_to_reset = transaction_to_reset.invoice_ids
 
-        except TransactionUpdate.DoesNotExist:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'No outstanding invoice found to reset for this patient. It might already be paid or not exist.'
-            }, status=404)
-        except TransactionUpdate.MultipleObjectsReturned:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Multiple outstanding invoice records found for this patient that are eligible for reset. Please contact support to resolve data ambiguity.'
-            }, status=500)
-        except Exception as e:
-            # Catch any other unexpected errors during lookup
-            return JsonResponse({
-                'status': 'error',
-                'message': f'An unexpected error occurred during TransactionUpdate lookup for reset: {str(e)}'
-            }, status=500)
-        # --- End TransactionUpdate retrieval ---
+    # If duplicates, keep only the latest one we are resetting
+    if transaction_qs.count() > 1:
+        transaction_qs.exclude(pk=transaction_to_reset.pk).delete()
 
-        # --- Find all Invoice items associated with the invoice_number we are resetting ---
+    invoice_items_to_revert = Invoice.objects.filter(
+        patient=patient,
+        invoice_number=invoice_number_to_reset,
+        completed=0  # only reset unbilled invoices
+    )
+
+    if not invoice_items_to_revert.exists():
+        # Fallback: try without completed filter
         invoice_items_to_revert = Invoice.objects.filter(
             patient=patient,
             invoice_number=invoice_number_to_reset,
-            # completed=1 
         )
-
         if not invoice_items_to_revert.exists():
-             return JsonResponse({
+            return JsonResponse({
                 'status': 'error',
-                'message': f'No individual invoice items found for invoice {invoice_number_to_reset} to reset. Invoice was already reset or never had items.'
+                'message': f'No invoice items found for {invoice_number_to_reset}.'
             }, status=404)
 
-        try:
+    try:
+        model_mapping = {
+            'GetRegistrationFee': GetRegistrationFee,
+            'NurseWaitingList': NurseWaitingList,
+            'AdmissionFee': AdmissionFee,
+            'RadiologyLab': RadiologyLab,
+            'IPDAdministeredDrugs': IPDAdministeredDrugs,
+            'IPD2AdministeredDrugs': IPD2AdministeredDrugs,
+            'IPD3AdministeredDrugs': IPD3AdministeredDrugs,
+            'OPDAdministeredDrugs': OPDAdministeredDrugs,
+            'OPD2AdministeredDrugs': OPD2AdministeredDrugs,
+            'OtherService': OtherService,
+        }
 
-            model_mapping = {
-                'GetRegistrationFee': GetRegistrationFee,
-                'NurseWaitingList': NurseWaitingList,
-                'AdmissionFee': AdmissionFee,
-                'RadiologyLab': RadiologyLab,
-                'IPDAdministeredDrugs': IPDAdministeredDrugs,
-                'IPD2AdministeredDrugs': IPD2AdministeredDrugs,
-                'IPD3AdministeredDrugs': IPD3AdministeredDrugs,
-                'OPDAdministeredDrugs': OPDAdministeredDrugs,
-                'OPD2AdministeredDrugs': OPD2AdministeredDrugs,
-                'OtherService': OtherService,
-            }
+        for item in invoice_items_to_revert:
+            if item.original_source_model and item.original_source_id:
+                model_class = model_mapping.get(item.original_source_model)
+                if model_class:
+                    model_class.objects.filter(id=item.original_source_id).update(completed=0)
+            # delete invoice row
+            item.delete()
 
-            for item in invoice_items_to_revert:
-                if item.original_source_model and item.original_source_id:
-                    model_class = model_mapping.get(item.original_source_model)
-                    if model_class:
-                        # Update the original service item's completed status to 0
-                        model_class.objects.filter(id=item.original_source_id).update(completed=0)
-                    else:
-                        print(f"DEBUG: Unknown original source model '{item.original_source_model}' during reset for Invoice item ID {item.id}. Update skipped.")
-                else:
-                    print(f"DEBUG: Invoice item {item.id} (Product: {item.product}) missing original_source_model or original_source_id. Cannot revert original service.")
-                
-                item.delete() # Deletes the specific Invoice record that was created
+        # Reset the TransactionUpdate back to open state
+        transaction_to_reset.invoice_ids = None
+        transaction_to_reset.invoice_raised = 0
+        transaction_to_reset.receipt_ids = None
+        transaction_to_reset.receipt_given = 0
+        transaction_to_reset.staff = staff
+        transaction_to_reset.updated_date = timezone.now()
+        if hasattr(transaction_to_reset, 'completed'):
+            transaction_to_reset.completed = 0
+        transaction_to_reset.save()
 
-            # --- Update the TransactionUpdate record: clear invoice_ids and invoice_raised ---
-            transaction_to_reset.invoice_ids = None # Set back to NULL
-            transaction_to_reset.invoice_raised = 0
-            transaction_to_reset.receipt_ids = None 
-            transaction_to_reset.receipt_given = 0
-            transaction_to_reset.staff = staff 
-            transaction_to_reset.updated_date = timezone.now() # Mark last updated
-            transaction_to_reset.completed = 0 # Revert to "awaiting billing" state
-            transaction_to_reset.save()
+        return JsonResponse({
+            'status': 'success', 
+            'message': f'Invoice {invoice_number_to_reset} successfully reset.'
+        })
 
-            message = f"Invoice {invoice_number_to_reset} successfully reset. Associated service items reverted to pending."
-            return JsonResponse({'status': 'success', 'message': message})
-
-        except Exception as e:
-            # Catch any error during the update/delete process
-            return JsonResponse({'status': 'error', 'message': f'Error during invoice reset process: {str(e)}'}, status=500)
-
-    # Return error if not a POST request
-    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': f'Error during reset: {str(e)}'}, status=500)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def clear_transactions(request, patient_id):
@@ -597,11 +536,11 @@ def clear_transactions(request, patient_id):
                             print(f"Warning: Unknown model type '{original_model}' for ID {original_id}. Update skipped.")
             except Exception as e:
                 return JsonResponse({'status': 'error', 'message': f'Error updating individual records: {str(e)}'}, status=500)
-            message = "Unchecked transactions marked as cleared (completed=2)."
+            message = "Unchecked transactions marked as cleared."
         else:
             message = "No unchecked individual transactions to clear, updating TransactionUpdate status."
 
-        # NEW: Update ALL relevant TransactionUpdate records for the patient ---
+        # Update ALL relevant TransactionUpdate records for the patient ---
         try:
 
             updated_count = TransactionUpdate.objects.filter(
@@ -627,7 +566,8 @@ def clear_transactions(request, patient_id):
     return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
 
 
-@login_required(login_url='login')
+
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_invoice(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -1055,46 +995,66 @@ def download_invoice(request, invoice_number, format):
 def generate_receipt_number():
     return f"RCPT-{uuid.uuid4().hex[:8].upper()}"
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def create_receipt(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
+    total_deposits = 0
+    if patient.plan.plan == 'Family':
+        # Extract the family prefix
+        family_prefix = patient.hospital_number[:-2]
 
-    # Get account balance from Deposit model
-    deposits = Deposit.objects.filter(patient=patient)
-    total = deposits.aggregate(total_amount=Sum('amount'))
-    total_deposits = total['total_amount'] or 0
-
-    try:
-        transaction_for_receipt = TransactionUpdate.objects.get(
-            patient=patient,
-            invoice_ids__isnull=False,
-            receipt_ids__isnull=True
+        # Filter deposits where the hospital number starts with the family prefix
+        family_deposits = Deposit.objects.filter(
+            patient__hospital_number__startswith=family_prefix
         )
-        invoice_number_to_receipt = transaction_for_receipt.invoice_ids
-        bill_payable_amount = transaction_for_receipt.invoice_raised 
 
-    except TransactionUpdate.DoesNotExist:
+        # Calculate total family balance
+        total_deposits = family_deposits.aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+
+    else:
+        deposits = Deposit.objects.filter(patient=patient)
+        total = deposits.aggregate(total_amount=Sum('amount'))
+        total_deposits = total['total_amount'] or 0
+
+    transaction_qs = TransactionUpdate.objects.select_for_update().filter(
+        patient=patient,
+        invoice_ids__isnull=False,
+        receipt_ids__isnull=True
+    ).order_by('-updated_date')
+
+    if not transaction_qs.exists():
         return render(request, 'Billings/create_receipt.html', {
             'patient': patient,
             'cleared_invoices': [],
             'invoice_number_to_receipt': 'N/A',
             'bill_payable_amount': 0,
             'total_deposits': total_deposits,
+            'original_payment_option': None,
             'error_message': 'No outstanding invoice found for this patient to generate a receipt.'
         })
-    except TransactionUpdate.MultipleObjectsReturned:
-        return render(request, 'Billings/create_receipt.html', {
-            'patient': patient,
-            'cleared_invoices': [],
-            'invoice_number_to_receipt': 'N/A',
-            'bill_payable_amount': 0,
-            'total_deposits': total_deposits,
-            'error_message': 'Multiple outstanding invoices found for this patient. Please contact support.'
-        })
+
+    transaction_for_receipt = transaction_qs.first()
+    
+    # Clean duplicates if any
+    if transaction_qs.count() > 1:
+        transaction_qs.exclude(pk=transaction_for_receipt.pk).delete()
+
+    invoice_number_to_receipt = transaction_for_receipt.invoice_ids
+    bill_payable_amount = transaction_for_receipt.invoice_raised 
 
     cleared_invoices = Invoice.objects.filter(patient=patient, invoice_number=invoice_number_to_receipt)
+
+    # - Capture payment option from invoice --
+    original_payment_option = None
+    if cleared_invoices.exists():
+        # All items in one invoice should have same payment_option, take first
+        original_payment_option = cleared_invoices.first().payment_option
+    
+    # original_payment_option = cleared_invoices.values('payment_option').annotate(c=Count('id')).order_by('-c').first()['payment_option']
 
     processed_invoices = []
     for item in cleared_invoices:
@@ -1106,19 +1066,17 @@ def create_receipt(request, patient_id):
         item.calculated_original_rate = original_rate
         processed_invoices.append(item)
     
-
     if request.method == "POST":
         try:
             data = json.loads(request.body)
-
             amount_paid = float(data.get("amount_paid", 0))
             remarks = data.get("remarks", "")
             invoice_number_from_post = data.get("invoice_number") 
-            payment_type = data.get("payment_type") or "Other"
+            payment_type = data.get("payment_type") or original_payment_option or "Other"
             pin_code = data.get("pin_code")
             process_fund = data.get("process_fund")
 
-            # PIN AUTHENTICATION
+            # PIN
             if not pin_code:
                 return JsonResponse({"status": "error", "message": "PIN code is required"})
             try:
@@ -1127,9 +1085,8 @@ def create_receipt(request, patient_id):
             except:
                 return JsonResponse({"status": "error", "message": "Invalid PIN format"})
 
-            # GET TRANSACTION
             try:
-                transaction = TransactionUpdate.objects.get(
+                transaction = TransactionUpdate.objects.select_for_update().get(
                     patient=patient,
                     invoice_ids=invoice_number_from_post,
                     receipt_ids__isnull=True
@@ -1138,40 +1095,34 @@ def create_receipt(request, patient_id):
                 return JsonResponse({"status": "error", "message": "Transaction not found or already receipted."})
 
             bill_payable = float(transaction.invoice_raised)
-            
-            # --- HMO PATIENT LOGIC ---
             is_hmo = patient.category.category == 'HMO' if patient.category else False
             
             if is_hmo:
-                # HMO: Skip all payment validation. Receipt is 0.0, no deposits touched.
                 balance = 0
                 deposit_amount_used = 0.0
                 amount_paid = 0.0
-                total_paid = 0.0  # HMO patients don't pay
-                payment_type = "HMO"  # Override whatever came from frontend
+                total_paid = 0.0
+                payment_type = "HMO"
             else:
-                # --- NON-HMO: Use existing fund processing logic ---
-                current_deposit = Deposit.objects.filter(patient=patient).aggregate(Sum('amount'))['amount__sum'] or 0
+                current_deposit = family_deposits.aggregate(
+                        total=Sum('amount')
+                    )['total'] or 0
+                
                 deposit_amount_used = 0.0
                 
                 if process_fund == "fresh_payment":
                     if amount_paid <= 0:
                         return JsonResponse({"status": "error", "message": "Amount paid must be greater than 0 for Fresh Payment"})
                     balance = bill_payable - amount_paid
-                        
                 elif process_fund == "my_deposit":
-                    if current_deposit < bill_payable:
-                        return JsonResponse({
-                            "status": "error", 
-                            "message": "Error: Insufficient balance from patient's deposit, try other method of fund processing"
-                        })
+                    if current_deposit != bill_payable:
+                        return JsonResponse({"status": "error", "message": "Error: Insufficient balance from patient's deposit"})
                     balance = 0
                     deposit_amount_used = bill_payable
                     amount_paid = 0
                     payment_type = "Deposit"
-                    
                 elif process_fund == "deposit_and_fresh_payment":
-                    if current_deposit >= bill_payable:
+                    if current_deposit == bill_payable:
                         deposit_amount_used = bill_payable
                         amount_paid = 0
                         balance = 0
@@ -1182,106 +1133,65 @@ def create_receipt(request, patient_id):
                         balance = remaining - amount_paid
                         payment_type = "Dep+Cash"
                         if amount_paid < remaining:
-                            return JsonResponse({
-                                "status": "error",
-                                "message": f"Insufficient fresh payment. You need ₦{remaining:,.2f} more to balance the account"
-                            })
+                            return JsonResponse({"status": "error", "message": f"Insufficient fresh payment. You need ₦{remaining:,.2f} more"})
                 else:
-                    return JsonResponse({"status": "error", "message": "Invalid fund processing method selected"})
+                    return JsonResponse({"status": "error", "message": "Invalid fund processing method"})
 
-                # ACCOUNT MUST BE BALANCED - Only for non-HMO
-                if balance > 0.01:
+                if balance != 0.00:
                     return JsonResponse({"status": "error", "message": "This account is not balanced"})
-                
                 total_paid = amount_paid + deposit_amount_used
-            # --- END HMO / NON-HMO BRANCH ---
 
-            # CREATE RECEIPT
             receipt_number = generate_receipt_number()
-
             Receipt.objects.create(
                 patient=patient,
                 invoice_number=invoice_number_from_post,
                 receipt_number=receipt_number,
                 remarks=remarks,
-                total_price=total_paid,  # 0.0 for HMO, actual amount for others
+                total_price=total_paid,
                 category=patient.category,
                 staff=request.user,
-                payment_type=payment_type[:50]
+                payment_type=original_payment_option
             )
 
-            # UPDATE TRANSACTION
             transaction.receipt_ids = receipt_number
-            transaction.receipt_given = total_paid # 0.0 for HMO
+            transaction.receipt_given = total_paid
             transaction.receipt_given_date = timezone.now()
-
             if transaction.total_available_items > 0 and transaction.total_invoiced_items == transaction.total_available_items:
-                transaction.completed = 1  # All selected -> fully paid
+                transaction.completed = 1
             else:
-                transaction.completed = 2  # Partial selected -> marked as cleared
-                
+                transaction.completed = 2
             transaction.staff = request.user
             transaction.save()
 
-            # CREATE DEPOSIT ENTRY IF DEPOSIT WAS USED - Only for non-HMO
             if not is_hmo and deposit_amount_used > 0:
-                Deposit.objects.create(
-                    amount=-deposit_amount_used,
-                    payment_type="Receipt",
-                    patient=patient,
-                    staff=request.user,
-                )
+                Deposit.objects.create(amount=-deposit_amount_used, payment_type="Withdrawal", patient=patient, staff=request.user)
 
-            invoices_to_complete = Invoice.objects.filter(
-                patient=patient, 
-                invoice_number=invoice_number_from_post,
-            )
+            invoices_to_complete = Invoice.objects.filter(patient=patient, invoice_number=invoice_number_from_post)
 
             model_mapping = {
-                'GetRegistrationFee': GetRegistrationFee,
-                'NurseWaitingList': NurseWaitingList,
-                'AdmissionFee': AdmissionFee,
-                'RadiologyLab': RadiologyLab,
-                'IPDAdministeredDrugs': IPDAdministeredDrugs,
-                'IPD2AdministeredDrugs': IPD2AdministeredDrugs,
-                'IPD3AdministeredDrugs': IPD3AdministeredDrugs,
-                'OPDAdministeredDrugs': OPDAdministeredDrugs,
-                'OPD2AdministeredDrugs': OPD2AdministeredDrugs,
-                'OtherService': OtherService,
+                'GetRegistrationFee': GetRegistrationFee, 'NurseWaitingList': NurseWaitingList,
+                'AdmissionFee': AdmissionFee, 'RadiologyLab': RadiologyLab,
+                'IPDAdministeredDrugs': IPDAdministeredDrugs, 'IPD2AdministeredDrugs': IPD2AdministeredDrugs,
+                'IPD3AdministeredDrugs': IPD3AdministeredDrugs, 'OPDAdministeredDrugs': OPDAdministeredDrugs,
+                'OPD2AdministeredDrugs': OPD2AdministeredDrugs, 'OtherService': OtherService,
             }
-
             admission_fee_found = False
             for item in invoices_to_complete:
                 if item.original_source_id and item.original_source_model:
                     model_class = model_mapping.get(item.original_source_model)
                     if model_class:
                         model_class.objects.filter(id=item.original_source_id).update(completed=1)
-                    
                     if item.original_source_model == 'AdmissionFee':
                         admission_fee_found = True
-            
-            # UPDATE AdmissionTable if AdmissionFee was part of invoice
             if admission_fee_found:
-                AdmissionTable.objects.filter(
-                    patient=patient,
-                    bill_discharge_status=0 
-                ).update(
-                    bill_discharged=request.user.fullname, 
-                    bill_discharge_status=1,
-                    bill_discharge_date=timezone.now()
+                AdmissionTable.objects.filter(patient=patient, bill_discharge_status=0).update(
+                    bill_discharged=request.user.fullname, bill_discharge_status=1, bill_discharge_date=timezone.now()
                 )
             invoices_to_complete.update(completed=1)
-            return JsonResponse({
-                "status": "success",
-                "receipt_number": receipt_number
-            })
+            return JsonResponse({"status": "success", "receipt_number": receipt_number})
             
         except Exception as e:
-            print(f"ERROR in process_receipt: {str(e)}")
-            return JsonResponse({
-                "status": "error",
-                "message": f"Server error: {str(e)}"
-            })
+            return JsonResponse({"status": "error", "message": f"Server error: {str(e)}"})
     
     context = {
         'patient': patient,
@@ -1289,12 +1199,13 @@ def create_receipt(request, patient_id):
         'cleared_invoices': processed_invoices, 
         'invoice_number_to_receipt': invoice_number_to_receipt,
         'bill_payable_amount': bill_payable_amount,
-        'is_hmo': patient.category.category == 'HMO' if patient.category else False,  # Pass to template
+        'is_hmo': patient.category.category == 'HMO' if patient.category else False,
+        'original_payment_option': original_payment_option, 
     }
     return render(request, 'Billings/create_receipt.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def create_receipt_general(request, patient_id):
@@ -1334,6 +1245,10 @@ def create_receipt_general(request, patient_id):
         })
 
     cleared_invoices = Invoice.objects.filter(patient=patient, invoice_number=invoice_number_to_receipt)
+    
+    original_payment_option = None
+    if cleared_invoices.exists():
+        original_payment_option = cleared_invoices.first().payment_option
 
     processed_invoices = []
     for item in cleared_invoices:
@@ -1353,7 +1268,7 @@ def create_receipt_general(request, patient_id):
             amount_paid = float(data.get("amount_paid", 0))
             remarks = data.get("remarks", "")
             invoice_number_from_post = data.get("invoice_number") 
-            payment_type = data.get("payment_type") or "Other"  # Default if missing
+            payment_type = data.get("payment_type") or "Other"  
             pin_code = data.get("pin_code")
             process_fund = data.get("process_fund")
 
@@ -1404,7 +1319,7 @@ def create_receipt_general(request, patient_id):
                 
             elif process_fund == "deposit_and_fresh_payment":
                 # Case III: Deposit + Fresh Payment
-                if current_deposit >= bill_payable:
+                if current_deposit == bill_payable:
                     deposit_amount_used = bill_payable
                     amount_paid = 0
                     balance = 0
@@ -1423,7 +1338,7 @@ def create_receipt_general(request, patient_id):
                 return JsonResponse({"status": "error", "message": "Invalid fund processing method selected"})
 
             # ACCOUNT MUST BE BALANCED
-            if balance > 0.01:  # Allow 1 kobo rounding error
+            if balance != 0.00:  # Allow 1 kobo rounding error
                 return JsonResponse({"status": "error", "message": "This account is not balanced"})
 
             # CREATE RECEIPT
@@ -1438,7 +1353,7 @@ def create_receipt_general(request, patient_id):
                 total_price=total_paid,
                 category=patient.category,
                 staff=request.user,
-                payment_type=payment_type
+                payment_type=original_payment_option
             )
 
             # UPDATE TRANSACTION
@@ -1457,8 +1372,8 @@ def create_receipt_general(request, patient_id):
             # CREATE DEPOSIT ENTRY IF DEPOSIT WAS USED - NEGATED AMOUNT
             if deposit_amount_used > 0:
                 Deposit.objects.create(
-                    amount=-deposit_amount_used,  # Negate as requested
-                    payment_type="Receipt Deduction",
+                    amount=-deposit_amount_used,  
+                    payment_type="Withdrawal",
                     patient=patient,
                     staff=request.user,
                 )
@@ -1523,11 +1438,12 @@ def create_receipt_general(request, patient_id):
         'cleared_invoices': processed_invoices, 
         'invoice_number_to_receipt': invoice_number_to_receipt,
         'bill_payable_amount': bill_payable_amount,
+        'original_payment_option':original_payment_option
     }
     return render(request, 'Billings/create_receipt_general.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_receipt(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -2098,7 +2014,7 @@ def get_patient_context(patient_id):
     }
 
 # --- CREATE Deposit/Refund ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def create_deposit_refund(request, patient_id):
@@ -2157,7 +2073,7 @@ def create_deposit_refund(request, patient_id):
                         else:
                             messages.error(request, 'Error creating refund. Please check the form.')
                 else:
-                            messages.error(request, f"Error: The Invoice Number: [{request.POST.get(invoice_id)}] does not belong to this patient")
+                    messages.error(request, f'Error: The Invoice Number: [{request.POST['invoice_id']}] does not belong to this patient')
             else:
                 messages.error(request, 'Incorrect Pin Supplied') 
         else:
@@ -2171,25 +2087,46 @@ def create_deposit_refund(request, patient_id):
     return render(request, 'Billings/Deposit_Refund/create_deposit_refund.html', context)
 
 # --- LIST Deposits ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def list_deposits(request, patient_id):
     patient_context = get_patient_context(patient_id)
     deposits = Deposit.objects.filter(patient=patient_context['patient']).order_by('-created_date')
-    total = deposits.aggregate(total_amount=Sum('amount'))
-    # Accessing the value directly
-    total_deposits = total['total_amount'] or 0
+
+    total_deposits = 0
+    family_deposits = {}
+    if patient_context['patient'].plan.plan == 'Family':
+        # Extract the family prefix
+        family_prefix = patient_context['patient'].hospital_number[:-2]
+
+        # Filter deposits where the hospital number starts with the family prefix
+        family_deposits = Deposit.objects.filter(
+            patient__hospital_number__startswith=family_prefix
+        )
+
+        # Calculate total family balance
+        total_deposits = family_deposits.aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+
+    else:
+        total = deposits.aggregate(total_amount=Sum('amount'))
+        # Accessing the value directly
+        total_deposits = total['total_amount'] or 0
+    
+
     
     context = {
         **patient_context,
         'deposits': deposits,
         'total_deposits':total_deposits,
+        'family_deposits': family_deposits,
 
     }
     return render(request, 'Billings/Deposit_Refund/list_deposits.html', context)
 
 # --- DETAIL/UPDATE Deposit ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def deposit_detail(request, patient_id, deposit_id):
@@ -2214,8 +2151,9 @@ def deposit_detail(request, patient_id, deposit_id):
     }
     return render(request, 'Billings/Deposit_Refund/deposit_detail.html', context)
 
+
 # --- DELETE Deposit ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def delete_deposit(request, patient_id, deposit_id):
     patient_context = get_patient_context(patient_id)
@@ -2235,8 +2173,9 @@ def delete_deposit(request, patient_id, deposit_id):
     }
     return render(request, 'Billings/Deposit_Refund/deposit_confirm_delete.html', context)
 
+
 # --- LIST Refunds ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def list_refunds(request, patient_id):
     patient_context = get_patient_context(patient_id)
@@ -2252,8 +2191,9 @@ def list_refunds(request, patient_id):
     }
     return render(request, 'Billings/Deposit_Refund/list_refunds.html', context)
 
+
 # --- DETAIL/UPDATE Refund ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 @transaction.atomic
 def refund_detail(request, patient_id, refund_id):
@@ -2278,8 +2218,9 @@ def refund_detail(request, patient_id, refund_id):
     }
     return render(request, 'Billings/Deposit_Refund/refund_detail.html', context)
 
+
 # --- DELETE Refund ---
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def delete_refund(request, patient_id, refund_id):
     patient_context = get_patient_context(patient_id)
@@ -2306,7 +2247,16 @@ def delete_refund(request, patient_id, refund_id):
     return render(request, 'Billings/Deposit_Refund/refund_confirm_delete.html', context)
 
 
-@login_required(login_url='login')
+from django.db.models import Sum
+from decimal import Decimal
+from io import BytesIO
+from django.template.loader import render_to_string
+from xhtml2pdf import pisa
+
+from django.core.mail import EmailMessage
+from django.conf import settings
+
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_statements(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -2315,9 +2265,9 @@ def get_statements(request, patient_id):
     specific_date = request.GET.get('specific_date', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
-    
+
     invoices = Invoice.objects.filter(patient=patient)
-    
+
     if filter_type == 'date' and specific_date:
         try:
             specific_date_obj = datetime.strptime(specific_date, '%Y-%m-%d').date()
@@ -2340,22 +2290,33 @@ def get_statements(request, patient_id):
     if filter_type != 'none':
         invoices = invoices.order_by('created_date')
         
-        # Calculate opening balance BEFORE the filter range
+        # Opening balance - INCLUDING REFUNDS (distinct invoice_numbers only)
         opening_balance = Decimal('0.00')
-        if filter_type in ['date', 'range']:
-            first_date = invoices.first().created_date if invoices.exists() else timezone.now()
-            prior_invoices = Invoice.objects.filter(
-                patient=patient, 
-                created_date__lt=first_date
-            )
+        if filter_type in ['date', 'range'] and invoices.exists():
+            first_date = invoices.first().created_date
+            prior_invoices = Invoice.objects.filter(patient=patient, created_date__lt=first_date).order_by('created_date')
+            
+            seen_prior_inv = set()
             for inv in prior_invoices:
                 debit = Decimal(str(inv.price))
                 credit = Decimal(str(inv.price)) if inv.completed == 1 else Decimal('0.00')
-                opening_balance = opening_balance + debit - credit
+                
+                # Refund only once per invoice_number
+                refund = Decimal('0.00')
+                if inv.invoice_number not in seen_prior_inv:
+                    refund_total = Refund.objects.filter(invoice_id__iexact=inv.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+                    refund = Decimal(str(refund_total))
+                    seen_prior_inv.add(inv.invoice_number)
+
+                opening_balance = opening_balance + debit - credit + refund
         
         statement_data = []
         running_balance = opening_balance
         
+        # Cache refunds and track seen invoice_numbers to avoid repeat
+        refund_cache = {}
+        seen_invoice_numbers = set()
+
         for invoice in invoices:
             debit = Decimal(str(invoice.price))
             if invoice.completed == 1:
@@ -2365,7 +2326,19 @@ def get_statements(request, patient_id):
                 credit = Decimal('0.00')
                 trans_type = "Invoice"
             
-            running_balance = running_balance + debit - credit
+            # GET REFUND ONCE PER INVOICE_NUMBER 
+            if invoice.invoice_number not in refund_cache:
+                rt = Refund.objects.filter(invoice_id__iexact=invoice.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+                refund_cache[invoice.invoice_number] = Decimal(str(rt))
+            
+            # Apply refund only on first line of that invoice_number
+            if invoice.invoice_number not in seen_invoice_numbers:
+                refund = refund_cache[invoice.invoice_number]
+                seen_invoice_numbers.add(invoice.invoice_number)
+            else:
+                refund = Decimal('0.00')
+
+            running_balance = running_balance + debit - credit + refund
             
             statement_data.append({
                 'reference': invoice.invoice_number,
@@ -2374,18 +2347,21 @@ def get_statements(request, patient_id):
                 'details': invoice.product,
                 'debit': debit,
                 'credit': credit,
+                'refund': refund,
                 'rib': running_balance,
                 'user': invoice.staff.fullname if invoice.staff else 'System',
                 'completed': invoice.completed,
+                'has_refund': refund > 0,
             })
         
         total_debits = sum(item['debit'] for item in statement_data)
         total_credits = sum(item['credit'] for item in statement_data)
-        balance_due = running_balance  # Final RB
+        total_refunds = sum(refund_cache.values()) # DISTINCT total, not repeated
+        balance_due = running_balance
         opening_balance_display = opening_balance
     else:
         statement_data = []
-        total_debits = total_credits = balance_due = Decimal('0.00')
+        total_debits = total_credits = balance_due = total_refunds = Decimal('0.00')
         opening_balance_display = Decimal('0.00')
     
     context = {
@@ -2393,6 +2369,7 @@ def get_statements(request, patient_id):
         'statement_data': statement_data,
         'total_debits': total_debits,
         'total_credits': total_credits,
+        'total_refunds': total_refunds,
         'balance_due': balance_due,
         'opening_balance': opening_balance_display,
         'filter_type': filter_type,
@@ -2402,7 +2379,6 @@ def get_statements(request, patient_id):
     }
     
     return render(request, 'Billings/statements.html', context)
-
 
 @require_POST
 def email_statement(request, patient_id):
@@ -2430,24 +2406,44 @@ def email_statement(request, patient_id):
         invoices = invoices.filter(created_date__range=(start_dt, end_dt))
     
     invoices = invoices.order_by('created_date')
-    
+
+    # opening balance
     opening_balance = Decimal('0.00')
     if filter_type in ['date', 'range'] and invoices.exists():
         first_date = invoices.first().created_date
         prior_invoices = Invoice.objects.filter(patient=patient, created_date__lt=first_date)
+        seen_prior = set()
         for inv in prior_invoices:
             debit = Decimal(str(inv.price))
             credit = Decimal(str(inv.price)) if inv.completed == 1 else Decimal('0.00')
-            opening_balance += debit - credit
+            refund = Decimal('0.00')
+            if inv.invoice_number not in seen_prior:
+                rt = Refund.objects.filter(invoice_id__iexact=inv.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+                refund = Decimal(str(rt))
+                seen_prior.add(inv.invoice_number)
+            opening_balance += debit - credit + refund
     
     statement_data = []
     running_balance = opening_balance
+    refund_cache = {}
+    seen_invoice_numbers = set()
     
     for invoice in invoices:
         debit = Decimal(str(invoice.price))
         credit = Decimal(str(invoice.price)) if invoice.completed == 1 else Decimal('0.00')
         trans_type = "Receipt" if invoice.completed == 1 else "Invoice"
-        running_balance += debit - credit
+
+        if invoice.invoice_number not in refund_cache:
+            rt = Refund.objects.filter(invoice_id__iexact=invoice.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+            refund_cache[invoice.invoice_number] = Decimal(str(rt))
+        
+        if invoice.invoice_number not in seen_invoice_numbers:
+            refund = refund_cache[invoice.invoice_number]
+            seen_invoice_numbers.add(invoice.invoice_number)
+        else:
+            refund = Decimal('0.00')
+
+        running_balance += debit - credit + refund
         statement_data.append({
             'reference': invoice.invoice_number,
             'trans_date': invoice.created_date,
@@ -2455,121 +2451,36 @@ def email_statement(request, patient_id):
             'details': invoice.product,
             'debit': debit,
             'credit': credit,
+            'refund': refund,
             'rib': running_balance,
             'user': invoice.staff.fullname if invoice.staff else 'System',
         })
     
     total_debits = sum(item['debit'] for item in statement_data)
     total_credits = sum(item['credit'] for item in statement_data)
+    total_refunds = sum(refund_cache.values())
     
     context = {
         'patient': patient,
         'statement_data': statement_data,
         'total_debits': total_debits,
         'total_credits': total_credits,
+        'total_refunds': total_refunds,
         'balance_due': running_balance,
         'opening_balance': opening_balance,
         'request': request,
     }
-    
-    print("=== PDF DEBUG ===")
-    print(f"Statement data count: {len(statement_data)}")
-    print(f"First item: {statement_data[0] if statement_data else 'None'}")
-    print(f"Opening balance: {opening_balance}")
-    print("=== END DEBUG ===")
 
     html_string = render_to_string('Billings/statement_pdf.html', context)
-
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
-    styles = getSampleStyleSheet()
-
-    # original template
-    header_style = ParagraphStyle(
-        'Header', parent=styles['Heading2'], alignment=TA_CENTER, fontSize=14, spaceAfter=2
-    )
-    center_style = ParagraphStyle(
-        'Center', parent=styles['Normal'], alignment=TA_CENTER, fontSize=9, spaceAfter=1
-    )
-    title_style = ParagraphStyle(
-        'Title', parent=styles['Heading3'], alignment=TA_CENTER, fontSize=12, spaceAfter=10
-    )
-
-    elements = []
-
-    # header
-    elements.append(Paragraph("ISALU HOSPITALS LIMITED", header_style))
-    elements.append(Paragraph("Email: it@isaluhospitals.com", center_style))
-    elements.append(Paragraph("Phone: 08099902223", center_style))
-    elements.append(Spacer(1, 12))
-
-    # Patient details box - using table for layout
-    patient_data = [
-        [f"Name: {patient.get_full_name()} [{patient.hospital_number}]",
-         f"Sponsor: {patient.plan.plan if hasattr(patient, 'plan') and patient.plan else 'N/A'}"],
-        [f"Phone: {patient.phone_number or 'N/A'}",
-         f"Plan Type: {patient.category.category if hasattr(patient, 'category') and patient.category else 'N/A'}"],
-        [f"Address: {patient.address or 'N/A'}",
-         f"Gender: {patient.gender or 'N/A'}"]
-    ]
-    patient_table = Table(patient_data, colWidths=[3.5*inch, 3.5*inch])
-    patient_table.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 1, colors.black),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-    ]))
-    elements.append(patient_table)
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph("ACCOUNT STATEMENTS", title_style))
-    elements.append(Paragraph(
-        f"<b>Prepared by:</b> {request.user.fullname} | "
-        f"<b>Date Generated:</b> {timezone.now().strftime('%d %b %Y, %H:%M')}",
-        styles['Normal'], 
-    ))
-    elements.append(Spacer(1, 10))
-
-    # Table data
-    data = [['Ref', 'Date', 'Type', 'Details', 'Debit', 'Credit', 'RB', 'User']]
-    data.append(['', '', '', f'Balance before {statement_data[0]["trans_date"].strftime("%d %b %Y") if statement_data else ""}',
-                 '', '', f'{opening_balance:.2f}', ''])
-
-    for item in statement_data:
-        data.append([
-            item['reference'] or '-',
-            item['trans_date'].strftime("%d %b %Y"),
-            item['trans_type'],
-            item['details'][:30],
-            f"{item['debit']:.2f}",
-            f"{item['credit']:.2f}",
-            f"{item['rib']:.2f}",
-            item['user'][:12]
-        ])
-
-    data.append(['', '', '', 'Totals:', f'{total_debits:.2f}', f'{total_credits:.2f}', f'{running_balance:.2f}', ''])
-
-    table = Table(data, colWidths=[0.8*inch, 0.7*inch, 0.5*inch, 2*inch, 0.6*inch, 0.6*inch, 0.6*inch, 0.8*inch])
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ('BACKGROUND', (0, 1), (-1, 1), colors.lightgrey), # Opening balance row
-        ('BACKGROUND', (0, -1), (-1, -1), colors.grey), # Totals row
-        ('TEXTCOLOR', (0, -1), (-1, -1), colors.whitesmoke),
-    ]))
-    elements.append(table)
-    doc.build(elements)
+    pisa_status = pisa.CreatePDF(html_string, dest=buffer)
+    
+    if pisa_status.err:
+        return JsonResponse({'success': False, 'error': 'PDF generation failed'})
 
     email = EmailMessage(
         subject=f'Statement - {patient.get_full_name()}',
-        body='See attached.',
+        body=f'Please find attached statement of account for {patient.get_full_name()} [{patient.hospital_number}]. Total Refunds: {total_refunds}',
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[patient.email_address],
     )
@@ -2580,9 +2491,243 @@ def email_statement(request, patient_id):
         return JsonResponse({'success': True})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
-    
 
-@login_required(login_url='login')
+
+
+@login_required
+@department_required('Billings', 'Admin', 'CMD')
+def get_family_statements(request, patient_id):
+    patient = get_object_or_404(PatientProfile, id=patient_id)
+
+    # Get family prefix 
+    hospital_no = patient.hospital_number or ''
+    if '/' in hospital_no:
+        family_prefix = hospital_no.split('/')[0]
+    else:
+        family_prefix = hospital_no[:-2] if len(hospital_no) > 2 else hospital_no
+
+    # Check if it's really a family plan
+    is_family = False
+    if hasattr(patient, 'plan') and patient.plan and getattr(patient.plan, 'plan', '') == 'Family':
+        is_family = True
+
+    # Get all family members
+    family_members = PatientProfile.objects.filter(
+        hospital_number__istartswith=family_prefix
+    ).order_by('hospital_number')
+
+    if not family_members.exists():
+        family_members = PatientProfile.objects.filter(id=patient_id)
+
+    family_member_ids = list(family_members.values_list('id', flat=True))
+    family_hospital_numbers = list(family_members.values_list('hospital_number', flat=True))
+
+    filter_type = request.GET.get('filter_type', 'all')
+    specific_date = request.GET.get('specific_date', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+
+    invoices = Invoice.objects.filter(patient_id__in=family_member_ids).select_related('patient')
+
+    if filter_type == 'date' and specific_date:
+        try:
+            specific_date_obj = datetime.strptime(specific_date, '%Y-%m-%d').date()
+            start_dt = timezone.make_aware(datetime.combine(specific_date_obj, time.min))
+            end_dt = timezone.make_aware(datetime.combine(specific_date_obj, time.max))
+            invoices = invoices.filter(created_date__range=(start_dt, end_dt))
+        except:
+            pass
+    elif filter_type == 'range' and date_from and date_to:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+            start_dt = timezone.make_aware(datetime.combine(date_from_obj, time.min))
+            end_dt = timezone.make_aware(datetime.combine(date_to_obj, time.max))
+            invoices = invoices.filter(created_date__range=(start_dt, end_dt))
+        except:
+            pass
+
+    if filter_type!= 'none':
+        invoices = invoices.order_by('created_date')
+
+        # Opening Balance - DISTINCT invoice_numbers only
+        opening_balance = Decimal('0.00')
+        if filter_type in ['date', 'range'] and invoices.exists():
+            first_date = invoices.first().created_date
+            prior_invoices = Invoice.objects.filter(
+                patient_id__in=family_member_ids,
+                created_date__lt=first_date
+            )
+            seen_prior = set()
+            for inv in prior_invoices:
+                debit = Decimal(str(inv.price))
+                credit = Decimal(str(inv.price)) if inv.completed == 1 else Decimal('0.00')
+                refund = Decimal('0.00')
+                if inv.invoice_number not in seen_prior:
+                    rt = Refund.objects.filter(invoice_id__iexact=inv.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+                    refund = Decimal(str(rt))
+                    seen_prior.add(inv.invoice_number)
+                opening_balance += debit - credit + refund
+
+        statement_data = []
+        running_balance = opening_balance
+        refund_cache = {}
+        seen_invoice_numbers = set()
+
+        for invoice in invoices:
+            debit = Decimal(str(invoice.price))
+            if invoice.completed == 1:
+                credit = Decimal(str(invoice.price))
+                trans_type = "Receipt"
+            else:
+                credit = Decimal('0.00')
+                trans_type = "Invoice"
+
+            if invoice.invoice_number not in refund_cache:
+                rt = Refund.objects.filter(invoice_id__iexact=invoice.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+                refund_cache[invoice.invoice_number] = Decimal(str(rt))
+
+            if invoice.invoice_number not in seen_invoice_numbers:
+                refund = refund_cache[invoice.invoice_number]
+                seen_invoice_numbers.add(invoice.invoice_number)
+            else:
+                refund = Decimal('0.00')
+
+            running_balance += debit - credit + refund
+
+            statement_data.append({
+                'reference': invoice.invoice_number,
+                'trans_date': invoice.created_date,
+                'trans_type': trans_type,
+                'patient_name': invoice.patient.get_full_name() if invoice.patient else 'N/A',
+                'hospital_number': invoice.patient.hospital_number if invoice.patient else 'N/A',
+                'details': invoice.product,
+                'debit': debit,
+                'credit': credit,
+                'refund': refund,
+                'rib': running_balance,
+                'user': invoice.staff.fullname if invoice.staff else 'System',
+                'has_refund': refund > 0,
+            })
+
+        total_debits = sum(item['debit'] for item in statement_data)
+        total_credits = sum(item['credit'] for item in statement_data)
+        total_refunds = sum(refund_cache.values())
+        balance_due = running_balance
+    else:
+        statement_data = []
+        total_debits = total_credits = balance_due = total_refunds = Decimal('0.00')
+        opening_balance = Decimal('0.00')
+
+    context = {
+        'patient': patient,
+        'family_members': family_members,
+        'family_prefix': family_prefix,
+        'is_family': is_family,
+        'statement_data': statement_data,
+        'total_debits': total_debits,
+        'total_credits': total_credits,
+        'total_refunds': total_refunds,
+        'balance_due': balance_due,
+        'opening_balance': opening_balance,
+        'filter_type': filter_type,
+        'date_from': date_from,
+        'date_to': date_to,
+        'specific_date': specific_date,
+    }
+    return render(request, 'Billings/family_statements.html', context)
+
+@require_POST
+def email_family_statement(request, patient_id):
+    patient = get_object_or_404(PatientProfile, id=patient_id)
+    hospital_no = patient.hospital_number or ''
+    family_prefix = hospital_no.split('/')[0] if '/' in hospital_no else hospital_no[:-2]
+
+    family_members = PatientProfile.objects.filter(hospital_number__istartswith=family_prefix)
+    family_member_ids = list(family_members.values_list('id', flat=True))
+
+    filter_type = request.POST.get('filter_type', 'all')
+    specific_date = request.POST.get('specific_date', '')
+    date_from = request.POST.get('date_from', '')
+    date_to = request.POST.get('date_to', '')
+
+    invoices = Invoice.objects.filter(patient_id__in=family_member_ids).select_related('patient').order_by('created_date')
+
+    if filter_type == 'date' and specific_date:
+        d = datetime.strptime(specific_date, '%Y-%m-%d').date()
+        invoices = invoices.filter(created_date__range=(timezone.make_aware(datetime.combine(d, time.min)), timezone.make_aware(datetime.combine(d, time.max))))
+    elif filter_type == 'range' and date_from and date_to:
+        d1 = datetime.strptime(date_from, '%Y-%m-%d').date()
+        d2 = datetime.strptime(date_to, '%Y-%m-%d').date()
+        invoices = invoices.filter(created_date__range=(timezone.make_aware(datetime.combine(d1, time.min)), timezone.make_aware(datetime.combine(d2, time.max))))
+
+    opening_balance = Decimal('0.00')
+    statement_data = []
+    running_balance = opening_balance
+    refund_cache = {}
+    seen_invoice_numbers = set()
+
+    for invoice in invoices:
+        debit = Decimal(str(invoice.price))
+        credit = Decimal(str(invoice.price)) if invoice.completed == 1 else Decimal('0.00')
+        if invoice.invoice_number not in refund_cache:
+            rt = Refund.objects.filter(invoice_id__iexact=invoice.invoice_number).aggregate(total=Sum('amount'))['total'] or 0
+            refund_cache[invoice.invoice_number] = Decimal(str(rt))
+        refund = refund_cache[invoice.invoice_number] if invoice.invoice_number not in seen_invoice_numbers else Decimal('0.00')
+        if invoice.invoice_number not in seen_invoice_numbers:
+            seen_invoice_numbers.add(invoice.invoice_number)
+        running_balance += debit - credit + refund
+        statement_data.append({
+            'reference': invoice.invoice_number,
+            'trans_date': invoice.created_date,
+            'trans_type': "Receipt" if invoice.completed==1 else "Invoice",
+            'patient_name': invoice.patient.get_full_name(),
+            'hospital_number': invoice.patient.hospital_number,
+            'details': invoice.product,
+            'debit': debit, 'credit': credit, 'refund': refund, 'rib': running_balance,
+            'user': invoice.staff.fullname if invoice.staff else 'System',
+        })
+
+    total_debits = sum(i['debit'] for i in statement_data)
+    total_credits = sum(i['credit'] for i in statement_data)
+    total_refunds = sum(refund_cache.values())
+
+    context = {
+        'patient': patient,
+        'family_members': family_members,
+        'family_prefix': family_prefix,
+        'statement_data': statement_data,
+        'total_debits': total_debits,
+        'total_credits': total_credits,
+        'total_refunds': total_refunds,
+        'balance_due': running_balance,
+        'opening_balance': opening_balance,
+        'request': request
+    }
+
+    html_string = render_to_string('Billings/family_statement_pdf.html', context)
+    buffer = BytesIO()
+    pisa.CreatePDF(html_string, dest=buffer)
+
+    # Email to principal (father /a)
+    principal = patient
+    to_email = principal.email_address 
+
+    email = EmailMessage(
+        subject=f'Family Statement - {family_prefix}',
+        body=f'Family statement for the family of {patient.surname} [{family_prefix}]. Members: {", ".join([m.get_full_name() for m in family_members])}',
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[to_email] if to_email else [],
+    )
+    email.attach(f'family_statement_{family_prefix}.pdf', buffer.getvalue(), 'application/pdf')
+    try:
+        email.send()
+        return JsonResponse({'success': True})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+       
+
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def get_summary(request, patient_id):
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -2607,7 +2752,7 @@ def get_summary(request, patient_id):
     filter_applied = False
     
     print("=" * 60)
-    print("DEBUG: GET SUMMARY - EXCEPTION BILLS FIX")
+    print("DEBUG: GET SUMMARY - EXCEPTION BILLS")
     print("=" * 60)
     print(f"Filter Type: {filter_type}")
     print(f"Date From: {date_from}")
@@ -3057,7 +3202,7 @@ def export_summary_excel(request, patient_id):
     return response
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Billings', 'Admin', 'CMD')
 def transaction_day_book(request):
     # Get filter parameters

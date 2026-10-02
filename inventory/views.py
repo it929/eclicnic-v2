@@ -229,6 +229,8 @@ def out_stock_report(request):
 UOM_MAP = {
     "ampoule": "ampoules",
     "ampoules": "ampoules",
+    "immuno": "immuno",
+    "Immuno": "immuno",
     "bottle": "bottles",
     "bottles": "bottles",
     "box": "boxes",

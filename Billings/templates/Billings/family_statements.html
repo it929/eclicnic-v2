@@ -1,0 +1,801 @@
+{% extends 'admin.html' %}
+<!-- {% load static %} -->
+{% load custom_tags %}
+
+{% block content %}
+<style>
+    th, td{
+        font-size: 11px;
+    }
+     .receipt-header, .receipt-footer {
+            padding: 20px;
+            padding-bottom: 0px;
+            text-align: center;
+        }
+        .receipt-header h4 { margin-bottom: 5px; color: #333; }
+        .receipt-header p { font-size: 12px; color: #666; margin-bottom: 2px; }
+        .receipt-meta {
+            padding: 10px 20px;
+            text-align: right;
+            font-size: 13px;
+            border-bottom: 1px solid #eee;
+        }
+        .patient-details-box {
+            border: 1px solid #eee;
+            margin: 20px;
+            padding: 15px;
+            padding-bottom: 10px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .patient-details-col {
+            flex: 1;
+            min-width: 280px;
+            padding-right: 15px;
+        }
+        .patient-details-col p { margin-bottom: 5px; font-size: 13px; }
+        .patient-details-col strong { color: #555; }
+        .receipt-title {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+
+        .payment-info {
+            margin: 10px 0px;
+            padding: 10px;
+            border-left: 3px solid #28a745;
+            background-color: #f9f9f9;
+            font-size: 12px;
+        }
+</style>
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+<div class="container-fluid">
+    {% include 'queue_operations/crumbs/doc_header.html' %}
+
+    <!-- Navbar -->
+    <div id="billing-module-wrapper" style="margin-top: -15px;">
+        <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+            <div class="collapse navbar-collapse" id="navbarText">
+            <ul class="navbar-nav mr-auto">
+                
+                <li class="nav-item dropdown hover-dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                    Invoices
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                    <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+                </div>
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+                        Receipts
+                    </a>
+                    <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+                        <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+                    </div>
+                </li>
+
+                <li class="nav-item dropdown hover-dropdown actives">
+                    <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                        Transactions
+                    </a>
+                    <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                        <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                        <div class="dropdown-divider"></div>
+                        {% if patient.plan.plan == 'Family' %}
+                        <a class="dropdown-item" href="{% url 'get_family_statements' patient.id %}">Family Statements</a>
+                        <div class="dropdown-divider"></div>
+                        {% endif %}
+                        <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Patient Case Note</a>
+                    </div>
+                </li>
+
+                <li class="nav-item">
+                <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+                    Deposits & Refunds
+                </a>
+                </li>
+            </ul>
+            </div>
+        </nav>
+    </div>
+    <div class="card">
+        
+        <div class="card-body">
+            <!-- accordion -->
+             <div id="accordion">
+                <div class="message text-left alert alert-info alert-dismissible fade show" role="alert" style="font-weight: bold; ">
+                    <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseProfile" aria-expanded="false" aria-controls="collapseTwo">
+                        <i class="fa fa-filter"></i> Filter Statements 
+                    </a>
+                </div>
+                <div id="collapseProfile" class="collapse" aria-labelledby="headingProfile" data-parent="#accordion">
+                    <!-- Filter Section -->
+                    <div class="filter-section mb-4 p-3 border rounded">
+                        <h5>Filter Options</h5>
+                        <form method="GET" action="{% url 'get_family_statements' patient.id %}" id="filterForm">
+                            <div class="row">
+                                <div class="col-md-12 mb-3">
+                                    <div class="btn-group" role="group">
+                                        <a href="{% url 'get_family_statements' patient.id %}?filter_type=all" class="btn btn-secondary">
+                                            <i class="fas fa-undo"></i> All Records
+                                        </a>
+                                        <button type="button" class="btn btn-outline-primary filter-btn {% if filter_type == 'date' %}active{% endif %}" 
+                                                data-filter="date">
+                                            Specific Date
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary filter-btn {% if filter_type == 'range' %}active{% endif %}" 
+                                                data-filter="range">
+                                            Date Range
+                                        </button>
+                                        <a style="margin-left: 30px;"></a>
+                                        <button type="submit" class="btn btn-primary" id="applyBtn">
+                                            <i class="fas fa-filter"></i> Apply Filter
+                                        </button>
+                                        &nbsp;
+                                        
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div id="dateFilter" class="row" {% if filter_type != 'date' %}style="display: none;"{% endif %}>
+                                <div class="col-md-4">
+                                    <label for="specific_date">Select Date</label>
+                                    <input type="date" name="specific_date" id="specific_date" class="form-control" value="{{ specific_date }}">
+                                </div>
+                            </div>
+                            
+                            <div id="rangeFilter" class="row" {% if filter_type != 'range' %}style="display: none;"{% endif %}>
+                                <div class="col-md-4">
+                                    <label for="date_from">From Date</label>
+                                    <input type="date" name="date_from" id="date_from" class="form-control" value="{{ date_from }}">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="date_to">To Date</label>
+                                    <input type="date" name="date_to" id="date_to" class="form-control" value="{{ date_to }}">
+                                </div>
+                            </div>
+                            
+                            <input type="hidden" name="filter_type" id="filter_type" value="{{ filter_type|default:'all' }}">
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div id="pdfContent">
+                <div class="receipt-header">
+                    <h4>ISALU HOSPITALS LIMITED</h4>
+                    <p>Email: it@isaluhospitals.com</p>
+                    <p>Phone: 08099902223</p>
+                </div>
+
+                <div class="patient-details-box">
+                    <div class="patient-details-col">
+                        <p>Name: <strong>{{ patient.get_full_name }}</strong> [{{ patient.hospital_number }}]</p>
+                        <p>Sponsor: <strong>{{ patient.plan.plan|default:"N/A" }}</strong></p> 
+                        <p>Plan Type: <strong>{{ patient.category.category|default:"N/A" }}</strong></p> 
+                    </div>
+                    <div class="patient-details-col" >
+                        <p>Phone: <strong>{{ patient.phone_number|default:"N/A" }}</strong></p>
+                        <p>Address: <strong>{{ patient.address|default:"N/A" }}</strong></p>
+                        <p>Gender: <strong>{{ patient.gender|default:"N/A" }}</strong></p>
+                    </div>
+                </div>
+
+                <h5 class="receipt-title">{{patient.surname}}'s FAMILY STATEMENTS</h5>
+
+                <div class="payment-info">
+                    <p>
+                        <strong>Prepared by:</strong> {{ request.user.fullname }} 
+                        <span style="float: right;"><strong>Date Generated:</strong> {% now "d M Y, H:i" %}</span>
+                    
+                    </p>
+                </div>
+
+                <!-- Statement Table -->
+                {% if statement_data %}
+                <div class="table-responsive" id="statementContainer">
+                    <table class="table table-bordered table-striped" id="statementTable">
+                        <thead class="thead-dark">
+                            <tr>
+                                <th>Reference</th>
+                                <th>Date</th>
+                                <th>Family Member</th>
+                                <th>Type</th>
+                                <th>Details</th>
+                                <th>Debit</th>
+                                <th>Credit</th>
+                                <th>Refund</th>
+                                <th>RB</th>
+                                <th>Staff</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="table-secondary">
+                                <td colspan="8"><strong>Balance before {{ statement_data.0.trans_date|date:"d M Y" }}</strong></td>
+                                <td class="text-right"><strong>{{ opening_balance|floatformat:2 }}</strong></td>
+                                <td></td>
+                            </tr>
+
+                            {% for item in statement_data %}
+                            <tr {% if item.has_refund %}style="background:#fff3cd;"{% endif %}>
+                                <td><small>{{ item.reference }}</small></td>
+                                <td><small style="color: brown;">{{ item.trans_date|date:"d M Y" }}</small></td>
+                                <td><small>{{ item.patient_name }}</small> </td>
+                                <td><small>
+                                    {% if item.trans_type == "Invoice" %}
+                                        <span class="text-warning">Invoice</span>
+                                    {% else %}
+                                        <span class="text-success">Receipt</span>
+                                    {% endif %}
+                                </small></td>
+                                <td><small>{{ item.details }}</small></td>
+                                <td class="text-right">{{ item.debit|floatformat:2 }}</td>
+                                <td class="text-right">{{ item.credit|floatformat:2 }}</td>
+                                <td class="text-right text-danger">{{ item.refund|floatformat:2 }}</td>
+                                <td class="text-right">{{ item.rib|floatformat:2 }}</td>
+                                <td><small>{{ item.user }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-dark">
+                            <tr>
+                                <td colspan="5" class="text-right"><strong>Totals:</strong></td>
+                                <td class="text-right"><strong>{{ total_debits|floatformat:2 }}</strong></td>
+                                <td class="text-right"><strong>{{ total_credits|floatformat:2 }}</strong></td>
+                                <td class="text-right"><strong>{{ total_refunds|floatformat:2 }}</strong></td>
+                                <td class="text-right"><strong>{{ balance_due|floatformat:2 }}</strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                
+                <!-- Summary Cards -->
+                <div class="row mt-4 summary">
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <h6 class="card-title">Total Debits (Charges)</h6>
+                                <h3 class="card-text">₦{{ total_debits|floatformat:2 }}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <h6 class="card-title">Total Credits (Payments)</h6>
+                                <h3 class="card-text">₦{{ total_credits|floatformat:2 }}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-danger text-white">
+                            <div class="card-body">
+                                <h6 class="card-title">Total Refunds</h6>
+                                <h3 class="card-text">₦{{ total_refunds|floatformat:2 }}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body">
+                                <h6 class="card-title">Balance Due</h6>
+                                <h3 class="card-text">₦{{ balance_due|floatformat:2 }}</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Export Buttons -->
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <button onclick="exportToPDF()" class="btn btn-danger">
+                        <i class="fas fa-file-pdf"></i> Download PDF
+                    </button>
+                    <button onclick="emailToPatient()" class="btn btn-info" id="emailBtn">
+                        <i class="fas fa-envelope"></i> Email to Patient
+                    </button>
+                    <button onclick="exportToExcel()" class="btn btn-success">
+                        <i class="fas fa-file-excel"></i> Export to Excel
+                    </button>
+                    <button onclick="printStatement()" class="btn btn-secondary">
+                        <i class="fas fa-print"></i> Print
+                    </button>
+                </div>
+            </div>
+            
+            {% else %}
+                {% if filter_type != 'none' %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> No records found for the selected filter criteria.
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> Please select a filter option (All Records, Specific Date, or Date Range) to view the statement.
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    const filterInput = document.getElementById('filter_type');
+    const dateFilterDiv = document.getElementById('dateFilter');
+    const rangeFilterDiv = document.getElementById('rangeFilter');
+    const form = document.getElementById('filterForm');
+    
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const filterValue = this.getAttribute('data-filter');
+            filterInput.value = filterValue;
+            
+            // Toggle active class
+            filterBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Show/hide sections
+            if (filterValue === 'date') {
+                dateFilterDiv.style.display = 'flex';
+                rangeFilterDiv.style.display = 'none';
+            } else if (filterValue === 'range') {
+                dateFilterDiv.style.display = 'none';
+                rangeFilterDiv.style.display = 'flex';
+            }
+        });
+    });
+    
+    // Validate on actual form submit
+    form.addEventListener('submit', function(e) {
+        const filterType = filterInput.value;
+        
+        if (filterType === 'date' && !document.getElementById('specific_date').value) {
+            e.preventDefault();
+            alert('Please select a date');
+            return false;
+        }
+        
+        if (filterType === 'range') {
+            const from = document.getElementById('date_from').value;
+            const to = document.getElementById('date_to').value;
+            if (!from || !to) {
+                e.preventDefault();
+                alert('Please select both from and to dates');
+                return false;
+            }
+            if (from > to) {
+                e.preventDefault();
+                alert('"From Date" cannot be after "To Date"');
+                return false;
+            }
+        }
+    });
+});
+
+</script>
+<script>
+    // Excel Export
+    function exportToExcel() {
+        const table = document.getElementById('statementTable');
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.table_to_sheet(table, { raw: true });
+        ws['!cols'] = [
+            {wch:15}, {wch:15}, {wch:12}, {wch:30}, 
+            {wch:12}, {wch:12}, {wch:12}, {wch:20}
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'Statement');
+        XLSX.writeFile(wb, 'statement_{{ patient.surname }}_{{ patient.first_name }}.xlsx');
+    }
+
+    // PDF Export
+    function exportToPDF() {
+    const element = document.getElementById('pdfContent');
+    if (!element) {
+        Swal.fire('Error', 'No data to export', 'error');
+        return;
+    }
+
+    const statementContainer = document.getElementById('statementContainer');
+    const originalOverflow = statementContainer.style.overflow;
+    const originalWidth = statementContainer.style.width;
+    statementContainer.style.overflow = 'visible';
+    statementContainer.style.width = '100%';
+
+    const clone = element.cloneNode(true);
+
+    statementContainer.style.overflow = originalOverflow;
+    statementContainer.style.width = originalWidth;
+
+    const style = document.createElement('style');
+    style.textContent = `
+        * { 
+            -webkit-print-color-adjust: exact !important; 
+            print-color-adjust: exact !important; 
+            box-sizing: border-box !important;
+        }
+        body { 
+            font-family: Arial, sans-serif; 
+            color: #000 !important; 
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        #pdfContent {
+            width: 90% !important;
+            margin: 0 !important;
+            padding: 0 10px !important; /* Add padding to center content */
+        }
+        .summary{
+            width: 82% !important;
+            margin-left: 90px;
+        }
+        .receipt-header, .patient-details-box, .receipt-title{
+            width: 82% !important;
+            text-align: center !important;
+            page-break-inside: avoid !important;
+            margin: 0 auto 10px auto !important; 
+        }
+        .payment-info{
+            width: 82% !important;
+            page-break-inside: avoid !important;
+            margin: 0 auto 10px auto !important; 
+        }
+        .patient-details-box {
+            display: table !important;
+            width: 82% !important;
+            border: 1px solid #000 !important;
+            padding: 8px !important;
+            text-align: left !important;
+        }
+        .patient-details-col {
+            display: table-cell !important;
+            width: 50% !important;
+            padding: 0 10px !important;
+        }
+        .table-responsive { 
+            overflow: visible !important; 
+            height: auto !important;
+            width: 100% !important;
+            margin: 0 auto !important; /* Center the table */
+        }
+        table { 
+            page-break-inside: auto !important; 
+            width: 82% !important; 
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
+            font-size: 11px !important; color: black;
+            margin: 0 auto !important; /* Center table */
+        }
+        tr { page-break-inside: avoid !important; }
+        thead { display: table-header-group !important; }
+        tfoot { display: table-footer-group !important; }
+        .table th { 
+            font-size: 9px !important; 
+            padding: 2px 3px !important; 
+            border: 1px solid #000 !important;
+            word-wrap: break-word !important;
+            text-align: center !important;; 
+        }
+        .table td { 
+            font-size: 11px !important; 
+            padding: 2px 3px !important; 
+            border: 1px solid #000 !important;
+            word-wrap: break-word !important;
+        }
+        .table th {
+            background-color: #343a40 !important; 
+            color: #fff !important;
+            font-weight: bold !important;
+        }
+        .table-secondary td { background-color: #e2e3e5 !important; }
+        .table-dark td { background-color: #343a40 !important; color: #fff !important; }
+        .text-right { text-align: right !important; }
+        .text-warning { color: #ffc107 !important; }
+        .text-success { color: #28a745 !important; }
+        
+        #statementTable th:nth-child(1), #statementTable td:nth-child(1) 
+        #statementTable th:nth-child(2), #statementTable td:nth-child(2) 
+        #statementTable th:nth-child(3), #statementTable td:nth-child(3) 
+        #statementTable th:nth-child(4), #statementTable td:nth-child(4)
+        #statementTable th:nth-child(5), #statementTable td:nth-child(5) 
+        #statementTable th:nth-child(6), #statementTable td:nth-child(6) 
+        #statementTable th:nth-child(7), #statementTable td:nth-child(7) 
+    `;
+    clone.prepend(style);
+
+    const opt = {
+        margin: [0.5, -1.9, 0.5, 0.9], // top, left, bottom, right 
+        filename: 'statement_{{ patient.hospital_number }}_{% now "Ymd" %}.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            windowWidth: 1600,
+            scrollY: 0,
+            scrollX: 0,
+            x: 0, // capture from left edge
+            y: 0
+        },
+        jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['avoid-all', 'css'] }
+    };
+
+    Swal.fire({
+        title: 'Generating PDF...',
+        text: 'Please wait',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    html2pdf().set(opt).from(clone).save().then(() => {
+        Swal.close();
+    }).catch(err => {
+        Swal.fire('Error', 'PDF generation failed: ' + err, 'error');
+    });
+}
+
+// Send PDF as email
+function emailToPatient() {
+    Swal.fire({
+        title: 'Send Statement?',
+        text: 'Send statement PDF to {{ patient.email_address|default:"patient" }}?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, send it',
+        cancelButtonText: 'Cancel'
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+
+        const btn = document.getElementById('emailBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+        const params = new URLSearchParams();
+        params.append('filter_type', document.getElementById('filter_type').value);
+        params.append('specific_date', document.getElementById('specific_date').value);
+        params.append('date_from', document.getElementById('date_from').value);
+        params.append('date_to', document.getElementById('date_to').value);
+
+        fetch("{% url 'email_family_statement' patient.id %}", {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: params.toString()
+        })
+       .then(res => res.json())
+       .then(data => {
+            if (data.success) {
+                Swal.fire('Sent!', 'Statement emailed successfully.', 'success');
+            } else {
+                Swal.fire('Error', data.error || 'Failed to send email', 'error');
+            }
+        })
+       .catch(err => {
+            Swal.fire('Error', 'Network error: ' + err, 'error');
+        })
+       .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-envelope"></i> Email to Patient';
+        });
+    });
+}
+
+// Print Statements
+function printStatement() {
+    const printContents = document.getElementById('pdfContent').innerHTML;
+    const printWindow = window.open('', '_blank', 'height=600,width=800');
+    
+    printWindow.document.write(`
+        <html>
+        <head>
+            <title>Statement_{{ patient.hospital_number }}</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
+            <style>
+                @page { size: A4 landscape; margin: 1cm; }
+                body { font-family: Arial, sans-serif; font-size: 9px; color: #000; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #000; padding: 3px; }
+                th { background: #343a40 !important; color: #fff !important; -webkit-print-color-adjust: exact; }
+                .text-right { text-align: right; }
+                .table-secondary td { background: #e2e3e5 !important; -webkit-print-color-adjust: exact; }
+                .table-dark td { background: #343a40 !important; color: #fff !important; -webkit-print-color-adjust: exact; }
+                .receipt-header, .receipt-title { text-align: center; }
+                .patient-details-box { border: 1px solid #000; padding: 8px; margin: 10px 0; }
+            </style>
+        </head>
+        <body>${printContents}</body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Wait for content to load then print
+    printWindow.onload = function() {
+        printWindow.print();
+        printWindow.close();
+    };
+}
+// form validation
+form.addEventListener('submit', function(e) {
+    const filterType = filterInput.value;
+
+    if (filterType === 'date' &&!document.getElementById('specific_date').value) {
+        e.preventDefault();
+        Swal.fire('Missing Date', 'Please select a date', 'warning');
+        return false;
+    }
+
+    if (filterType === 'range') {
+        const from = document.getElementById('date_from').value;
+        const to = document.getElementById('date_to').value;
+        if (!from ||!to) {
+            e.preventDefault();
+            Swal.fire('Missing Dates', 'Please select both from and to dates', 'warning');
+            return false;
+        }
+        if (from > to) {
+            e.preventDefault();
+            Swal.fire('Invalid Range', '"From Date" cannot be after "To Date"', 'warning');
+            return false;
+        }
+    }
+});
+</script>
+
+<style>
+.filter-btn {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.filter-btn.active {
+    background-color: #007bff !important;
+    color: white !important;
+}
+
+.table th, .table td {
+    vertical-align: middle;
+}
+
+.badge {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+@media print {
+    .filter-section, 
+    .btn-group, 
+    .row.mt-3,
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger,
+    .btn-success {
+        display: none !important;
+    }
+}
+
+@media print {
+    /* Hide everything we don't want */
+    .filter-section,
+    .btn,
+    .navbar,
+    .d-sm-flex,
+    #billing-module-wrapper,
+    .card-header,
+    footer,
+    .row.mt-3,
+    .row.mt-4,
+    #emailBtn,
+    .alert {
+        display: none !important;
+    }
+
+    /* Reset page margins and show only content */
+    body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+    }
+    
+    .container-fluid {
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+    }
+
+    .card-body {
+        padding: 0 !important;
+    }
+
+    /* Force table to fit and look good */
+    #pdfContent {
+        width: 100% !important;
+    }
+
+    .table {
+        width: 100% !important;
+        font-size: 9px !important;
+        page-break-inside: auto !important;
+    }
+
+    .table th, .table td {
+        padding: 3px !important;
+        border: 1px solid #000 !important;
+        color: #000 !important;
+    }
+
+    .table thead th {
+        background-color: #343a40 !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .table-secondary td {
+        background-color: #e2e3e5 !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+
+    .table-dark td {
+        background-color: #343a40 !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+
+    tr {
+        page-break-inside: avoid !important;
+        page-break-after: auto !important;
+    }
+
+    thead {
+        display: table-header-group !important;
+    }
+
+    tfoot {
+        display: table-footer-group !important;
+    }
+
+    /* Center headers  */
+    .receipt-header, .receipt-title {
+        text-align: center !important;
+    }
+
+    /* Set page to landscape for wide tables */
+    @page {
+        size: A4 landscape;
+        margin: 1cm;
+    }
+}
+</style>
+{% endblock %}

@@ -7,15 +7,21 @@ urlpatterns = [
     path('ajax/waiting-list/', views.fetch_waiting_list, name='fetch_waiting_list'),
     path('nurse-waiting-list/', views.load_nurse_queue, name='waiting_list'),
     path('nurse-done-list/', views.nurse_done_list, name='done_list'),
-    path('attendance-today/', views.attendants_today, name='attendants_today'),
     path('nurse-waiting-count/', views.nurse_waiting_count, name='nurse_waiting_count'),
+    
     path('patient-details/<str:key>/', views.operations_profile, name='operations_profile'),
     path('patient-details-nur/<str:key>/', views.operations_profile_nur, name='operations_profile_nur'),
     path('patient-details-lab/<str:key>/', views.operations_profile_lab, name='operations_profile_lab'),
     path('patient-details-rad/<str:key>/', views.operations_profile_rad, name='operations_profile_rad'),
+
     path('background-health/<str:key>/', views.background_health, name='background_health'),
     path('vital-signs/<str:key>/', views.vital_signs, name='vital_signs'),
     path('modify-vital-signs/<str:key>/', views.manage_vital_signs, name='modify_vital_signs'),
+
+    path('search-vaccines/', views.search_vaccines, name='search_vaccines'),
+    path('administer-vaccine/', views.administer_vaccine, name='administer_vaccine'),
+    path('delete-vaccine/', views.delete_vaccine, name='delete_vaccine'),
+    
     # Front Desk URLs
     path('attendance-all/', views.attendants_all, name='attendants_all'),
     path('export-attendance/', views.export_to_excel, name='export_attendance'),
@@ -27,6 +33,7 @@ urlpatterns = [
     path('doctor-waiting-count/', views.doctor_waiting_count, name='doctor_waiting_count'),
     path('doctor-done-list/', views.doctor_done_list, name='doctor_done_list'),
     path('doctor-consultation/<str:key>/', views.doctor_nurse_report, name='doctor_consultation'),
+    path('update-encounter-status/<int:pk>/', views.update_encounter_status, name='update_encounter_status'),
     path('doctors-queue-all/', views.doctor_waiting_list_all, name='doctor_waiting_list_all'),
     
 

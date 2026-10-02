@@ -25,7 +25,7 @@
 
     <!-- Content Row -->
     <div class="row">
-
+        <!-- Left column section -->
         <div class="col-lg-6">
              <!-- Progress Small for Nurses Only -->
             {% if request.user.department.department == 'Nursing' %}
@@ -190,7 +190,6 @@
                 </div>
             </div>
 
-            <!-- Progress Small -->
             {% if request.user.department.department in 'Front Desk, Admin, CMD' %}
             <div class="card mb-4">
                 <div class="card-body">
@@ -210,11 +209,10 @@
                 </div>
             </div>
             {% endif %}
-            <!-- Dropdown No Arrow -->
         </div>
 
+        <!-- Right column section -->
         <div class="col-lg-6">
-            <!-- Roitation Utilities -->
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="m-0 font-weight-bold text-primary">Profile Image</h6>
@@ -225,7 +223,51 @@
                     </div>
                 </div>
             </div>
-            <!-- Progress Small -->
+            <!-- Previous Doctors appointments -->
+            <div class="card" style="margin-top: 10px;">
+                <div id="accordion">
+                    <div class="message text-left alert alert-info alert-dismissible fade show font-weight-bold" role="alert">
+                        <a href="#" style="padding-block: 5px;" data-toggle="collapse" data-target="#collapseHistory" aria-expanded="false" aria-controls="collapseHistory">
+                            <i class="fa fa-history"></i> Previous Encounters with Specialists
+                        </a>
+                    
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div id="collapseHistory" class="collapse" aria-labelledby="headingHistory" data-parent="#accordion">
+                        <div class="card shadow mb-4" style="padding-bottom: 20px;">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary"> Last 5 Encounters with Specialists </h6>
+                            </div>
+
+                            <div style="height:330px; width:100%; padding:10px 10px 10px; padding-bottom: 20px;">
+                                <table class="table" style="width:100%">
+                                    <thead>
+                                        <tr>
+                                            <th>Destinations</th>
+                                            <th>Dates</th>
+                                            <th>Specialists</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    {% for patient in encounters %}
+                                        <tr style="font-size: 15px;">
+                                            <td><a href="#">{{ patient.purpose|default:"-" }}</a></td>
+                                            <td><a href="#">{{ patient.created_date }}</a></td>
+                                            <td><a href="#">Dr. {{ patient.completed_by }}</a></td> 
+                                        </tr>
+                                    {% empty %}
+                                        <tr>
+                                            <td colspan="6" class="text-center">No patients on the waiting list today</td>
+                                        </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+            </div>
         </div>
     </div>
 </div>
@@ -251,74 +293,83 @@ aria-hidden="true">
         </div>
     </div>
 </div>
+  {% if patient.active == 1 %}
 <!-- Appointments modal -->
 <div class="modal fade" id="appointmentModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
 aria-hidden="true">
-<div class="modal-dialog" role="document">
-    <div class="modal-content">
-        <div class="modal-header">
-           <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Schedule Appointment</span> 
-           <button class="close" type="button" data-dismiss="modal" aria-label="Close">
-               <span aria-hidden="true">×</span>
-           </button>
-        </div>
-        <div style="padding-inline:20px; margin-top: 5px; padding-bottom: 25px;">
-            <form method="post" id="waitingListForm">
-                {% csrf_token %}
-                
-                <div class="form-group">
-                    <label for="id_purpose">Purpose:</label>
-                    {{ queue_form.purpose }}
-                </div>
-                
-                <div class="form-group">
-                    <label for="id_visit_type">Visit Type:</label>
-                    {{ queue_form.visit_type }}
-                </div>
-                
-                <div class="form-group" style="display: none;">
-                    {{ queue_form.price }}
-                </div>
-                
-                <div class="form-group">
-                    <label>Select Criticality:</label>
-                    <select name="criticality" required class="form-control">
-                        <option value="critic">-- Criticality --</option>
-                        <option value="1">Emergency</option>
-                        <option value="2">Review</option>
-                        <option value="0">General Request</option>
-                    </select>
-                </div>
-                
-                <!-- Exception Bill Checkbox -->
-                <div class="form-group">
-                    <div class="custom-control custom-checkbox">
-                        <input type="checkbox" 
-                               class="custom-control-input" 
-                               id="consultationExceptionBill" 
-                               name="exception_bill"
-                               value="1">
-                        <label class="custom-control-label" for="consultationExceptionBill">
-                            <span class="text-danger font-weight-bold">Exception Bill</span> 
-                            <small class="text-muted">(Check if this consultation should NOT be billed)</small>
-                        </label>
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+            <span class="text-primary font-weight-bold"><i class="fa fa-clipboard-list"></i> &nbsp;Schedule Appointment</span> 
+            <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+            </div>
+            <div style="padding-inline:20px; margin-top: 5px; padding-bottom: 25px;">
+                <form method="post" id="waitingListForm">
+                    {% csrf_token %}
+                    
+                    <div class="form-group">
+                        <label for="id_purpose">Purpose:</label>
+                        {{ queue_form.purpose }}
                     </div>
-                </div>
-                
-                <div class="modal-footer">
-                    <input type="text" value="0" style="display: none;" name="valu"/>
-                    <button type="submit" name="queue" class="btn btn-success" id="submitConsultationBtn">
-                        <i class="fa fa-plus"></i> Create Appointment
-                    </button>
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">No, Thanks!</button>
-                </div>
-            </form>
+                    
+                    <div class="form-group">
+                        <label for="id_visit_type">Visit Type:</label>
+                        {{ queue_form.visit_type }}
+                    </div>
+                    
+                    <div class="form-group" style="display: none;">
+                        {{ queue_form.price }}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Select Criticality:</label>
+                        <select name="criticality" required class="form-control">
+                            <option value="critic">-- Criticality --</option>
+                            <option value="1">Emergency</option>
+                            <option value="2">Review</option>
+                            <option value="0">General Request</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Exception Bill Checkbox -->
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" 
+                                class="custom-control-input" 
+                                id="consultationExceptionBill" 
+                                name="exception_bill"
+                                value="1">
+                            <label class="custom-control-label" for="consultationExceptionBill">
+                                <span class="text-danger font-weight-bold">Exception Bill</span> 
+                                <small class="text-muted">(Check if this consultation should NOT be billed)</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" id="packageGroup">
+                        <label for="package-data-select" style="color: #256fad;">Select Package:</label>
+                        <select name="package" class="form-control package-data" id="package-data-select">
+                            <option value="">-- All Packages --</option>
+                            {% for package in unique_packages %}
+                                <option value="{{ package.id }}" {% if selected_package and package.id == selected_package.id %}selected{% endif %}>{{ package.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <input type="text" value="0" style="display: none;" name="valu"/>
+                        <button type="submit" name="queue" class="btn btn-success" id="submitConsultationBtn">
+                            <i class="fa fa-plus"></i> Create Appointment
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">No, Thanks!</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
-</div>
   <!-- Deactivate and Activate modal -->
-  {% if patient.active == 1 %}
+
   <div class="modal fade" id="deactivateModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
   aria-hidden="true">
   <div class="modal-dialog" role="document">
@@ -405,7 +456,7 @@ aria-hidden="true">
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
 $(document).ready(function() {
-    // When purpose changes, fetch the price
+    // When purpose changes, fetch the price and toggle package visibility
     $('#id_purpose').change(function() {
         var purpose = $(this).val();
         if (purpose) {
@@ -415,7 +466,23 @@ $(document).ready(function() {
         } else {
             $('#id_price').val('0');
         }
+        
+        // Toggle package visibility
+        if (purpose === 'Packages') {
+            $('#packageGroup').show();
+        } else {
+            $('#packageGroup').hide();
+            $('#package-data-select').val(''); // Reset package selection
+        }
     });
+
+    // Initial check on page load
+    var initialPurpose = $('#id_purpose').val();
+    if (initialPurpose === 'Packages' || initialPurpose === 'packages') {
+        $('#packageGroup').show();
+    } else {
+        $('#packageGroup').hide();
+    }
     
     $('#consultationExceptionBill').change(function() {
         const checkbox = $(this);

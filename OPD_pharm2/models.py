@@ -13,7 +13,7 @@ UOM = [
         ("tins", "Tins"),("tubes", "Tubes"),("vial", "Vial"),("others", "Others"),("each", "Each"),
         ("mls", "mls (mililiters)"), ("mg", "mg"), ("mcg", "mcg"), ("g", "grams"), ("IU", "IU"),
         ("capsules", "Capsules"), ("tablets", "Tablets"), ("suppository", "Suppository"), ("pessary", "Pessary"),
-        ("drops", "Drops"), ("puffs", "Puffs (Inhaler)"),
+        ("drops", "Drops"), ("immuno", "Immuno"), ("puffs", "Puffs (Inhaler)"),
 
     ]
 

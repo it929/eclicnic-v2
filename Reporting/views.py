@@ -591,7 +591,7 @@ def generate_invoice_excel(invoices, filename, orientation):
 logger = logging.getLogger(__name__)
 
 
-@login_required(login_url='login')
+@login_required
 @department_required('Reporting', 'Admin', 'CMD')
 def transaction_book_report(request):
     """Generate Transaction Book Report with filters"""
@@ -889,6 +889,9 @@ def prepare_export_data(grouped_data):
         receipt_ids = []
         transaction_dates = []
         
+        # Track payment types (collect unique payment options)
+        payment_types = []
+        
         # Collect all products by type
         for invoice in invoices:
             product = invoice.product or ''
@@ -919,6 +922,10 @@ def prepare_export_data(grouped_data):
             if invoice.invoice_number and invoice.invoice_number not in invoice_ids:
                 invoice_ids.append(invoice.invoice_number)
             
+            # Collect payment type
+            if invoice.payment_option and invoice.payment_option not in payment_types:
+                payment_types.append(invoice.payment_option)
+            
             # Get receipt info for this invoice
             receipts = Receipt.objects.filter(invoice_number__iexact=invoice.invoice_number)
             for receipt in receipts:
@@ -943,6 +950,7 @@ def prepare_export_data(grouped_data):
         invoice_ids_str = '; '.join(invoice_ids)
         receipt_ids_str = '; '.join(receipt_ids)
         transaction_dates_str = '; '.join(transaction_dates)
+        payment_types_str = '; '.join(payment_types)
         
         # Get billing officer name
         billing_officer = data['billing_officer']
@@ -975,6 +983,7 @@ def prepare_export_data(grouped_data):
             'invoice_id': invoice_ids_str,
             'receipt_id': receipt_ids_str,
             'transaction_date': transaction_dates_str,
+            'payment_type': payment_types_str,  
             'revenue': data['total_revenue'],
             'collections': data['total_collections'],
             'refunds': data['total_refunds'],
@@ -1038,6 +1047,7 @@ def export_to_excel(export_data, context):
         ('Invoice ID', 20),
         ('Receipt ID', 20),
         ('Transaction Date', 20),
+        ('Payment Type', 20),  
         ('Revenue (₦)', 15),
         ('Collections (₦)', 15),
         ('Refunds (₦)', 15),
@@ -1082,6 +1092,7 @@ def export_to_excel(export_data, context):
             row_data['invoice_id'],
             row_data['receipt_id'],
             row_data['transaction_date'],
+            row_data['payment_type'],  # NEW: Add payment type data
             row_data['revenue'],
             row_data['collections'],
             row_data['refunds'],
@@ -1092,8 +1103,8 @@ def export_to_excel(export_data, context):
         for col, value in enumerate(row, 1):
             cell = ws.cell(row=row_idx, column=col, value=value)
             
-            # Format monetary values (columns 26, 27, 28, 29)
-            if col in [26, 27, 28, 29]:  # Revenue, Collections, Refunds, Balance columns
+            # Format monetary values (columns 27, 28, 29, 30 after adding payment type)
+            if col in [27, 28, 29, 30]:  # Revenue, Collections, Refunds, Balance columns
                 if isinstance(value, (int, float)):
                     cell.number_format = '#,##0.00'
                     cell.alignment = Alignment(horizontal='right', vertical='center')

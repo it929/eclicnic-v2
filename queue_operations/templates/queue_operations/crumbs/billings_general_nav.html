@@ -1,0 +1,55 @@
+{% load static %}
+<link rel="stylesheet" type="text/css" href="{% static 'admin-css/billings/header.css' %}">
+<div id="billing-module-wrapper" style="margin-top: -15px;">
+    <nav class="navbar navbar-expand-lg navbar-light custom-nav">
+        <div class="collapse navbar-collapse" id="navbarText">
+        <ul class="navbar-nav mr-auto">
+            
+            <li class="nav-item dropdown hover-dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                Invoices
+            </a>
+            <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                <a class="dropdown-item" href="{% url 'get_billings' patient.id %}">Create Invoice</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">View Invoices</a>
+            </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="receiptDropdown" role="button" data-toggle="dropdown">
+                    Receipts
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="receiptDropdown">
+                    <a class="dropdown-item" href="{% url 'create_receipt' patient.id %}">Create Receipt</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">View Receipts</a>
+                </div>
+            </li>
+
+            <li class="nav-item dropdown hover-dropdown actives">
+                <a class="nav-link dropdown-toggle" href="#" id="invoiceDropdown" role="button" data-toggle="dropdown">
+                    Transactions
+                </a>
+                <div class="dropdown-menu shadow-sm" aria-labelledby="invoiceDropdown">
+                    <a class="dropdown-item" href="{% url 'get_invoice' patient.id %}">Invoices</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_receipt' patient.id %}">Receipts</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_statements' patient.id %}">Statements</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_summary' patient.id %}">Transactions Summary</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{% url 'get_case_note' patient.id %}">Patient Case Note</a>
+                </div>
+            </li>
+
+            <li class="nav-item">
+            <a class="nav-link" href="{% url 'create_deposit_refund' patient.id %}">
+                Deposits & Refunds
+            </a>
+            </li>
+        </ul>
+        </div>
+    </nav>
+</div>

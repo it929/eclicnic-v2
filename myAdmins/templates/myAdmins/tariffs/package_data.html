@@ -1,0 +1,411 @@
+{% extends 'admin.html' %}
+{% block content %}
+<style>
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding-bottom: -10px;
+    gap: 10px;
+}
+</style>
+<div class="container-fluid">
+  <div class="d-sm-flex align-items-center justify-content-between mb-4">
+    <h5 class="mb-0 text-primary font-weight-bold">Manage Package Data <span class="badge badge-danger">{{ counts }}</span> items</h5>
+    <button class="btn btn-primary btn-sm" data-toggle="modal" data-target="#uploadModal">
+      <i class="fa fa-plus"></i>&nbsp; Create Package Data
+    </button>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+        <form id="packageFilterForm" class="form-inline">
+        <label class="mr-2 font-weight-bold">Package:</label>
+        <select name="package" class="form-control form-control-sm mr-3 package-data" id="package-data-select">
+            <option value="">-- All Packages --</option>
+            {% for package in unique_packages %}
+                <option value="{{ package.id }}" {% if selected_package and package.id == selected_package.id %}selected{% endif %}>{{ package.name }}</option>
+            {% endfor %}
+        </select>
+        <span id="package-loader" style="display:none" class="ml-2 text-primary"><i class="fa fa-spinner fa-spin"></i> Loading...</span>
+        </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm table-hover mb-0" id="dataTable" width="100%" cellspacing="0">
+          <thead class="thead-light">
+            <tr>
+              <th style="text-align: center;">#</th>
+              <th>Package Name</th>
+              <th>Item</th>
+              <th>Rate (₦)</th>
+              <th>Type</th>
+              <th>Updated</th>
+              <th>Updated By</th>
+              <th style="text-align: center;">Edit</th>
+              <th style="text-align: center;">Delete</th>
+            </tr>
+          </thead>
+          <tbody id="main-package-body">
+            {% for package in package_data %}
+            <tr id="row-{{ package.id }}">
+                <td style="text-align: center;"><small class="badge badge-pill">{{ forloop.counter }}</small></td>
+                <td class="prod-id"><small class="badge badge-pill">{{ package.package.name }}</small></td>
+                <td class="prod-name"><small>{{ package.item }}</small></td>
+                <td class="prod-rate"><small>₦{{ package.rate }}</small></td>
+                <td>{% if package.type == 's' %}<small class="badge badge-info">Service</small>
+                {% elif package.type == 'r' %}<small class="badge badge-success">Imaging</small>
+                {% elif package.type == 'l' %}<small class="badge badge-primary">Lab Investigation</small>
+                {% endif %}
+                </td>
+                <td style="color: brown;"><small>{{ package.updated_date|date:"d M Y H:i"|default:package.created_date|date:"d M Y" }}</small></td>
+                <td><small>{{ package.staff.fullname }}</small></td>
+                <td class="text-center">
+                <i class="fa fa-edit btn-edit" data-id="{{ package.id }}" data-item="{{ package.item }}" data-rate="{{ package.rate }}" style="cursor:pointer;color:rgb(189,189,21);"></i>
+                </td>
+                <td class="text-center">
+                <i class="fa fa-times btn-delete" data-id="{{ package.id }}" data-name="{{ package.item}}" style="cursor:pointer;color:rgb(178,18,18)"></i>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="9" class="text-center text-muted py-4">No package data found.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="width: 200%; position: relative; right: 180px;">
+      <div class="modal-header">
+        <h6 class="modal-title font-weight-bold">Create Package Data</h6>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <form method="POST">
+        {% csrf_token %}
+        <div class="modal-body">
+          <div class="form-section">
+            <div style="border: 1px solid #ccc; padding: 10px; margin-top: 5px;" class="form-grid">
+                <div>
+                    <h6 style="font-family: cursive; text-decoration: underline;">Type of Item:</h6>
+                    <select class="form-control type-name" id="type-select">
+                        <option value="">Select Type of Item</option>
+                        <option value="s">Services</option>
+                        <option value="l">Investigation</option>
+                        <option value="r">Imaging</option>
+                    </select>
+                </div>
+                <div>
+                    <h6 style="font-family: cursive; text-decoration: underline;">Select Package:</h6>
+                    <select class="form-control package-name" id="packageSelect" name="selected_package">
+                        <option value="">-- Select Package --</option>
+                        {% for package in unique_packages %}
+                            <option value="{{ package.name }}">{{ package.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <table id="packages" class="table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Rate (₦)</th>
+                        <th>Add</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="package-body">
+                    <tr>
+                        <td>
+                            <input list="item-options" class="form-control item-name" placeholder="first 3 letters" autocomplete="off">
+                            <datalist id="item-options"></datalist>
+                        </td>
+                        <td><input type="text" class="form-control rate"></td>
+                        <td><button type="button" class="btn btn-success add-row">+</button></td>
+                        <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+                    </tr>
+                </tbody>
+            </table>
+            <button type="button" id="submitItems" class="btn btn-primary">Save Package <i class="fa fa-save"></i></button>
+        </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+let itemRateMap = {};
+let debounceTimer;
+
+// Search
+document.addEventListener('input', function(e){
+    if(!e.target.classList.contains('item-name')) return;
+
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(()=>{
+        const input = e.target;
+        const query = input.value.trim();
+        const typeCode = document.getElementById('type-select').value;
+
+        if(!typeCode){
+            Swal.fire({
+            title: 'Error!',
+            text: "Please select Type of Item first",
+            icon: 'warning',
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Okay!'
+        })
+        }
+        if(query.length < 2) return;
+
+        fetch(`/search-package-items/?q=${encodeURIComponent(query)}&type=${typeCode}`)
+       .then(res=>res.json())
+       .then(data=>{
+            const datalist = document.getElementById('item-options');
+            datalist.innerHTML = '';
+            itemRateMap = {};
+            data.results.forEach(obj=>{
+                itemRateMap[obj.name] = obj.rate;
+                const opt = document.createElement('option');
+                opt.value = obj.name;
+                opt.textContent = `₦${obj.rate}`;
+                datalist.appendChild(opt);
+            });
+        });
+    }, 400);
+});
+
+// Autofill rate
+document.addEventListener('change', function(e){
+    if(e.target.classList.contains('item-name')){
+        const row = e.target.closest('tr');
+        const name = e.target.value;
+        if(itemRateMap[name]){
+            row.querySelector('.rate').value = itemRateMap[name];
+        }
+    }
+});
+document.addEventListener('blur', function(e){
+    if(e.target.classList.contains('item-name')){
+        const row = e.target.closest('tr');
+        const name = e.target.value;
+        if(itemRateMap[name]){
+            row.querySelector('.rate').value = itemRateMap[name];
+        }
+    }
+}, true);
+
+// Add row
+document.addEventListener('click', function(e){
+    if(e.target.classList.contains('add-row')){
+        const tbody = document.getElementById('package-body');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input list="item-options" class="form-control item-name" placeholder="first 3 letters" autocomplete="off"></td>
+            <td><input type="text" class="form-control rate"></td>
+            <td><button type="button" class="btn btn-success add-row">+</button></td>
+            <td><button type="button" class="btn btn-danger remove-row">-</button></td>
+        `;
+        tbody.appendChild(tr);
+    }
+    if(e.target.classList.contains('remove-row')){
+        const tbody = document.getElementById('package-body');
+        const rows = tbody.querySelectorAll('tr');
+        if(rows.length > 1){
+            e.target.closest('tr').remove();
+        } else {
+            const row = e.target.closest('tr');
+            row.querySelector('.item-name').value = '';
+            row.querySelector('.rate').value = '';
+        }
+    }
+});
+
+// Save
+document.getElementById('submitItems').addEventListener('click', function(){
+    const packageName = document.getElementById('packageSelect').value;
+    const typeCode = document.getElementById('type-select').value;
+
+    if(!packageName){
+        Swal.fire('Error', 'Select Package name', 'error');
+        return;
+    }
+    if(!typeCode){
+        Swal.fire('Error', 'Select Type of Item', 'error');
+        return;
+    }
+
+    let items = [];
+    document.querySelectorAll('#package-body tr').forEach(row=>{
+        const itemName = row.querySelector('.item-name').value;
+        const rate = row.querySelector('.rate').value;
+        if(itemName && rate){
+            items.push({item: itemName, rate: rate});
+        }
+    });
+
+    if(items.length === 0){
+        Swal.fire('Error', 'Add at least one valid item', 'error');
+        return;
+    }
+
+    fetch('/save-package-data/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({package_name: packageName, type_code: typeCode, items: items})
+    })
+   .then(res=>res.json())
+   .then(res=>{
+        if(res.success){
+            Swal.fire('Success', `${res.created} items saved to ${packageName}`, 'success').then(()=>location.reload());
+        } else {
+            Swal.fire('Error', res.error, 'error');
+        }
+    });
+});
+</script>
+<script>
+// --- AUTO LOAD PACKAGE DATA ---
+document.getElementById('package-data-select').addEventListener('change', function(){
+    const packageId = this.value;
+    const loader = document.getElementById('package-loader');
+    const tbody = document.getElementById('main-package-body');
+
+    if(!packageId){
+        location.href = "{% url 'manage_package_data' %}";
+        return;
+    }
+
+    loader.style.display = 'inline-block';
+    fetch(`/get-package-data-ajax/?package_id=${packageId}`)
+    .then(res=>res.json())
+    .then(res=>{
+        loader.style.display = 'none';
+        if(!res.success){ Swal.fire('Error', res.error, 'error'); return; }
+
+        tbody.innerHTML = '';
+        if(res.data.length === 0){
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No data for ${res.package_name}</td></tr>`;
+            return;
+        }
+        res.data.forEach(row=>{
+            let badge = row.type=='s' ? '<small class="badge badge-info">Service</small>' :
+                        row.type=='r' ? '<small class="badge badge-success">Imaging</small>' :
+                        '<small class="badge badge-primary">Lab Investigation</small>';
+            tbody.innerHTML += `
+            <tr id="row-${row.id}">
+                <td style="text-align:center;"><small class="badge badge-pill">${row.counter}</small></td>
+                <td><small class="badge badge-pill">${row.package_name}</small></td>
+                <td><small>${row.item}</small></td>
+                <td><small>₦${row.rate}</small></td>
+                <td>${badge}</td>
+                <td style="color:brown;"><small>${row.updated_date !== '-' ? row.updated_date : row.created_date}</small></td>
+                <td><small>${row.staff}</small></td>
+                <td class="text-center"><i class="fa fa-edit btn-edit" data-id="${row.id}" data-item="${row.item}" data-rate="${row.rate}" style="cursor:pointer;color:rgb(189,189,21);"></i></td>
+                <td class="text-center"><i class="fa fa-times btn-delete" data-id="${row.id}" data-name="${row.item}" style="cursor:pointer;color:rgb(178,18,18)"></i></td>
+            </tr>`;
+        });
+        // update counter badge
+        document.querySelector('.text-primary .badge-danger').textContent = `${res.data.length} items`;
+    });
+});
+
+// --- EDIT WITH SWEETALERT2 ---
+document.addEventListener('click', function(e){
+    if(e.target.classList.contains('btn-edit')){
+        const id = e.target.dataset.id;
+        const item = e.target.dataset.item;
+        const rate = e.target.dataset.rate;
+
+        Swal.fire({
+            title: 'Edit Package Item',
+            html: `
+                <input id="swal-item" class="swal2-input" placeholder="Item name" value="${item}">
+                <input id="swal-rate" class="swal2-input" placeholder="Rate" value="${rate}" type="number" step="0.01">
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Update',
+            confirmButtonColor: '#3085d6',
+            preConfirm: () => {
+                const newItem = document.getElementById('swal-item').value.trim();
+                const newRate = document.getElementById('swal-rate').value.trim();
+                if(!newItem || !newRate){
+                    Swal.showValidationMessage('Both fields required');
+                    return false;
+                }
+                return {item: newItem, rate: newRate};
+            }
+        }).then(result=>{
+            if(result.isConfirmed){
+                fetch('/edit-package-data/', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+                    body: JSON.stringify({id: id, item: result.value.item, rate: result.value.rate})
+                })
+                .then(r=>r.json())
+                .then(res=>{
+                    if(res.success){
+                        Swal.fire('Updated!', 'Package updated, staff & updated_date saved', 'success');
+                        // update row live
+                        const row = document.getElementById(`row-${id}`);
+                        row.querySelector('.prod-name').innerHTML = `<small>${result.value.item}</small>`;
+                        row.querySelector('.prod-rate').innerHTML = `<small>₦${result.value.rate}</small>`;
+                        // update data attributes for next edit
+                        const editIcon = row.querySelector('.btn-edit');
+                        editIcon.dataset.item = result.value.item;
+                        editIcon.dataset.rate = result.value.rate;
+                    } else {
+                        Swal.fire('Error', res.error, 'error');
+                    }
+                });
+            }
+        });
+    }
+
+    // --- DELETE WITH SWEETALERT2 ---
+    if(e.target.classList.contains('btn-delete')){
+        const id = e.target.dataset.id;
+        const name = e.target.dataset.name;
+
+        Swal.fire({
+            title: `Delete ${name}?`,
+            text: "This cannot be undone!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        }).then(result=>{
+            if(result.isConfirmed){
+                fetch('/delete-package-data/', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+                    body: JSON.stringify({id: id})
+                })
+                .then(r=>r.json())
+                .then(res=>{
+                    if(res.success){
+                        Swal.fire('Deleted!', `${name} deleted`, 'success');
+                        document.getElementById(`row-${id}`).remove();
+                    } else {
+                        Swal.fire('Error', 'Failed to delete', 'error');
+                    }
+                });
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

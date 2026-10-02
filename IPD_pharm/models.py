@@ -11,7 +11,7 @@ UOM = [
         ("tins", "Tins"),("tubes", "Tubes"),("vial", "Vial"),("others", "Others"),("each", "Each"),
         ("mls", "mls (mililiters)"), ("mg", "mg"), ("mcg", "mcg"), ("g", "grams"), ("IU", "IU"),
         ("capsules", "Capsules"), ("tablets", "Tablets"), ("suppository", "Suppository"), ("pessary", "Pessary"),
-        ("drops", "Drops"), ("puffs", "Puffs (Inhaler)"),
+        ("drops", "Drops"), ("immuno", "Immuno"), ("puffs", "Puffs (Inhaler)"),
 
     ]
 
@@ -78,7 +78,6 @@ class DrugsUpdate(models.Model):
     
 
 class IPDAdministeredDrugs(models.Model):
-
     product = models.ForeignKey(Drugs, on_delete=models.CASCADE, null=True)
     item = models.CharField(max_length=200)
     UoM = models.CharField(choices=UOM, default="", null=True, max_length=18, blank=True) # UOM - unit of measurement
@@ -107,7 +106,7 @@ class IPDAdministeredDrugs(models.Model):
         ordering = ['-created_date']
 
     def __str__(self):
-        return f' {self.item} ({self.quantity}) -- start date:  {self.start_date}'
+        return f' {self.item} ({self.completed}) -- start date:  {self.created_date}'
     
     @property
     def instructions(self):

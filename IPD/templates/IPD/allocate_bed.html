@@ -196,10 +196,10 @@
                     <!-- check to be sure the request is not coming from either doctors or front desks -->
                     {% if request.user.department.department != 'Clinical' and request.user.department.department != 'Front Desk' %}
                 <label for="wardSelect">Ward/Room:</label>
-                <select id="wardSelect" onchange="loadAvailableBeds()">
+                <select id="wardSelect" onchange="loadAvailableBeds()" class="font-weight-bold">
                     <option value="">Select Ward</option>
                     {% for ward in wards %}
-                    <option value="{{ ward.id }}">{{ ward.ward_name }}</option>
+                    <option value="{{ ward.id }}" class="{% if ward.available_beds > 0 %}text-success font-weight-bold{% else %}text-danger{% endif %}">{{ ward.ward_name }} - {% if ward.available_beds > 0 %}({{ ward.available_beds }}) bed{{ ward.available_beds|pluralize }} available {% else %}Not Available {% endif %}</option>
                     {% endfor %}
                 </select>
                 

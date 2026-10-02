@@ -13,6 +13,7 @@ from django.db.models import Q, Max, Min, Count
 from django.utils import timezone
 from datetime import datetime, timedelta
 from django.contrib.auth.decorators import login_required
+from inventory.decorators import department_required
 from queue_operations.models import  NurseWaitingList, DoctorWaitingList, RegFee, PatientEncounter
 from radio_lab.models import  RadiologyLab, ScanResult, LabResult, RadioLabInventory
 from users.models import User, VerifyStaff
@@ -25,7 +26,7 @@ from OPD_pharm2.models import OPD2AdministeredDrugs
 from inventory.models import PharmacyTariff
 from Billings.models import Invoice
 from patients.models import PatientCategory, PatientPlan
-from .models import UserActivityLog, UserSession, OtherService2
+from .models import UserActivityLog, UserSession, OtherService2, Packages, PackagesData
 from .forms import StaffUploadForm
 
 from django.views.decorators.csrf import csrf_exempt
@@ -40,7 +41,8 @@ from calendar import monthrange
 
 today = timezone.now().date()
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def verify_staff(request):
     if request.method == 'POST':
         form = StaffUploadForm(request.POST, request.FILES)
@@ -93,7 +95,7 @@ def verify_staff(request):
     return render(request, 'myAdmins/staff_list.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 def download_import_staffID_template(request):
     """Serve template Excel file"""
     template_path = os.path.join(settings.BASE_DIR, 'static', 'files', 'staffID_import_template.xlsx')
@@ -105,17 +107,19 @@ def download_import_staffID_template(request):
     raise Http404
 
 
-@login_required(login_url='login')
+@login_required
 def delete_staff_id(request, pk):
     staff = get_object_or_404(VerifyStaff, pk=pk)
     staff.delete()
     return redirect('verify_staff')
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def admin_home(request):
     return render(request, 'myAdmins/my_admin.html')
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def staff_manager(request):
     get_users = User.objects.all().order_by('department')
     context={
@@ -125,7 +129,7 @@ def staff_manager(request):
     return render(request, 'myAdmins/staff_record.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 @csrf_exempt
 @require_http_methods(["POST"])
 def staff_action(request):
@@ -332,7 +336,8 @@ def staff_action(request):
         return JsonResponse({'success': False, 'message': f'An error occurred: {str(e)}'})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def user_activities(request, user_id=None):
     """
     View to display user activities
@@ -404,7 +409,8 @@ def user_activities(request, user_id=None):
     return render(request, template, context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def activity_dashboard(request):
     """Dashboard showing activity statistics"""
     from django.db.models import Count, Q
@@ -452,7 +458,8 @@ def activity_dashboard(request):
     return render(request, 'myAdmins/activity_dashboard.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def online_users(request):
     """View to display currently online users"""
     
@@ -484,7 +491,8 @@ def online_users(request):
     return render(request, 'myAdmins/online_users.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 @require_http_methods(["GET"])
 def online_users_api(request):
     """API endpoint to get online users (for real-time updates)"""
@@ -512,7 +520,7 @@ def online_users_api(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
 @require_http_methods(["POST"])
 def force_logout_user(request, user_id):
     """Force logout a specific user"""
@@ -584,13 +592,11 @@ def clean_diagnosis(diagnosis_text):
     
     return cleaned if cleaned else diagnosis_text
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def diagnosis_analytics(request):
     """Diagnosis analytics dashboard with filters"""
-    # print(f"Request type: {type(request)}")
-    # print(f"Request object: {request}")
-    # print(f"Is authenticated: {request.user.is_authenticated if hasattr(request, 'user') else 'No user attribute'}")
-    
+        
     # Get filter parameters
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
@@ -675,7 +681,7 @@ def diagnosis_analytics(request):
     
     return render(request, 'myAdmins/diagnosis_analytics.html', context)
 
-@login_required(login_url='login')
+@login_required
 @require_http_methods(["GET"])
 def diagnosis_analytics_api(request):
     """API endpoint for real-time data updates"""
@@ -734,7 +740,8 @@ class YearUTC(Func):
     function = 'YEAR'
     output_field = IntegerField()
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def financial_analytics(request):
     view_type = request.GET.get('view_type', 'daily')
     service_type = request.GET.get('service_type', '').strip()
@@ -882,7 +889,8 @@ def financial_analytics(request):
     return render(request, 'myAdmins/financial_analytics.html', context)
     
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def nurse_queues_all(request):
     page = 'nurse_queue_all'
     nurse_queue = NurseWaitingList.objects.filter(
@@ -893,7 +901,8 @@ def nurse_queues_all(request):
     return render(request, 'myAdmins/clinical_queue.html',{'page':page,'counts':nurse_queue.count(),'nurse_queue':nurse_queue})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def doctor_queues_all(request):
     page = 'doctor_queue_all'
     doctor_queue = DoctorWaitingList.objects.filter(
@@ -904,7 +913,8 @@ def doctor_queues_all(request):
     return render(request, 'myAdmins/clinical_queue.html',{'page':page,'doctor_counts':doctor_queue.count(),'doctor_queue':doctor_queue})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def scan_queues_all(request):
     page = 'scan_queue_all'
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -942,7 +952,8 @@ def scan_queues_all(request):
         'scan_queue': scan_queue
     })
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def lab_queues_all(request):
     page = 'lab_queue_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -980,7 +991,8 @@ def lab_queues_all(request):
         'lab_queue': lab_queue
     })
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def lab_result_queues_all(request):
     page = 'lab_result_queue_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1012,7 +1024,8 @@ def lab_result_queues_all(request):
 
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def scan_result_queues_all(request):
     page = 'scan_result_queue_all' 
     scan_result_queue = ScanResult.objects.filter(
@@ -1022,7 +1035,8 @@ def scan_result_queues_all(request):
         ).values('patient').distinct()
     return render(request, 'myAdmins/clinical_queue.html',{'page':page,'counts':scan_result_queue.count()})
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def scan_result_queues_all(request):
     page = 'scan_result_queue_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1053,7 +1067,8 @@ def scan_result_queues_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def drug_requests_ipd1_queues_all(request):
     page = 'drug_requests_ipd1_queues_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1086,7 +1101,8 @@ def drug_requests_ipd1_queues_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def drug_requests_ipd2_queues_all(request):
     page = 'drug_requests_ipd2_queues_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1119,7 +1135,8 @@ def drug_requests_ipd2_queues_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def drug_requests_ipd3_queues_all(request):
     page = 'drug_requests_ipd3_queues_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1152,7 +1169,8 @@ def drug_requests_ipd3_queues_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def drug_requests_opd_queues_all(request):
     page = 'drug_requests_opd_queues_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1185,7 +1203,8 @@ def drug_requests_opd_queues_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Nursing', 'Admin', 'CMD')
 def drug_requests_opd2_queues_all(request):
     page = 'drug_requests_opd2_queues_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1220,7 +1239,8 @@ def drug_requests_opd2_queues_all(request):
 
 
 # completed list
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def nurse_completes_all(request):
     page = 'nurse_complete_all'
     nurse_complete = NurseWaitingList.objects.filter(
@@ -1231,7 +1251,8 @@ def nurse_completes_all(request):
     return render(request, 'myAdmins/clinical_completed.html',{'page':page,'counts':nurse_complete.count(),'nurse_complete':nurse_complete})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def doctor_completes_all(request):
     page = 'doctor_complete_all'
     doctor_complete = DoctorWaitingList.objects.filter(
@@ -1242,7 +1263,8 @@ def doctor_completes_all(request):
     return render(request, 'myAdmins/clinical_completed.html',{'page':page,'doctor_counts':doctor_complete.count(),'doctor_complete':doctor_complete})
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def scan_completes_all(request):
     page = 'scan_complete_all'
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1281,7 +1303,8 @@ def scan_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def lab_completes_all(request):
     page = 'lab_complete_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1320,7 +1343,8 @@ def lab_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def lab_result_completes_all(request):
     page = 'lab_result_complete_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1351,7 +1375,8 @@ def lab_result_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def scan_result_completes_all(request):
     page = 'scan_result_complete_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1382,7 +1407,8 @@ def scan_result_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def drug_requests_ipd1_completes_all(request):
     page = 'drug_requests_ipd1_completes_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1415,7 +1441,8 @@ def drug_requests_ipd1_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def drug_requests_ipd2_completes_all(request):
     page = 'drug_requests_ipd2_completes_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1448,7 +1475,8 @@ def drug_requests_ipd2_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def drug_requests_ipd3_completes_all(request):
     page = 'drug_requests_ipd3_completes_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1481,7 +1509,8 @@ def drug_requests_ipd3_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def drug_requests_opd_completes_all(request):
     page = 'drug_requests_opd_completes_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1514,7 +1543,8 @@ def drug_requests_opd_completes_all(request):
     })
 
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 def drug_requests_opd2_completes_all(request):
     page = 'drug_requests_opd2_completes_all' 
     time_threshold = timezone.now() - timedelta(hours=24)
@@ -1551,6 +1581,7 @@ def drug_requests_opd2_completes_all(request):
 
 
 @login_required
+@department_required('Admin', 'CMD')
 def plan_page(request):
     plans = RegFee.objects.all().order_by('-id')
     return render(request, 'myAdmins/tariffs/registration_fee.html', {'plans': plans,'page':'create-plan'})
@@ -1705,7 +1736,8 @@ def get_plan_details(request, id):
 
 # ------------ Tariff planning: Laboratory fee ----------------------
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 @transaction.atomic
 def lab_inventory(request):
     if request.method == 'POST' and request.FILES.get('excel_file'):
@@ -1835,7 +1867,7 @@ def lab_inventory(request):
     return render(request, 'myAdmins/tariffs/lab_inventory.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 def delete_lab_test(request):
     from radio_lab.models import RadioLabInventory 
     
@@ -1858,7 +1890,7 @@ def delete_lab_test(request):
         return JsonResponse({'success': False, 'message': str(e)})
     
 
-@login_required(login_url='login')
+@login_required
 @require_POST
 def update_lab_test(request):
     try:
@@ -1878,7 +1910,7 @@ def update_lab_test(request):
         return JsonResponse({'success': False, 'message': str(e)})
 
 
-@login_required(login_url='login')
+@login_required
 def download_import_test_template(request):
     """Serve template Excel file"""
     template_path = os.path.join(settings.BASE_DIR, 'static', 'files', 'lab_test_import_template.xlsx')
@@ -1890,7 +1922,7 @@ def download_import_test_template(request):
     raise Http404
 
 
-@login_required(login_url='login')
+@login_required
 @csrf_exempt
 def save_lab_inventory(request):
     if request.method!= "POST":
@@ -1960,6 +1992,7 @@ def save_lab_inventory(request):
 
 
 @login_required
+@department_required('Admin', 'CMD')
 @transaction.atomic
 def scan_inventory(request):
     if request.method == 'POST' and request.FILES.get('excel_file'):
@@ -2089,7 +2122,7 @@ def scan_inventory(request):
     return render(request, 'myAdmins/tariffs/scan_inventory.html', context)
 
 
-@login_required(login_url='login')
+@login_required
 def delete_scan_test(request):
     from radio_lab.models import RadioLabInventory 
     
@@ -2112,7 +2145,7 @@ def delete_scan_test(request):
         return JsonResponse({'success': False, 'message': str(e)})
     
 
-@login_required(login_url='login')
+@login_required
 @require_POST
 def update_scan_test(request):
     try:
@@ -2132,7 +2165,7 @@ def update_scan_test(request):
         return JsonResponse({'success': False, 'message': str(e)})
 
 
-@login_required(login_url='login')
+@login_required
 @csrf_exempt
 def save_scan_inventory(request):
     if request.method!= "POST":
@@ -2201,6 +2234,7 @@ def save_scan_inventory(request):
 # ------------ Tariff planning: Other Services fee ----------------------
 
 @login_required
+@department_required('Admin', 'CMD')
 @transaction.atomic
 def service_tariff(request):
     if request.method == 'POST' and request.FILES.get('excel_file'):
@@ -2330,7 +2364,8 @@ def service_tariff(request):
     return render(request, 'myAdmins/tariffs/service_fee.html', context)
 
 
-@login_required(login_url='login')
+@login_required
+@transaction.atomic
 def delete_service2(request):
     from .models import OtherService2 
     
@@ -2353,7 +2388,7 @@ def delete_service2(request):
         return JsonResponse({'success': False, 'message': str(e)})
     
 
-@login_required(login_url='login')
+@login_required
 @require_POST
 def update_service2(request):
     try:
@@ -2373,7 +2408,7 @@ def update_service2(request):
         return JsonResponse({'success': False, 'message': str(e)})
 
 
-@login_required(login_url='login')
+@login_required
 @csrf_exempt
 def save_service_tariff(request):
     if request.method!= "POST":
@@ -2437,7 +2472,7 @@ def save_service_tariff(request):
         return JsonResponse({"success": False, "error": str(e)}, status=500)
 
 
-@login_required(login_url='login')
+@login_required
 def download_import_service2_template(request):
     """Serve template Excel file"""
     template_path = os.path.join(settings.BASE_DIR, 'static', 'files', 'other_service_import_template.xlsx')
@@ -2451,7 +2486,8 @@ def download_import_service2_template(request):
 
 # product tariff(Pharmacies)
 
-@login_required(login_url='login')
+@login_required
+@department_required('Admin', 'CMD')
 @transaction.atomic
 def pharmacy_tariff_inventory(request):
     # HANDLE EXCEL UPLOAD 
@@ -2634,6 +2670,7 @@ def delete_pharmacy_tariff(request):
 # Admission fees (IPD)
 
 @login_required
+@department_required('Admin', 'CMD')
 def ward_page(request):
     wards = Ward.objects.all().order_by('-id')
     return render(request, 'myAdmins/tariffs/admission_fee.html', {'wards': wards,'page':'create-ward'})
@@ -2784,3 +2821,229 @@ def get_ward_details(request, id):
         'ward_name': ward.ward_name,
         'price': ward.price
     })
+
+
+# Packages Creation
+
+@login_required
+@department_required('Admin', 'CMD')
+@transaction.atomic
+def manage_packages(request):
+    if request.method == 'POST' and 'file_upload' in request.POST:
+        excel_file = request.FILES.get('file')
+        if excel_file and excel_file.name.endswith(('.xlsx', '.xlsm')):
+            wb = load_workbook(filename=excel_file, read_only=True, data_only=True)
+            sheet = wb.active
+            
+            raw_names = set()
+            for row in sheet.iter_rows(values_only=True):
+                if row and row[0] is not None:
+                    clean_val = str(row[0]).strip()
+                    if clean_val:
+                        raw_names.add(clean_val)
+            
+            existing_names = set(Packages.objects.filter(name__in=raw_names).values_list('name', flat=True))
+            new_names = raw_names - existing_names
+            
+            new_objects = [Packages(name=name, staff=request.user) for name in new_names]
+            Packages.objects.bulk_create(new_objects, ignore_conflicts=True)
+            return JsonResponse({'status': 'success', 'message': f'Added {len(new_objects)} package(s) from Excel.'})
+        return JsonResponse({'status': 'error', 'message': 'Please upload a valid Excel file.'}, status=400)
+
+    if request.method == 'POST' and 'text_entry' in request.POST:
+        name = request.POST.get('name', '').strip()
+        if name:
+            obj, created = Packages.objects.get_or_create(
+                name=name,
+                defaults={'staff': request.user}
+            )
+            if created:
+                return JsonResponse({'status': 'success', 'message': f"Package '{name}' created."})
+            return JsonResponse({'status': 'warning', 'message': f"Package '{name}' already exists."})
+        return JsonResponse({'status': 'error', 'message': 'Name field is required.'}, status=400)
+
+    packages = Packages.objects.select_related('staff').all().order_by('-created_date')
+    return render(request, 'myadmins/tariffs/packages.html', {'packages': packages})
+
+
+
+def edit_package(request, pk):
+    package = get_object_or_404(Packages, pk=pk)
+    if request.method == 'POST':
+        new_name = request.POST.get('name', '').strip()
+        if new_name:
+            if not Packages.objects.filter(name=new_name).exclude(pk=pk).exists():
+                package.name = new_name
+                package.save()
+                return JsonResponse({'status': 'success', 'message': 'Package updated successfully.', 'new_name': new_name})
+            return JsonResponse({'status': 'error', 'message': 'A package with that name already exists.'}, status=400)
+        return JsonResponse({'status': 'error', 'message': 'Name field cannot be empty.'}, status=400)
+
+
+def delete_package(request, pk):
+    if request.method == 'POST':
+        package = get_object_or_404(Packages, pk=pk)
+        package.delete()
+        return JsonResponse({'status': 'success', 'message': 'Package deleted successfully.'})
+    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
+
+
+# Packages Data
+
+@login_required
+@department_required('Admin', 'CMD')
+def manage_package_data(request):
+    unique_packages = Packages.objects.all().order_by('name')
+    
+    selected_id = request.GET.get('package')
+    selected_package = None
+
+    # --- DEFAULT PACKAGE LOGIC ---
+    if not selected_id and unique_packages.exists():
+        # Pick first package as default
+        selected_package = unique_packages.first()
+        selected_id = selected_package.id
+    elif selected_id:
+        selected_package = get_object_or_404(Packages, id=selected_id)
+
+    if selected_package:
+        package_data = PackagesData.objects.filter(package=selected_package).order_by('type')
+    else:
+        package_data = PackagesData.objects.none()
+
+    context={
+        'unique_packages': unique_packages,
+        'package_data': package_data,
+        'selected_package': selected_package,
+        'counts': package_data.count(),
+    }
+    return render(request, 'myAdmins/tariffs/package_data.html', context)
+
+def get_package_data_ajax(request):
+    package_id = request.GET.get('package_id')
+    if not package_id:
+        return JsonResponse({'success': False, 'error': 'No package id'})
+    
+    package_obj = get_object_or_404(Packages, id=package_id)
+    qs = PackagesData.objects.filter(package=package_obj).order_by('-id')
+    
+    data = []
+    for idx, p in enumerate(qs, 1):
+        type_label = 'Service' if p.type=='s' else 'Imaging' if p.type=='r' else 'Lab Investigation'
+        data.append({
+            'id': p.id,
+            'counter': idx,
+            'package_name': p.package.name,
+            'item': p.item,
+            'rate': str(p.rate),
+            'type': p.type,
+            'type_label': type_label,
+            'created_date': p.created_date.strftime('%d %b %Y') if p.created_date else '',
+            'updated_date': p.updated_date.strftime('%d %b %Y %H:%M') if p.updated_date else '-',
+            'staff': p.staff.fullname if p.staff else '',
+        })
+    return JsonResponse({'success': True, 'data': data, 'package_name': package_obj.name})
+
+@login_required
+def edit_package_data(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        pkg_data_id = data.get('id')
+        new_item = data.get('item','').strip()
+        new_rate = data.get('rate','').strip()
+
+        if not pkg_data_id or not new_item or not new_rate:
+            return JsonResponse({'success': False, 'error': 'Item and Rate required'})
+
+        obj = get_object_or_404(PackagesData, id=pkg_data_id)
+        obj.item = new_item
+        obj.rate = new_rate
+        obj.staff = request.user
+        obj.updated_date = timezone.now()
+        obj.save()
+
+        return JsonResponse({'success': True, 'message': 'Updated successfully'})
+
+@login_required
+def delete_package_data(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        pkg_data_id = data.get('id')
+        obj = get_object_or_404(PackagesData, id=pkg_data_id)
+        obj.delete()
+        return JsonResponse({'success': True, 'message': 'Deleted'})
+    return JsonResponse({'success': False})
+
+def search_package_items(request):
+    query = request.GET.get('q', '').strip()
+    type_code = request.GET.get('type', '').lower() 
+
+    if len(query) < 2:
+        return JsonResponse({'results': []})
+
+    # Using Single as default plan 
+    try:
+        default_plan = PatientPlan.objects.get(plan__iexact='Single')
+    except:
+        default_plan = PatientPlan.objects.first()
+
+    results = []
+    if type_code == 's': # Services
+        qs = OtherService2.objects.filter(service__icontains=query)
+        if default_plan:
+            qs = qs.filter(plan=default_plan)
+        qs = qs[:20]
+        for obj in qs:
+            results.append({'id': obj.id, 'name': obj.service, 'rate': str(obj.rate)})
+
+    elif type_code == 'l': # Investigation - Lab
+        qs = RadioLabInventory.objects.filter(type='L', item__icontains=query)
+        if default_plan:
+            qs = qs.filter(plan=default_plan)
+        qs = qs[:20]
+        for obj in qs:
+            results.append({'id': obj.id, 'name': obj.item, 'rate': str(obj.rate)})
+
+    elif type_code == 'r': # Imaging - Scan
+        qs = RadioLabInventory.objects.filter(type='R', item__icontains=query)
+        if default_plan:
+            qs = qs.filter(plan=default_plan)
+        qs = qs[:20]
+        for obj in qs:
+            results.append({'id': obj.id, 'name': obj.item, 'rate': str(obj.rate)})
+
+    return JsonResponse({'results': results})
+
+@login_required
+def save_package_data(request):
+    if request.method == 'POST':
+        import json
+        data = json.loads(request.body)
+        package_name = data.get('package_name')
+        type_code = data.get('type_code')
+        items = data.get('items', []) 
+
+        if not package_name or not type_code:
+            return JsonResponse({'success': False, 'error': 'Package and Type are required'})
+
+        try:
+            package_obj = Packages.objects.get(name=package_name)
+        except Packages.DoesNotExist:
+            return JsonResponse({'success': False, 'error': f'Package {package_name} not found'})
+
+        created = 0
+        for row in items:
+            if not row.get('item') or not row.get('rate'):
+                continue
+            PackagesData.objects.create(
+                package=package_obj,
+                item=row['item'].strip(),
+                type=type_code,
+                rate=row['rate'],
+                staff=request.user
+            )
+            created += 1
+
+        return JsonResponse({'success': True, 'created': created})
+
+    return JsonResponse({'success': False, 'error': 'Invalid method'})

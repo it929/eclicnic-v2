@@ -3,13 +3,7 @@ from . import views
 
 urlpatterns = [
 
-    # Queue within 24 hours
-    path('transactions', views.get_transactions, name="get_transactions"),
-    path('partially-paid-transactions', views.get_partially_paid_transactions, name="get_partially_paid_transactions"),
-    path('completed-transactions', views.get_completed_transactions, name="get_completed_transactions"),
-    path('transactions-table', views.get_transactions_table, name="get_transactions_table"),
-
-    # Queue Older than 24 hours
+    # Queue Management
     path('transactions-all', views.get_transactions_all, name="get_transactions_all"),
     path('partially-paid-transactions-all', views.get_partially_paid_transactions_all, name="get_partially_paid_transactions_all"),
     path('completed-transactions-all', views.get_completed_transactions_all, name="get_completed_transactions_all"),
@@ -43,6 +37,8 @@ urlpatterns = [
     # Account Statements
     path('get-statements/<int:patient_id>/', views.get_statements, name='get_statements'),
     path('email-statement/<int:patient_id>/', views.email_statement, name='email_statement'),
+    path('get-family-statements/<int:patient_id>/', views.get_family_statements, name='get_family_statements'),
+    path('email-family-statement/<int:patient_id>/', views.email_family_statement, name='email_family_statement'),
 
     # Account Summary
     path('get-summary/<int:patient_id>/', views.get_summary, name='get_summary'),

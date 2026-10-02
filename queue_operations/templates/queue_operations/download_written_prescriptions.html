@@ -133,11 +133,12 @@
         }
 </style>
 <div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h3 class="h3 mb-0 text-gray-800" style="font-size: 16px; font-family: cursive;">{{patient.get_full_name}} 
-            <span class="text-danger">({{patient.hospital_number}}) <span class="text-secondary">{{patient.get_age}} year(s) - {{patient.gender}} - [{{patient.plan}} Category]</span></span></h3>
-    </div>
+    {% include 'queue_operations/crumbs/doc_header.html' %}
+    {% if request.user.department.department in 'Clinical, CMD, Admin' %}
         {% include 'queue_operations/crumbs/doctors_general_nav.html' %}
+    {% else %}
+        {% include 'queue_operations/crumbs/pharmacy_general_nav.html' %}
+    {% endif %}
          <div class="card-body div-grid">    
             <!-- Column 1: Printable fields         -->
                 <div class="row" style="padding: 20px; margin-top: -40px;">
