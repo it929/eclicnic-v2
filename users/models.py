@@ -68,9 +68,10 @@ class VerifyStaff(models.Model):
         return self.staff_id
     
 class Category(models.Model):
-    department = models.CharField(null= True, max_length=100)
+    department = models.CharField(null=True, max_length=100)
+    modules = models.JSONField(default=list, blank=True)
 
     def __str__(self):
-        return self.department
+        return self.department or ''
 
 
