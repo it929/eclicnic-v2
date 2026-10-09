@@ -3,14 +3,14 @@ from django.utils import timezone
 from django.db.models import Q, Count, Sum
 from datetime import date
 from rest_framework import status, viewsets, permissions, filters
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 
 from users.models import User, Category
-from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment
+from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
 from queue_operations.models import NurseWaitingList, VisitPurpose
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
@@ -24,6 +24,7 @@ from .serializers import (
     PatientProfileSerializer,
     PatientCategorySerializer,
     PatientPlanSerializer,
+    SponsorSerializer,
     NurseWaitingListSerializer,
     VisitPurposeSerializer,
     InvoiceSerializer,
@@ -364,22 +365,146 @@ class PatientViewSet(viewsets.ModelViewSet):
             pass
 
 
-class PatientCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+class PatientCategoryViewSet(viewsets.ModelViewSet):
     queryset = PatientCategory.objects.all().order_by('category')
     serializer_class = PatientCategorySerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
 
 
-class PatientPlanViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = PatientPlan.objects.all().select_related('category').order_by('plan')
-    serializer_class = PatientPlanSerializer
+class SponsorViewSet(viewsets.ModelViewSet):
+    queryset = Sponsor.objects.all().select_related('category').prefetch_related('plans').order_by('name')
+    serializer_class = SponsorSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
         category_id = self.request.query_params.get('category', None)
         if category_id:
             qs = qs.filter(category_id=category_id)
+        search = self.request.query_params.get('search', None)
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(code__icontains=search) |
+                Q(category__category__icontains=search)
+            )
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='import-sponsors')
+    def import_sponsors(self, request):
+        """
+        Import sponsors from uploaded Excel file or the default Sponsor.xlsx in project root.
+        """
+        import os
+        import openpyxl
+        from django.conf import settings
+
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+            try:
+                wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+            except Exception as e:
+                return Response(
+                    {'detail': f'Could not read uploaded Excel file: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            possible_paths = [
+                os.path.join(settings.BASE_DIR, '..', 'Sponsor.xlsx'),
+                os.path.join(settings.BASE_DIR, 'Sponsor.xlsx'),
+                'Sponsor.xlsx',
+            ]
+            found_path = None
+            for p in possible_paths:
+                if os.path.exists(p):
+                    found_path = p
+                    break
+            if not found_path:
+                return Response(
+                    {'detail': 'Sponsor.xlsx not found in project root. Please upload an Excel file.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            try:
+                wb = openpyxl.load_workbook(found_path, data_only=True)
+            except Exception as e:
+                return Response(
+                    {'detail': f'Could not load Sponsor.xlsx: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        sheet = wb.active
+        hmo_category, _ = PatientCategory.objects.get_or_create(category='HMO')
+
+        created_count = 0
+        updated_count = 0
+
+        for row in sheet.iter_rows(values_only=True):
+            if not row or not any(row):
+                continue
+
+            name = None
+            code = None
+
+            if len(row) >= 3 and row[1] and row[2]:
+                val1 = str(row[1]).strip()
+                val2 = str(row[2]).strip()
+                if val1.upper() in ['HMO', 'NAME', 'SPONSOR', 'PLAN NAME', 'CURRENT HMO LIST']:
+                    continue
+                name = val1
+                code = val2
+            elif len(row) >= 2 and row[0] and row[1]:
+                val0 = str(row[0]).strip()
+                val1 = str(row[1]).strip()
+                if val0.upper() in ['SN', 'S/N', 'ID', 'CURRENT HMO LIST']:
+                    continue
+                name = val0
+                code = val1
+
+            if not name or name.isdigit():
+                continue
+
+            sp, created = Sponsor.objects.update_or_create(
+                name=name,
+                defaults={'code': code, 'category': hmo_category}
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        return Response({
+            'message': f'Successfully synced sponsors: {created_count} created, {updated_count} updated.',
+            'created': created_count,
+            'updated': updated_count,
+            'total': Sponsor.objects.count()
+        })
+
+
+class PatientPlanViewSet(viewsets.ModelViewSet):
+    queryset = PatientPlan.objects.all().select_related('category', 'sponsor').order_by('plan')
+    serializer_class = PatientPlanSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        sponsor_id = self.request.query_params.get('sponsor', None)
+        if sponsor_id:
+            qs = qs.filter(sponsor_id=sponsor_id)
+        category_id = self.request.query_params.get('category', None)
+        if category_id:
+            qs = qs.filter(category_id=category_id)
+        search = self.request.query_params.get('search', None)
+        if search:
+            qs = qs.filter(
+                Q(plan__icontains=search) |
+                Q(code__icontains=search) |
+                Q(sponsor__name__icontains=search) |
+                Q(category__category__icontains=search)
+            )
         return qs
 
 

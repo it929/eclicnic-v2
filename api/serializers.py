@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from users.models import User, Category
-from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment
+from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
 from queue_operations.models import VisitPurpose, NurseWaitingList, PatientBackgroundHealth
 from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
@@ -35,16 +35,63 @@ class PatientCategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'category']
 
 
+class SponsorSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.category', read_only=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=PatientCategory.objects.all(), required=False, allow_null=True
+    )
+    plans_count = serializers.SerializerMethodField(read_only=True)
+    patient_count = serializers.SerializerMethodField(read_only=True)
+
+    def get_plans_count(self, obj):
+        try:
+            return obj.plans.count()
+        except Exception:
+            return 0
+
+    def get_patient_count(self, obj):
+        try:
+            return obj.patientprofile_set.count()
+        except Exception:
+            return 0
+
+    class Meta:
+        model = Sponsor
+        fields = [
+            'id', 'name', 'code', 'category', 'category_name',
+            'plans_count', 'patient_count', 'created_date'
+        ]
+
+
 class PatientPlanSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.category', read_only=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=PatientCategory.objects.all(), required=False, allow_null=True
+    )
+    sponsor_name = serializers.CharField(source='sponsor.name', read_only=True)
+    sponsor_code = serializers.CharField(source='sponsor.code', read_only=True)
+    sponsor = serializers.PrimaryKeyRelatedField(
+        queryset=Sponsor.objects.all(), required=False, allow_null=True
+    )
+    patient_count = serializers.SerializerMethodField(read_only=True)
+
+    def get_patient_count(self, obj):
+        try:
+            return obj.patientprofile_set.count()
+        except Exception:
+            return 0
 
     class Meta:
         model = PatientPlan
-        fields = ['id', 'plan', 'code', 'category', 'category_name']
+        fields = [
+            'id', 'plan', 'code', 'sponsor', 'sponsor_name', 'sponsor_code',
+            'category', 'category_name', 'patient_count'
+        ]
 
 
 class PatientProfileSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.category', read_only=True)
+    sponsor_name = serializers.CharField(source='get_sponsor_name', read_only=True)
     plan_name = serializers.CharField(source='plan.plan', read_only=True)
     full_name = serializers.CharField(read_only=True)
     age = serializers.IntegerField(source='get_age', read_only=True)
@@ -59,6 +106,8 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         if not validated_data.get('hospital_number'):
             import random
             validated_data['hospital_number'] = str(random.randint(1000, 9999))
+        if not validated_data.get('sponsor') and validated_data.get('plan') and getattr(validated_data['plan'], 'sponsor', None):
+            validated_data['sponsor'] = validated_data['plan'].sponsor
         return super().create(validated_data)
 
     class Meta:
@@ -66,11 +115,12 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hospital_number', 'surname', 'first_name', 'other_name',
             'full_name', 'dob', 'age', 'gender', 'patient_type', 'phone_number',
-            'address', 'category', 'category_name', 'plan', 'plan_name',
-            'email_address', 'allergies', 'relationship_to_patient',
-            'insurance_policy_number', 'active', 'packages', 'created_date',
-            'created_by', 'created_by_name'
+            'address', 'category', 'category_name', 'sponsor', 'sponsor_name',
+            'plan', 'plan_name', 'email_address', 'allergies', 'relationship_to_patient',
+            'phone_numbers', 'insurance_policy_number', 'active', 'packages',
+            'created_date', 'created_by', 'created_by_name'
         ]
+
 
 
 class VisitPurposeSerializer(serializers.ModelSerializer):
