@@ -12,15 +12,33 @@ class PatientCategory(models.Model):
 
     def __str__(self):
         return self.category
-    
+
+
+class Sponsor(models.Model):
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=50, null=True, blank=True)
+    category = models.ForeignKey(PatientCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='sponsors')
+    created_date = models.DateTimeField(auto_now_add=True, null=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.code})" if self.code else self.name
+
+
 class PatientPlan(models.Model):
     plan = models.CharField(max_length=100, null=True)
-    code = models.CharField(max_length=100, null=True)
+    code = models.CharField(max_length=100, null=True, blank=True)
+    sponsor = models.ForeignKey(Sponsor, on_delete=models.CASCADE, related_name='plans', null=True, blank=True)
     category = models.ForeignKey(PatientCategory, on_delete=models.CASCADE, related_name='plans', null=True)
 
     def __str__(self):
-        return self.plan
-    
+        if self.sponsor:
+            return f"{self.sponsor.name} - {self.plan}"
+        return self.plan or ""
+
+
 class PatientProfile(models.Model):
     GENDER_CHOICES = [
         ("", "--Select Gender--"),
@@ -43,6 +61,7 @@ class PatientProfile(models.Model):
     phone_number = models.CharField(max_length=100, db_index=True)
     address = models.TextField(null=True)
     category = models.ForeignKey(PatientCategory, on_delete=models.SET_NULL, null=True,db_index=True)
+    sponsor = models.ForeignKey(Sponsor, on_delete=models.SET_NULL, null=True, blank=True)
     plan = models.ForeignKey(PatientPlan, on_delete=models.SET_NULL, null=True)
     email_address = models.EmailField(unique=True, null=True)
     hospital_number = models.CharField(max_length=100, null=True,db_index=True)
@@ -81,7 +100,11 @@ class PatientProfile(models.Model):
         return f"{self.surname} {self.first_name} {self.other_name or ''}".strip()
         
     def get_sponsor_name(self):
-            return self.plan.plan if self.plan else "N/A"
+        if self.sponsor:
+            return self.sponsor.name
+        if self.plan and self.plan.sponsor:
+            return self.plan.sponsor.name
+        return self.plan.plan if self.plan else "N/A"
     
     
 class PatientAppointment(models.Model):

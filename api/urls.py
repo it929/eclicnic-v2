@@ -11,6 +11,7 @@ from .views import (
     PatientViewSet,
     PatientCategoryViewSet,
     PatientPlanViewSet,
+    SponsorViewSet,
     NurseWaitingListViewSet,
     VisitPurposeViewSet,
     InvoiceViewSet,
@@ -35,6 +36,7 @@ router = DefaultRouter()
 # Patients & Queues
 router.register(r'patients', PatientViewSet, basename='patient')
 router.register(r'patient-categories', PatientCategoryViewSet, basename='patient-category')
+router.register(r'sponsors', SponsorViewSet, basename='sponsor')
 router.register(r'patient-plans', PatientPlanViewSet, basename='patient-plan')
 router.register(r'queues', NurseWaitingListViewSet, basename='nurse-queue')
 router.register(r'visit-purposes', VisitPurposeViewSet, basename='visit-purpose')
