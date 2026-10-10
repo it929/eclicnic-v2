@@ -48,6 +48,7 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 
 class LoginView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -63,10 +64,10 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
         if not user:
             try:
-                user_obj = User.objects.get(Q(username__iexact=username) | Q(email__iexact=username))
-                if user_obj.check_password(password):
+                user_obj = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+                if user_obj and user_obj.check_password(password):
                     user = user_obj
-            except User.DoesNotExist:
+            except Exception:
                 pass
 
         if not user:

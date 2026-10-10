@@ -103,11 +103,18 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        if not validated_data.get('hospital_number'):
-            import random
-            validated_data['hospital_number'] = str(random.randint(1000, 9999))
         if not validated_data.get('sponsor') and validated_data.get('plan') and getattr(validated_data['plan'], 'sponsor', None):
             validated_data['sponsor'] = validated_data['plan'].sponsor
+
+        if not validated_data.get('hospital_number'):
+            import random
+            sponsor = validated_data.get('sponsor')
+            rand_num = random.randint(1000, 9999)
+            if sponsor and getattr(sponsor, 'code', None) and sponsor.code.strip():
+                validated_data['hospital_number'] = f"{sponsor.code.strip().upper()}/ISL-{rand_num}"
+            else:
+                validated_data['hospital_number'] = f"ISL-{rand_num}"
+
         return super().create(validated_data)
 
     class Meta:
