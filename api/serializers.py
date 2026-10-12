@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from users.models import User, Category
 from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
-from queue_operations.models import VisitPurpose, NurseWaitingList, PatientBackgroundHealth
+from queue_operations.models import VisitPurpose, NurseWaitingList, PatientBackgroundHealth, DoctorWaitingList, PatientEncounter
 from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
@@ -18,15 +18,36 @@ class CategorySerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.department', read_only=True)
     department_modules = serializers.JSONField(source='department.modules', read_only=True)
+    avatar_url = serializers.SerializerMethodField(read_only=True)
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            try:
+                val = str(obj.avatar)
+                if not val or val == 'image/avatar.svg':
+                    return None
+                url = obj.avatar.url
+                request = self.context.get('request')
+                if request and url.startswith('/'):
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                val = str(obj.avatar)
+                if val and val != 'image/avatar.svg':
+                    return f"/media/{val}"
+        return None
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'fullname', 'email', 'status', 'gender',
-            'phone_number', 'address', 'department', 'department_name',
-            'department_modules', 'active', 'created'
+            'phone_number', 'address', 'dob', 'department', 'department_name',
+            'department_modules', 'active', 'created', 'avatar', 'avatar_url'
         ]
-        extra_kwargs = {'password': {'write_only': True}}
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'avatar': {'required': False, 'allow_null': True}
+        }
 
 
 class PatientCategorySerializer(serializers.ModelSerializer):
@@ -103,11 +124,18 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        if not validated_data.get('hospital_number'):
-            import random
-            validated_data['hospital_number'] = str(random.randint(1000, 9999))
         if not validated_data.get('sponsor') and validated_data.get('plan') and getattr(validated_data['plan'], 'sponsor', None):
             validated_data['sponsor'] = validated_data['plan'].sponsor
+
+        if not validated_data.get('hospital_number'):
+            import random
+            sponsor = validated_data.get('sponsor')
+            rand_num = random.randint(1000, 9999)
+            if sponsor and getattr(sponsor, 'code', None) and sponsor.code.strip():
+                validated_data['hospital_number'] = f"{sponsor.code.strip().upper()}/ISL-{rand_num}"
+            else:
+                validated_data['hospital_number'] = f"ISL-{rand_num}"
+
         return super().create(validated_data)
 
     class Meta:
@@ -133,10 +161,120 @@ class NurseWaitingListSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
     attendant_name = serializers.CharField(source='attendant.fullname', read_only=True)
+    category_name = serializers.CharField(source='category.category', read_only=True)
+    plan_name = serializers.CharField(source='plan.plan', read_only=True)
+    gender = serializers.CharField(source='patient.gender', read_only=True)
+    age = serializers.IntegerField(source='patient.get_age', read_only=True)
 
     class Meta:
         model = NurseWaitingList
         fields = '__all__'
+
+
+class DoctorWaitingListSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    category_name = serializers.CharField(source='category.category', read_only=True)
+    plan_name = serializers.CharField(source='plan.plan', read_only=True)
+    pin_code = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
+    queue_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = DoctorWaitingList
+        fields = '__all__'
+
+    def create(self, validated_data):
+        validated_data.pop('pin_code', None)
+        validated_data.pop('queue_id', None)
+        return super().create(validated_data)
+
+
+class PatientAppointmentSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    patient_phone = serializers.CharField(source='patient.phone_number', read_only=True)
+    patient_gender = serializers.CharField(source='patient.gender', read_only=True)
+    patient_age = serializers.IntegerField(source='patient.get_age', read_only=True)
+    category_name = serializers.CharField(source='patient.category.category', read_only=True)
+    provider_name = serializers.CharField(source='provider.fullname', read_only=True)
+    is_today = serializers.BooleanField(read_only=True)
+    is_upcoming = serializers.BooleanField(read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    is_completed = serializers.BooleanField(read_only=True)
+    is_cancelled = serializers.BooleanField(read_only=True)
+    today_vitals = serializers.SerializerMethodField(read_only=True)
+    has_vitals = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = PatientAppointment
+        fields = [
+            'id', 'patient', 'patient_name', 'hospital_number', 'patient_phone',
+            'patient_gender', 'patient_age', 'category_name',
+            'provider', 'provider_name', 'clinician', 'purpose', 'visit_type',
+            'arrival_date', 'arrival_time', 'comment', 'anc_weeks', 'created_date',
+            'completed', 'is_today', 'is_upcoming', 'is_expired', 'is_completed', 'is_cancelled',
+            'today_vitals', 'has_vitals'
+        ]
+
+    def get_today_vitals(self, obj):
+        if not obj.patient_id:
+            return None
+        from queue_operations.models import DoctorWaitingList
+        from django.utils import timezone
+        today = timezone.localdate()
+        target_date = obj.arrival_date or today
+
+        vitals = DoctorWaitingList.objects.filter(
+            patient_id=obj.patient_id,
+            created_date__date=target_date
+        ).select_related('staff').order_by('-created_date').first()
+
+        if not vitals and target_date != today:
+            vitals = DoctorWaitingList.objects.filter(
+                patient_id=obj.patient_id,
+                created_date__date=today
+            ).select_related('staff').order_by('-created_date').first()
+
+        if not vitals:
+            return None
+
+        staff_name = None
+        if vitals.staff:
+            staff_name = vitals.staff.fullname or vitals.staff.get_full_name() or vitals.staff.username
+        elif vitals.completed_by:
+            staff_name = vitals.completed_by
+
+        created_time_str = None
+        created_date_str = None
+        if vitals.created_date:
+            local_dt = timezone.localtime(vitals.created_date)
+            created_time_str = local_dt.strftime('%H:%M')
+            created_date_str = local_dt.strftime('%b %d, %Y %H:%M')
+
+        return {
+            'id': vitals.id,
+            'temperature': vitals.temperature,
+            'bp': vitals.bp,
+            'pulse': vitals.pulse,
+            'respiratory_rate': vitals.respiratory_rate,
+            'sp_02': vitals.sp_02,
+            'weight': vitals.weight,
+            'height': vitals.height,
+            'unit': vitals.unit or 'cm',
+            'bmi': vitals.bmi,
+            'blood_glucose': vitals.blood_glucose,
+            'urine_ph': vitals.urine_ph,
+            'urine_protein': vitals.urine_protein,
+            'urine_glucose': vitals.urine_glucose,
+            'comment': vitals.comment,
+            'staff_name': staff_name,
+            'time': created_time_str,
+            'datetime': created_date_str,
+        }
+
+    def get_has_vitals(self, obj):
+        return bool(self.get_today_vitals(obj))
 
 
 # Billings Serializers
@@ -284,3 +422,23 @@ class InventoryProductRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryProductRequests
         fields = '__all__'
+
+
+class PatientEncounterSerializer(serializers.ModelSerializer):
+    provider_name = serializers.CharField(source='provider.fullname', read_only=True)
+    patient_name = serializers.SerializerMethodField(read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+
+    def get_patient_name(self, obj):
+        if obj.patient:
+            return f"{obj.patient.surname} {obj.patient.first_name}"
+        return "Unknown"
+
+    class Meta:
+        model = PatientEncounter
+        fields = [
+            'id', 'patient', 'provider', 'provider_name', 'patient_name',
+            'hospital_number', 'chief_complaint', 'history_of_present_illness',
+            'diagnosis', 'comments_on_diagnosis', 'anc_weeks', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['provider', 'created_at', 'updated_at']

@@ -1,4 +1,4 @@
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login as auth_login
 from django.utils import timezone
 from django.db.models import Q, Count, Sum
 from datetime import date
@@ -11,7 +11,7 @@ from rest_framework.pagination import PageNumberPagination
 
 from users.models import User, Category
 from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
-from queue_operations.models import NurseWaitingList, VisitPurpose
+from queue_operations.models import NurseWaitingList, VisitPurpose, DoctorWaitingList, PatientEncounter
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
@@ -26,6 +26,8 @@ from .serializers import (
     PatientPlanSerializer,
     SponsorSerializer,
     NurseWaitingListSerializer,
+    DoctorWaitingListSerializer,
+    PatientEncounterSerializer,
     VisitPurposeSerializer,
     InvoiceSerializer,
     ReceiptSerializer,
@@ -38,6 +40,7 @@ from .serializers import (
     ANCRegistrationSerializer,
     OpdDrugsSerializer,
     RadiologyLabSerializer,
+    PatientAppointmentSerializer,
 )
 
 
@@ -48,6 +51,7 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 
 class LoginView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -63,10 +67,10 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
         if not user:
             try:
-                user_obj = User.objects.get(Q(username__iexact=username) | Q(email__iexact=username))
-                if user_obj.check_password(password):
+                user_obj = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+                if user_obj and user_obj.check_password(password):
                     user = user_obj
-            except User.DoesNotExist:
+            except Exception:
                 pass
 
         if not user:
@@ -75,6 +79,7 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        auth_login(request, user)
         token, _ = Token.objects.get_or_create(user=user)
         user_data = UserSerializer(user).data
 
@@ -117,7 +122,7 @@ class UserProfileView(APIView):
         if not user:
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response({
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'has_pin': bool(user.pin and user.pin != 0),
             'department': user.department.department if user.department else 'Admin'
         })
@@ -141,11 +146,34 @@ class UserProfileView(APIView):
         dob = request.data.get('dob')
         if dob:
             user.dob = dob
+        if 'avatar' in request.FILES:
+            user.avatar = request.FILES['avatar']
         user.save()
 
         return Response({
             'detail': 'Profile updated successfully!',
-            'user': UserSerializer(user).data
+            'user': UserSerializer(user, context={'request': request}).data
+        })
+
+
+class UserAvatarUploadView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        user = request.user if request.user.is_authenticated else User.objects.first()
+        if not user:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        avatar_file = request.FILES.get('avatar')
+        if not avatar_file:
+            return Response({'detail': 'No avatar image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.avatar = avatar_file
+        user.save()
+        return Response({
+            'detail': 'Profile image updated successfully!',
+            'user': UserSerializer(user, context={'request': request}).data,
+            'avatar_url': user.avatar.url if user.avatar else None,
         })
 
 
@@ -514,6 +542,13 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
     pagination_class = StandardResultsSetPagination
     permission_classes = [permissions.AllowAny]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        completed = self.request.query_params.get('completed', None)
+        if completed is not None:
+            qs = qs.filter(completed=completed)
+        return qs
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
         patient = serializer.validated_data.get('patient')
@@ -522,10 +557,377 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
         serializer.save(attendant=user, category=category, plan=plan)
 
 
-class VisitPurposeViewSet(viewsets.ReadOnlyModelViewSet):
+class DoctorWaitingListViewSet(viewsets.ModelViewSet):
+    queryset = DoctorWaitingList.objects.all().select_related('patient', 'staff', 'category', 'plan').order_by('-created_date')
+    serializer_class = DoctorWaitingListSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        patient_id = self.request.query_params.get('patient', None)
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        completed = self.request.query_params.get('completed', None)
+        if completed is not None:
+            qs = qs.filter(completed=completed)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        pin_code = request.data.get('pin_code')
+        if pin_code is None or str(pin_code).strip() == '':
+            return Response(
+                {'detail': 'Security PIN is required to authorize recording vitals.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pin_str = str(pin_code).strip()
+        if not pin_str.isdigit():
+            return Response(
+                {'detail': 'Invalid security PIN format. PIN must be numeric.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pin_int = int(pin_str)
+        if pin_int == 0:
+            return Response(
+                {'detail': 'PIN 0000 is invalid. Please enter your valid security PIN.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        current_user = request.user if (request.user and request.user.is_authenticated) else None
+        authorizing_staff = None
+
+        if current_user and getattr(current_user, 'pin', 0) == pin_int and pin_int > 0:
+            authorizing_staff = current_user
+        else:
+            matching_staff = User.objects.filter(pin=pin_int, is_active=True).exclude(pin=0).first()
+            if matching_staff:
+                authorizing_staff = matching_staff
+            elif current_user and getattr(current_user, 'pin', 0) == 0:
+                return Response(
+                    {'detail': 'Your account has no security PIN configured. Please set your 4-digit PIN in Profile Settings.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                return Response(
+                    {'detail': 'Incorrect Security PIN. Authorization denied.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        patient = serializer.validated_data.get('patient')
+        category = serializer.validated_data.get('category') or (patient.category if patient else None)
+        plan = serializer.validated_data.get('plan') or (patient.plan if patient else None)
+
+        queue_id = request.data.get('queue_id')
+        current_queue = None
+        if queue_id:
+            current_queue = NurseWaitingList.objects.filter(id=queue_id).first()
+
+        critical_req = (current_queue.critical_request if current_queue else 0) or serializer.validated_data.get('critical_request', 0)
+        anc_weeks = (current_queue.anc_weeks if current_queue else None) or serializer.validated_data.get('anc_weeks', None)
+
+        vitals = serializer.save(
+            staff=authorizing_staff,
+            category=category,
+            plan=plan,
+            critical_request=critical_req,
+            anc_weeks=anc_weeks
+        )
+
+        staff_display_name = getattr(authorizing_staff, 'fullname', None) or authorizing_staff.get_full_name() or authorizing_staff.username
+
+        # Mark corresponding NurseWaitingList item as completed
+        if queue_id:
+            NurseWaitingList.objects.filter(id=queue_id).update(
+                completed=1,
+                completed_by=staff_display_name
+            )
+        elif patient:
+            NurseWaitingList.objects.filter(patient=patient, completed=0).update(
+                completed=1,
+                completed_by=staff_display_name
+            )
+
+        headers = self.get_success_headers(serializer.data)
+        response_data = serializer.data
+        response_data['staff_name'] = staff_display_name
+        response_data['authorized_by'] = staff_display_name
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        patient = serializer.validated_data.get('patient')
+        category = serializer.validated_data.get('category') or (patient.category if patient else None)
+        plan = serializer.validated_data.get('plan') or (patient.plan if patient else None)
+        serializer.save(staff=user, category=category, plan=plan)
+
+
+class PatientEncounterViewSet(viewsets.ModelViewSet):
+    """
+    Doctor Consultation & Clinical Encounter ViewSet.
+    Handles documentation of doctor clinical encounters, chief complaints,
+    HPI, diagnosis, and treatment plans.
+    """
+    queryset = PatientEncounter.objects.all().select_related('patient', 'provider').order_by('-created_at')
+    serializer_class = PatientEncounterSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        patient_id = self.request.query_params.get('patient', None)
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        encounter = serializer.save(provider=user)
+
+        # Update DoctorWaitingList if patient is in active doctor queue
+        patient = encounter.patient
+        if patient:
+            try:
+                DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
+                    waiting_status=1,
+                    completed_by=getattr(user, 'fullname', 'Doctor') if user else 'Doctor'
+                )
+            except Exception:
+                pass
+
+
+
+class VisitPurposeViewSet(viewsets.ModelViewSet):
     queryset = VisitPurpose.objects.all().order_by('purpose')
     serializer_class = VisitPurposeSerializer
     permission_classes = [permissions.AllowAny]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['purpose']
+    ordering_fields = ['purpose', 'price', 'specialist_id']
+
+    @action(detail=False, methods=['post'], url_path='bulk-import')
+    def bulk_import(self, request):
+        """
+        Bulk import visit purposes via uploaded file (.xlsx, .xls, .csv)
+        or via raw JSON payload: {"items": [{"purpose": "...", "price": 1000, "specialist_id": 0}]}
+        """
+        records_to_process = []
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+            filename = uploaded_file.name.lower()
+            try:
+                if filename.endswith('.csv'):
+                    import io, csv
+                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    reader = csv.DictReader(io.StringIO(decoded_file))
+                    for row in reader:
+                        clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
+                        purpose = (
+                            clean_row.get('purpose')
+                            or clean_row.get('name')
+                            or clean_row.get('purpose of visit')
+                            or clean_row.get('visit purpose')
+                        )
+                        if purpose and str(purpose).strip():
+                            price = clean_row.get('price') or clean_row.get('cost') or clean_row.get('fee') or 0
+                            specialist_id = clean_row.get('specialist_id') or clean_row.get('specialist') or 0
+                            records_to_process.append({
+                                'purpose': str(purpose).strip(),
+                                'price': price,
+                                'specialist_id': specialist_id,
+                            })
+                elif filename.endswith(('.xlsx', '.xls')):
+                    import pandas as pd
+                    import io
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    for _, row in df.iterrows():
+                        purpose = (
+                            row.get('purpose')
+                            or row.get('name')
+                            or row.get('purpose of visit')
+                            or row.get('visit purpose')
+                        )
+                        if pd.notna(purpose) and str(purpose).strip():
+                            price = row.get('price') if pd.notna(row.get('price')) else (row.get('fee') if pd.notna(row.get('fee')) else 0)
+                            specialist_id = row.get('specialist_id') if pd.notna(row.get('specialist_id')) else 0
+                            records_to_process.append({
+                                'purpose': str(purpose).strip(),
+                                'price': price,
+                                'specialist_id': specialist_id,
+                            })
+                else:
+                    return Response(
+                        {'detail': 'Unsupported file format. Please upload an Excel (.xlsx, .xls) or CSV file.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response(
+                    {'detail': f'Error parsing file: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif 'items' in request.data:
+            items = request.data.get('items', [])
+            for it in items:
+                if isinstance(it, dict) and it.get('purpose'):
+                    records_to_process.append({
+                        'purpose': str(it.get('purpose')).strip(),
+                        'price': it.get('price', 0),
+                        'specialist_id': it.get('specialist_id', 0),
+                    })
+
+        if not records_to_process:
+            return Response(
+                {'detail': 'No valid purpose records found in the uploaded file or payload. Please ensure the column "purpose" is provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        created_count = 0
+        updated_count = 0
+        for item in records_to_process:
+            purpose_text = item['purpose']
+            try:
+                price_val = int(float(str(item.get('price') or 0).replace(',', '').strip()))
+            except (ValueError, TypeError):
+                price_val = 0
+            try:
+                specialist_val = int(float(str(item.get('specialist_id') or 0).strip()))
+            except (ValueError, TypeError):
+                specialist_val = 0
+
+            obj, created = VisitPurpose.objects.update_or_create(
+                purpose=purpose_text,
+                defaults={
+                    'price': price_val,
+                    'specialist_id': specialist_val,
+                }
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        return Response({
+            'success': True,
+            'message': f'Successfully processed {len(records_to_process)} records ({created_count} created, {updated_count} updated).',
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'total_processed': len(records_to_process),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='download-template')
+    def download_template(self, request):
+        """
+        Download CSV template for bulk importing visit purposes.
+        """
+        from django.http import HttpResponse
+        import csv
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="visit_purposes_template.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['purpose', 'price'])
+        writer.writerow(['General Consultation', '2000'])
+        writer.writerow(['Specialist Consultation', '5000'])
+        writer.writerow(['Antenatal Clinic (ANC)', '3000'])
+        writer.writerow(['Pediatric Review', '2500'])
+        writer.writerow(['Dental Examination', '4000'])
+        writer.writerow(['Eye Clinic / Ophthalmology', '4000'])
+        writer.writerow(['Routine Health Checkup', '3500'])
+
+        return response
+
+
+class PatientAppointmentViewSet(viewsets.ModelViewSet):
+    queryset = PatientAppointment.objects.all().select_related('patient', 'provider').order_by('-arrival_date', '-arrival_time', '-created_date')
+    serializer_class = PatientAppointmentSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = [
+        'patient__surname', 'patient__first_name', 'patient__other_name',
+        'patient__hospital_number', 'patient__phone_number',
+        'clinician', 'purpose', 'provider__fullname', 'provider__username'
+    ]
+    ordering_fields = ['arrival_date', 'arrival_time', 'created_date', 'completed']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        patient_id = self.request.query_params.get('patient', None)
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+
+        provider_id = self.request.query_params.get('provider', None)
+        if provider_id:
+            qs = qs.filter(provider_id=provider_id)
+
+        status_filter = self.request.query_params.get('status', None)
+        today = timezone.localdate()
+        now_time = timezone.localtime().time()
+
+        if status_filter == 'today':
+            qs = qs.filter(arrival_date=today, completed=0).order_by('arrival_time', 'created_date')
+        elif status_filter == 'upcoming':
+            qs = qs.filter(arrival_date__gt=today, completed=0).order_by('arrival_date', 'arrival_time')
+        elif status_filter == 'completed':
+            qs = qs.filter(completed=1)
+        elif status_filter == 'cancelled':
+            qs = qs.filter(completed=2)
+        elif status_filter == 'expired':
+            qs = qs.filter(arrival_date__lt=today, completed=0)
+
+        date_param = self.request.query_params.get('date', None)
+        if date_param:
+            qs = qs.filter(arrival_date=date_param)
+
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        provider = serializer.validated_data.get('provider') or user
+        clinician = serializer.validated_data.get('clinician')
+        if not clinician and provider:
+            clinician = provider.fullname or provider.username
+        serializer.save(provider=provider, clinician=clinician)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_appointment(self, request, pk=None):
+        appointment = self.get_object()
+        appointment.completed = 2
+        appointment.save(update_fields=['completed'])
+        return Response({'detail': 'Appointment cancelled successfully.', 'status': 'cancelled'})
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete_appointment(self, request, pk=None):
+        appointment = self.get_object()
+        appointment.completed = 1
+        appointment.save(update_fields=['completed'])
+        return Response({'detail': 'Appointment marked as completed.', 'status': 'completed'})
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        today = timezone.localdate()
+        all_count = PatientAppointment.objects.count()
+        today_count = PatientAppointment.objects.filter(arrival_date=today, completed=0).count()
+        upcoming_count = PatientAppointment.objects.filter(arrival_date__gt=today, completed=0).count()
+        completed_count = PatientAppointment.objects.filter(completed=1).count()
+        cancelled_count = PatientAppointment.objects.filter(completed=2).count()
+        expired_count = PatientAppointment.objects.filter(arrival_date__lt=today, completed=0).count()
+
+        return Response({
+            'total': all_count,
+            'today': today_count,
+            'upcoming': upcoming_count,
+            'completed': completed_count,
+            'cancelled': cancelled_count,
+            'expired': expired_count,
+        })
 
 
 # Billings ViewSets

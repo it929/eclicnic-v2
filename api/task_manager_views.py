@@ -34,6 +34,8 @@ class StaffManagerView(APIView):
                 'email': u.email or '',
                 'phone_number': u.phone_number or '',
                 'gender': u.gender or '',
+                'dob': str(u.dob) if u.dob else '',
+                'address': u.address or '',
                 'department_id': u.department.id if u.department else None,
                 'department_name': u.department.department if u.department else 'General',
                 'status': u.status or 'Active',
@@ -113,6 +115,108 @@ class StaffManagerView(APIView):
             'fullname': user.fullname,
             'department': dept.department if dept else None,
         }, status=status.HTTP_201_CREATED)
+
+    def put(self, request):
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response({'detail': 'User ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Admin PIN verification if admin user has configured PIN
+        pin_code = request.data.get('admin_pin')
+        admin_user = request.user if request.user.is_authenticated else User.objects.first()
+        if admin_user and admin_user.pin and admin_user.pin != 0:
+            if not pin_code or str(pin_code) != str(admin_user.pin):
+                return Response({'detail': 'Invalid Admin Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        username = request.data.get('username', '').strip()
+        fullname = request.data.get('fullname', '').strip()
+        email = request.data.get('email', '').strip() or None
+        phone_number = request.data.get('phone_number', '').strip() or None
+        gender = request.data.get('gender')
+        dob = request.data.get('dob') or None
+        address = request.data.get('address', '').strip() or None
+        department_id = request.data.get('department_id')
+        status_val = request.data.get('status')
+        active_val = request.data.get('active')
+        pin = request.data.get('pin')
+        password = request.data.get('password', '').strip()
+
+        if username:
+            if User.objects.filter(username=username).exclude(id=target_user.id).exists():
+                return Response({'detail': f'Staff ID / Username "{username}" is already taken.'}, status=status.HTTP_400_BAD_REQUEST)
+            target_user.username = username
+            VerifyStaff.objects.get_or_create(staff_id=username)
+
+        if fullname:
+            target_user.fullname = fullname
+
+        if email is not None:
+            if email and User.objects.filter(email=email).exclude(id=target_user.id).exists():
+                return Response({'detail': f'Email address "{email}" is already registered.'}, status=status.HTTP_400_BAD_REQUEST)
+            target_user.email = email
+
+        if phone_number is not None:
+            if phone_number and User.objects.filter(phone_number=phone_number).exclude(id=target_user.id).exists():
+                return Response({'detail': f'Phone number "{phone_number}" is already registered.'}, status=status.HTTP_400_BAD_REQUEST)
+            target_user.phone_number = phone_number
+
+        if gender:
+            target_user.gender = gender
+
+        if dob is not None:
+            target_user.dob = dob
+
+        if address is not None:
+            target_user.address = address
+
+        if department_id:
+            try:
+                dept = Category.objects.get(id=department_id)
+                target_user.department = dept
+            except Category.DoesNotExist:
+                pass
+
+        if status_val:
+            target_user.status = status_val
+            target_user.active = '1' if status_val == 'Active' else '0'
+        elif active_val is not None:
+            target_user.active = str(active_val)
+            target_user.status = 'Active' if str(active_val) == '1' else 'Inactive'
+
+        if pin is not None and str(pin).strip() != '':
+            try:
+                target_user.pin = int(pin)
+            except (ValueError, TypeError):
+                pass
+
+        if password:
+            target_user.set_password(password)
+
+        target_user.save()
+
+        return Response({
+            'detail': f'Staff member "{target_user.fullname or target_user.username}" updated successfully!',
+            'user': {
+                'id': target_user.id,
+                'username': target_user.username,
+                'fullname': target_user.fullname,
+                'email': target_user.email or '',
+                'phone_number': target_user.phone_number or '',
+                'gender': target_user.gender or '',
+                'dob': str(target_user.dob) if target_user.dob else '',
+                'address': target_user.address or '',
+                'department_id': target_user.department.id if target_user.department else None,
+                'department_name': target_user.department.department if target_user.department else 'General',
+                'status': target_user.status,
+                'active': target_user.active,
+                'has_pin': bool(target_user.pin and target_user.pin != 0),
+            }
+        })
 
 
 class StaffActionView(APIView):
