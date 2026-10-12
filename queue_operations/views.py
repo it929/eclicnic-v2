@@ -1996,9 +1996,36 @@ def delete_appointment(request, pk):
     })
 
 
-@login_required
-@department_required('Nursing', 'Clinical', 'Billings', 'Admin', 'CMD')
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.http import HttpResponseForbidden
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import login as auth_login
+
+@xframe_options_sameorigin
 def get_case_note(request, patient_id):
+    # Support Token Authentication for API / React Clients
+    if not request.user.is_authenticated:
+        token_key = request.GET.get('token')
+        if not token_key and 'HTTP_AUTHORIZATION' in request.META:
+            auth_header = request.META['HTTP_AUTHORIZATION']
+            if auth_header.startswith('Token '):
+                token_key = auth_header.split(' ')[1]
+        if token_key:
+            try:
+                token_obj = Token.objects.select_related('user', 'user__department').get(key=token_key)
+                auth_login(request, token_obj.user)
+            except Exception:
+                pass
+
+    if not request.user.is_authenticated:
+        return redirect(f"/?next={request.path}")
+
+    # Department permission check
+    dept_name = getattr(request.user.department, 'department', None) if getattr(request.user, 'department', None) else None
+    allowed_depts = ['Nursing', 'Clinical', 'Billings', 'Admin', 'CMD']
+    if not request.user.is_superuser and dept_name not in allowed_depts:
+        return HttpResponseForbidden("Access Denied: Case note requires clinical or admin department access.")
+
     patient = get_object_or_404(PatientProfile, id=patient_id)
     
     last_bg_health = (

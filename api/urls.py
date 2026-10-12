@@ -13,7 +13,10 @@ from .views import (
     PatientPlanViewSet,
     SponsorViewSet,
     NurseWaitingListViewSet,
+    DoctorWaitingListViewSet,
+    PatientEncounterViewSet,
     VisitPurposeViewSet,
+    PatientAppointmentViewSet,
     InvoiceViewSet,
     ReceiptViewSet,
     DepositViewSet,
@@ -39,7 +42,10 @@ router.register(r'patient-categories', PatientCategoryViewSet, basename='patient
 router.register(r'sponsors', SponsorViewSet, basename='sponsor')
 router.register(r'patient-plans', PatientPlanViewSet, basename='patient-plan')
 router.register(r'queues', NurseWaitingListViewSet, basename='nurse-queue')
+router.register(r'vitals', DoctorWaitingListViewSet, basename='vitals')
+router.register(r'encounters', PatientEncounterViewSet, basename='encounter')
 router.register(r'visit-purposes', VisitPurposeViewSet, basename='visit-purpose')
+router.register(r'appointments', PatientAppointmentViewSet, basename='appointment')
 
 # Billings
 router.register(r'invoices', InvoiceViewSet, basename='invoice')

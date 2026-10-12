@@ -146,11 +146,7 @@ class PatientAppointment(models.Model):
 
     @property
     def is_expired(self):
-        now = timezone.localtime()
-        return (
-            self.arrival_date < timezone.localdate() or
-            (self.arrival_date == timezone.localdate() and self.arrival_time < now.time())
-        )
+        return self.arrival_date < timezone.localdate() and self.completed == 0
     @property
     def is_completed(self):
         return self.completed == 1
