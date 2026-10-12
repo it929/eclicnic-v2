@@ -122,7 +122,7 @@ class UserProfileView(APIView):
         if not user:
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response({
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'has_pin': bool(user.pin and user.pin != 0),
             'department': user.department.department if user.department else 'Admin'
         })
@@ -146,11 +146,34 @@ class UserProfileView(APIView):
         dob = request.data.get('dob')
         if dob:
             user.dob = dob
+        if 'avatar' in request.FILES:
+            user.avatar = request.FILES['avatar']
         user.save()
 
         return Response({
             'detail': 'Profile updated successfully!',
-            'user': UserSerializer(user).data
+            'user': UserSerializer(user, context={'request': request}).data
+        })
+
+
+class UserAvatarUploadView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        user = request.user if request.user.is_authenticated else User.objects.first()
+        if not user:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        avatar_file = request.FILES.get('avatar')
+        if not avatar_file:
+            return Response({'detail': 'No avatar image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.avatar = avatar_file
+        user.save()
+        return Response({
+            'detail': 'Profile image updated successfully!',
+            'user': UserSerializer(user, context={'request': request}).data,
+            'avatar_url': user.avatar.url if user.avatar else None,
         })
 
 

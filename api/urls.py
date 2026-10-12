@@ -31,6 +31,7 @@ from .views import (
     InventoryTransactionViewSet,
     InventoryProductRequestViewSet,
     UserProfileView,
+    UserAvatarUploadView,
     ChangePasswordView,
     UpdatePinView,
 )
@@ -80,6 +81,7 @@ urlpatterns = [
 
     # Profile & Settings endpoints
     path('profile/', UserProfileView.as_view(), name='api-profile'),
+    path('profile/avatar/', UserAvatarUploadView.as_view(), name='api-profile-avatar'),
     path('profile/change-password/', ChangePasswordView.as_view(), name='api-change-password'),
     path('profile/update-pin/', UpdatePinView.as_view(), name='api-update-pin'),
 

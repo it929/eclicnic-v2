@@ -18,15 +18,36 @@ class CategorySerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.department', read_only=True)
     department_modules = serializers.JSONField(source='department.modules', read_only=True)
+    avatar_url = serializers.SerializerMethodField(read_only=True)
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            try:
+                val = str(obj.avatar)
+                if not val or val == 'image/avatar.svg':
+                    return None
+                url = obj.avatar.url
+                request = self.context.get('request')
+                if request and url.startswith('/'):
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                val = str(obj.avatar)
+                if val and val != 'image/avatar.svg':
+                    return f"/media/{val}"
+        return None
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'fullname', 'email', 'status', 'gender',
             'phone_number', 'address', 'dob', 'department', 'department_name',
-            'department_modules', 'active', 'created'
+            'department_modules', 'active', 'created', 'avatar', 'avatar_url'
         ]
-        extra_kwargs = {'password': {'write_only': True}}
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'avatar': {'required': False, 'allow_null': True}
+        }
 
 
 class PatientCategorySerializer(serializers.ModelSerializer):
