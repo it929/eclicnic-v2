@@ -70,22 +70,30 @@ class RadiologyLab(models.Model):
 
 class RadioLabInventory(models.Model):
     item = models.CharField(max_length=200) 
-    item_id = models.CharField(max_length=12,null=True)
+    item_id = models.CharField(max_length=12, null=True)
     rate = models.DecimalField(max_digits=15, decimal_places=2)
     type = models.CharField(max_length=2, null=True, choices=[('L','Lab'),('R','Scan')])
-    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, related_name='lab_tariffs')
+    sponsor = models.ForeignKey('patients.Sponsor', on_delete=models.CASCADE, null=True, blank=True, related_name='lab_tariffs')
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='lab_tariffs')
     
     staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True, null=True)
     
     class Meta:
-        ordering = ['-created_date']
-        unique_together = ('item_id', 'plan')  
+        ordering = ['item']
+        unique_together = ('item_id', 'sponsor', 'plan')  
+
+    def save(self, *args, **kwargs):
+        if self.plan and self.plan.sponsor and not self.sponsor:
+            self.sponsor = self.plan.sponsor
+        super().save(*args, **kwargs)
 
     def __str__(self):
         status = 'Lab Test' if self.type == 'L' else 'Scan Test'
-        plan_name = self.plan.plan if self.plan else "No Plan"
-        return f'{self.item} - {plan_name} ({status})'
+        sponsor_name = self.sponsor.name if self.sponsor else (self.plan.sponsor.name if self.plan and self.plan.sponsor else "General")
+        plan_name = self.plan.plan if self.plan else "All Plans"
+        return f'{self.item} - {sponsor_name} ({plan_name}) ({status})'
     
     
 class LabResult(models.Model):

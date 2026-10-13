@@ -15,6 +15,8 @@ from .views import (
     NurseWaitingListViewSet,
     DoctorWaitingListViewSet,
     PatientEncounterViewSet,
+    PatientDiagnosisViewSet,
+    PresentingComplaintViewSet,
     VisitPurposeViewSet,
     PatientAppointmentViewSet,
     InvoiceViewSet,
@@ -45,6 +47,8 @@ router.register(r'patient-plans', PatientPlanViewSet, basename='patient-plan')
 router.register(r'queues', NurseWaitingListViewSet, basename='nurse-queue')
 router.register(r'vitals', DoctorWaitingListViewSet, basename='vitals')
 router.register(r'encounters', PatientEncounterViewSet, basename='encounter')
+router.register(r'diagnoses', PatientDiagnosisViewSet, basename='diagnosis')
+router.register(r'complaints', PresentingComplaintViewSet, basename='complaint')
 router.register(r'visit-purposes', VisitPurposeViewSet, basename='visit-purpose')
 router.register(r'appointments', PatientAppointmentViewSet, basename='appointment')
 
@@ -100,14 +104,20 @@ urlpatterns = [
     path('tariffs/registration-fees/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees'),
     path('tariffs/registration-fees/<int:pk>/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees-detail'),
     path('tariffs/lab-charges/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges'),
+    path('tariffs/lab-charges/bulk-upload/', tariff_views.BulkUploadLabTariffView.as_view(), name='api-tariff-lab-bulk-upload'),
+    path('tariffs/lab-charges/download-template/', tariff_views.DownloadLabTariffTemplateView.as_view(), name='api-tariff-lab-download-template'),
     path('tariffs/lab-charges/<int:pk>/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges-detail'),
     path('tariffs/radiology-charges/', tariff_views.RadiologyChargesView.as_view(), name='api-tariff-radio-charges'),
+    path('tariffs/radiology-charges/bulk-upload/', tariff_views.BulkUploadRadiologyTariffView.as_view(), name='api-tariff-radiology-bulk-upload'),
+    path('tariffs/radiology-charges/download-template/', tariff_views.DownloadRadiologyTariffTemplateView.as_view(), name='api-tariff-radiology-download-template'),
     path('tariffs/radiology-charges/<int:pk>/', tariff_views.RadiologyChargesView.as_view(), name='api-tariff-radio-charges-detail'),
     path('tariffs/admission-fees/', tariff_views.AdmissionFeesView.as_view(), name='api-tariff-admission-fees'),
     path('tariffs/admission-fees/<int:pk>/', tariff_views.AdmissionFeesView.as_view(), name='api-tariff-admission-fees-detail'),
     path('tariffs/other-services/', tariff_views.OtherServicesView.as_view(), name='api-tariff-other-services'),
     path('tariffs/other-services/<int:pk>/', tariff_views.OtherServicesView.as_view(), name='api-tariff-other-services-detail'),
     path('tariffs/medication-fees/', tariff_views.MedicationFeesView.as_view(), name='api-tariff-medication-fees'),
+    path('tariffs/medication-fees/bulk-upload/', tariff_views.BulkUploadMedicationTariffView.as_view(), name='api-tariff-medication-bulk-upload'),
+    path('tariffs/medication-fees/download-template/', tariff_views.DownloadMedicationTariffTemplateView.as_view(), name='api-tariff-medication-download-template'),
     path('tariffs/medication-fees/<int:pk>/', tariff_views.MedicationFeesView.as_view(), name='api-tariff-medication-fees-detail'),
     path('tariffs/packages/', tariff_views.PackagesView.as_view(), name='api-tariff-packages'),
     path('tariffs/packages/<int:pk>/', tariff_views.PackagesView.as_view(), name='api-tariff-packages-detail'),

@@ -169,15 +169,22 @@ class VendorTransaction(models.Model):
 class PharmacyTariff(models.Model):
     product_id = models.CharField(max_length=13, db_index=True) # SKU
     product_name = models.CharField(max_length=200)
-    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE)
+    sponsor = models.ForeignKey('patients.Sponsor', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
     rate = models.DecimalField(max_digits=15, decimal_places=2)
     staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('product_id', 'plan')
         ordering = ['product_name']
 
+    def save(self, *args, **kwargs):
+        if self.plan and self.plan.sponsor and not self.sponsor:
+            self.sponsor = self.plan.sponsor
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.product_name} - {self.plan.plan} - ₦{self.rate}"
+        sponsor_name = self.sponsor.name if self.sponsor else (self.plan.sponsor.name if self.plan and self.plan.sponsor else 'General')
+        plan_name = self.plan.plan if self.plan else 'All Plans'
+        return f"{self.product_name} - {sponsor_name} ({plan_name}) - ₦{self.rate}"

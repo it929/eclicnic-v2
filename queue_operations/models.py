@@ -225,7 +225,8 @@ class Diagnosis(models.Model):
 class PatientDiagnosis(models.Model):
     category = models.CharField(max_length=50)
     description = models.CharField(max_length=255) 
-    icd10_code = models.CharField(max_length=10)
+    icd10_code = models.CharField(max_length=10, blank=True, null=True, default='')
+    icd11_code = models.CharField(max_length=20, blank=True, null=True, default='')
     is_active = models.BooleanField(default=True)
     class Meta:
         ordering = ['category', 'description']

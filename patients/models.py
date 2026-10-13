@@ -154,6 +154,114 @@ class PatientAppointment(models.Model):
     @property
     def is_cancelled(self):
         return self.completed == 2
+
+    def has_actions_taken(self):
+        """
+        Check if any clinical or administrative action has already been taken
+        on this appointment (such as taking vitals, queueing, consultation encounters,
+        lab/radiology requests, or billing/invoices).
+        If action has been taken, the appointment cannot be cancelled.
+        """
+        if not self.patient_id:
+            return False
+
+        if self.completed in (1, 2):
+            return True
+
+        from django.utils import timezone
+        today = timezone.localdate()
+        target_date = self.arrival_date or today
+
+        # 1. Check for vitals or Doctor waiting queue
+        try:
+            from queue_operations.models import DoctorWaitingList
+            dwl = DoctorWaitingList.objects.filter(
+                patient_id=self.patient_id,
+                created_date__date=target_date
+            )
+            if not dwl.exists() and target_date != today and self.created_date:
+                dwl = DoctorWaitingList.objects.filter(
+                    patient_id=self.patient_id,
+                    created_date__gte=self.created_date
+                )
+            if dwl.exists():
+                return True
+        except Exception:
+            pass
+
+        # 2. Check for Nurse waiting queue
+        try:
+            from queue_operations.models import NurseWaitingList
+            nwl = NurseWaitingList.objects.filter(
+                patient_id=self.patient_id,
+                created_date__date=target_date
+            )
+            if not nwl.exists() and target_date != today and self.created_date:
+                nwl = NurseWaitingList.objects.filter(
+                    patient_id=self.patient_id,
+                    created_date__gte=self.created_date
+                )
+            if nwl.exists():
+                return True
+        except Exception:
+            pass
+
+        # 3. Check for Consultation encounters
+        try:
+            from queue_operations.models import PatientEncounter
+            encounters = PatientEncounter.objects.filter(
+                patient_id=self.patient_id,
+                created_at__date=target_date
+            )
+            if not encounters.exists() and target_date != today and self.created_date:
+                encounters = PatientEncounter.objects.filter(
+                    patient_id=self.patient_id,
+                    created_at__gte=self.created_date
+                )
+            if encounters.exists():
+                return True
+        except Exception:
+            pass
+
+        # 4. Check for Radiology / Laboratory requests
+        try:
+            from radio_lab.models import RadiologyLab
+            rl = RadiologyLab.objects.filter(
+                patient_id=self.patient_id,
+                created_date__date=target_date
+            )
+            if not rl.exists() and target_date != today and self.created_date:
+                rl = RadiologyLab.objects.filter(
+                    patient_id=self.patient_id,
+                    created_date__gte=self.created_date
+                )
+            if rl.exists():
+                return True
+        except Exception:
+            pass
+
+        # 5. Check for Invoices / Billings
+        try:
+            from Billings.models import Invoice
+            inv = Invoice.objects.filter(
+                patient_id=self.patient_id,
+                created_date__date=target_date
+            )
+            if not inv.exists() and target_date != today and self.created_date:
+                inv = Invoice.objects.filter(
+                    patient_id=self.patient_id,
+                    created_date__gte=self.created_date
+                )
+            if inv.exists():
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    @property
+    def can_cancel(self):
+        return self.completed == 0 and not self.has_actions_taken()
     
     def calculate_anc_weeks(self):
         """

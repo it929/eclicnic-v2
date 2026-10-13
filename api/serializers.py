@@ -1,7 +1,10 @@
 from rest_framework import serializers
 from users.models import User, Category
 from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
-from queue_operations.models import VisitPurpose, NurseWaitingList, PatientBackgroundHealth, DoctorWaitingList, PatientEncounter
+from queue_operations.models import (
+    VisitPurpose, NurseWaitingList, PatientBackgroundHealth, DoctorWaitingList,
+    PatientEncounter, PatientDiagnosis, PresentingComplaint
+)
 from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
@@ -205,6 +208,8 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
     is_cancelled = serializers.BooleanField(read_only=True)
     today_vitals = serializers.SerializerMethodField(read_only=True)
     has_vitals = serializers.SerializerMethodField(read_only=True)
+    has_action_taken = serializers.SerializerMethodField(read_only=True)
+    can_cancel = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PatientAppointment
@@ -214,7 +219,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
             'provider', 'provider_name', 'clinician', 'purpose', 'visit_type',
             'arrival_date', 'arrival_time', 'comment', 'anc_weeks', 'created_date',
             'completed', 'is_today', 'is_upcoming', 'is_expired', 'is_completed', 'is_cancelled',
-            'today_vitals', 'has_vitals'
+            'today_vitals', 'has_vitals', 'has_action_taken', 'can_cancel'
         ]
 
     def get_today_vitals(self, obj):
@@ -275,6 +280,12 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
 
     def get_has_vitals(self, obj):
         return bool(self.get_today_vitals(obj))
+
+    def get_has_action_taken(self, obj):
+        return obj.has_actions_taken()
+
+    def get_can_cancel(self, obj):
+        return obj.can_cancel
 
 
 # Billings Serializers
@@ -442,3 +453,20 @@ class PatientEncounterSerializer(serializers.ModelSerializer):
             'diagnosis', 'comments_on_diagnosis', 'anc_weeks', 'created_at', 'updated_at'
         ]
         read_only_fields = ['provider', 'created_at', 'updated_at']
+
+
+class PatientDiagnosisSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='description', read_only=True)
+
+    class Meta:
+        model = PatientDiagnosis
+        fields = ['id', 'description', 'name', 'category', 'icd10_code', 'icd11_code', 'is_active']
+
+
+class PresentingComplaintSerializer(serializers.ModelSerializer):
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = PresentingComplaint
+        fields = ['id', 'name', 'category', 'category_display', 'is_active', 'created_at']
+
