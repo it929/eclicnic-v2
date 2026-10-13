@@ -11,7 +11,10 @@ from rest_framework.pagination import PageNumberPagination
 
 from users.models import User, Category
 from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
-from queue_operations.models import NurseWaitingList, VisitPurpose, DoctorWaitingList, PatientEncounter
+from queue_operations.models import (
+    NurseWaitingList, VisitPurpose, DoctorWaitingList, PatientEncounter,
+    PatientDiagnosis, PresentingComplaint
+)
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
@@ -41,6 +44,8 @@ from .serializers import (
     OpdDrugsSerializer,
     RadiologyLabSerializer,
     PatientAppointmentSerializer,
+    PatientDiagnosisSerializer,
+    PresentingComplaintSerializer,
 )
 
 
@@ -701,6 +706,488 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
 
 
 
+class PatientDiagnosisViewSet(viewsets.ModelViewSet):
+    queryset = PatientDiagnosis.objects.all().order_by('category', 'description')
+    serializer_class = PatientDiagnosisSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        include_inactive = self.request.query_params.get('all', 'false').lower() == 'true'
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(description__icontains=search) |
+                Q(icd10_code__icontains=search) |
+                Q(icd11_code__icontains=search) |
+                Q(category__icontains=search)
+            )
+        category = self.request.query_params.get('category', '').strip()
+        if category and category != 'all':
+            qs = qs.filter(category__iexact=category)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        description = request.data.get('description') or request.data.get('name')
+        if not description or not str(description).strip():
+            return Response({'detail': 'Diagnosis description is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        description = str(description).strip()
+        category = request.data.get('category', 'General') or 'General'
+        icd10_code = request.data.get('icd10_code', '').strip()
+        icd11_code = request.data.get('icd11_code', '').strip()
+
+        # Check if diagnosis already exists (case-insensitive)
+        existing = PatientDiagnosis.objects.filter(description__iexact=description).first()
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+            if icd11_code and not existing.icd11_code:
+                existing.icd11_code = icd11_code
+            if icd10_code and not existing.icd10_code:
+                existing.icd10_code = icd10_code
+            existing.save()
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        diagnosis = PatientDiagnosis.objects.create(
+            description=description,
+            category=category,
+            icd10_code=icd10_code,
+            icd11_code=icd11_code,
+            is_active=True
+        )
+        serializer = self.get_serializer(diagnosis)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='who-icd11')
+    def who_icd11(self, request):
+        """
+        Query official WHO ICD-11 classifications via NIH Clinical Table Search Service.
+        Supports query by ICD-11 code (e.g. '1F40', 'BA00', 'CA40', '5A11') or disease keywords.
+        Returns array of [{code, title, category, is_local, source}]
+        """
+        query = (
+            request.query_params.get('search') or 
+            request.query_params.get('terms') or 
+            request.query_params.get('code') or ''
+        ).strip()
+        if not query or len(query) < 2:
+            return Response([])
+
+        import urllib.request
+        import urllib.parse
+        import json
+
+        results = []
+        seen_codes = set()
+
+        # 1. First check matching entries in local PatientDiagnosis
+        try:
+            local_matches = PatientDiagnosis.objects.filter(
+                Q(icd11_code__icontains=query) |
+                Q(description__icontains=query) |
+                Q(icd10_code__icontains=query)
+            ).filter(is_active=True)[:10]
+
+            for m in local_matches:
+                code_val = m.icd11_code or m.icd10_code or 'LOCAL'
+                results.append({
+                    'code': code_val,
+                    'title': m.description,
+                    'category': m.category or 'Clinical',
+                    'source': 'Hospital Database',
+                    'is_local': True,
+                    'id': m.id,
+                })
+                if code_val:
+                    seen_codes.add(code_val.upper())
+        except Exception:
+            pass
+
+        # 2. Query external WHO / NIH ICD-11 Clinical Tables API
+        try:
+            encoded_query = urllib.parse.quote(query)
+            url = f"https://clinicaltables.nlm.nih.gov/api/icd11_codes/v3/search?terms={encoded_query}&maxList=25"
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Clinic365-ICD11-Lookup/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                # NIH format: [total_count, [codes], None, [[code, title, type], ...]]
+                if isinstance(data, list) and len(data) >= 4 and isinstance(data[3], list):
+                    for item in data[3]:
+                        if isinstance(item, list) and len(item) >= 2:
+                            c = str(item[0]).strip()
+                            t = str(item[1]).strip()
+                            if c.upper() not in seen_codes:
+                                seen_codes.add(c.upper())
+                                results.append({
+                                    'code': c,
+                                    'title': t,
+                                    'category': 'WHO ICD-11',
+                                    'source': 'WHO ICD-11 (Official)',
+                                    'is_local': False,
+                                })
+        except Exception:
+            # If network request fails or times out, return local matches
+            pass
+
+        return Response(results)
+
+    @action(detail=False, methods=['post'], url_path='import-icd11')
+    def import_icd11(self, request):
+        """
+        Directly import/link an ICD-11 entry selected by the doctor into the local database
+        """
+        code = str(request.data.get('code', '')).strip()
+        title = str(request.data.get('title') or request.data.get('description', '')).strip()
+        category = str(request.data.get('category', 'WHO ICD-11')).strip() or 'WHO ICD-11'
+
+        if not title:
+            return Response({'detail': 'Diagnosis title is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check existing by title or icd11_code
+        existing = PatientDiagnosis.objects.filter(description__iexact=title).first()
+        if not existing and code:
+            existing = PatientDiagnosis.objects.filter(icd11_code__iexact=code).first()
+
+        if existing:
+            if code and not existing.icd11_code:
+                existing.icd11_code = code
+            if not existing.is_active:
+                existing.is_active = True
+            existing.save()
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        created = PatientDiagnosis.objects.create(
+            description=title,
+            category=category,
+            icd11_code=code,
+            is_active=True
+        )
+        serializer = self.get_serializer(created)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='bulk-import')
+    def bulk_import(self, request):
+        """
+        Bulk import clinical diagnoses via uploaded file (.xlsx, .xls, .csv)
+        or via raw JSON payload: {"items": [{"description": "...", "category": "...", "icd10_code": "..."}]}
+        """
+        records_to_process = []
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+            filename = uploaded_file.name.lower()
+            try:
+                if filename.endswith('.csv'):
+                    import io, csv
+                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    reader = csv.DictReader(io.StringIO(decoded_file))
+                    for row in reader:
+                        clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
+                        description = (
+                            clean_row.get('description')
+                            or clean_row.get('name')
+                            or clean_row.get('diagnosis')
+                            or clean_row.get('disease')
+                        )
+                        if description and str(description).strip():
+                            category = clean_row.get('category') or clean_row.get('type') or 'General'
+                            icd10_code = clean_row.get('icd10_code') or clean_row.get('icd_code') or clean_row.get('code') or ''
+                            records_to_process.append({
+                                'description': str(description).strip(),
+                                'category': str(category).strip() or 'General',
+                                'icd10_code': str(icd10_code).strip(),
+                            })
+                elif filename.endswith(('.xlsx', '.xls')):
+                    import pandas as pd
+                    import io
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    for _, row in df.iterrows():
+                        description = (
+                            row.get('description')
+                            or row.get('name')
+                            or row.get('diagnosis')
+                            or row.get('disease')
+                        )
+                        if pd.notna(description) and str(description).strip():
+                            category = row.get('category') if pd.notna(row.get('category')) else 'General'
+                            icd10_code = row.get('icd10_code') if pd.notna(row.get('icd10_code')) else (row.get('code') if pd.notna(row.get('code')) else '')
+                            icd11_code = row.get('icd11_code') if pd.notna(row.get('icd11_code')) else (row.get('icd11') if pd.notna(row.get('icd11')) else '')
+                            records_to_process.append({
+                                'description': str(description).strip(),
+                                'category': str(category).strip() or 'General',
+                                'icd10_code': str(icd10_code).strip(),
+                                'icd11_code': str(icd11_code).strip(),
+                            })
+                else:
+                    return Response(
+                        {'detail': 'Unsupported file format. Please upload an Excel (.xlsx, .xls) or CSV file.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response(
+                    {'detail': f'Error parsing file: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif 'items' in request.data:
+            items = request.data.get('items', [])
+            for it in items:
+                if isinstance(it, dict) and (it.get('description') or it.get('name')):
+                    records_to_process.append({
+                        'description': str(it.get('description') or it.get('name')).strip(),
+                        'category': str(it.get('category') or 'General').strip(),
+                        'icd10_code': str(it.get('icd10_code') or '').strip(),
+                        'icd11_code': str(it.get('icd11_code') or '').strip(),
+                    })
+
+        if not records_to_process:
+            return Response(
+                {'detail': 'No valid diagnosis records found. Ensure column "description" or "diagnosis" exists in the file.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        created_count = 0
+        updated_count = 0
+        for item in records_to_process:
+            desc_text = item['description']
+            cat_text = item['category']
+            code_text = item['icd10_code']
+            code11_text = item.get('icd11_code', '')
+
+            existing = PatientDiagnosis.objects.filter(description__iexact=desc_text).first()
+            if existing:
+                existing.category = cat_text or existing.category
+                if code_text:
+                    existing.icd10_code = code_text
+                if code11_text:
+                    existing.icd11_code = code11_text
+                existing.is_active = True
+                existing.save()
+                updated_count += 1
+            else:
+                PatientDiagnosis.objects.create(
+                    description=desc_text,
+                    category=cat_text or 'General',
+                    icd10_code=code_text,
+                    icd11_code=code11_text,
+                    is_active=True
+                )
+                created_count += 1
+
+        total = created_count + updated_count
+        return Response({
+            'success': True,
+            'message': f'Successfully processed {total} diagnoses: {created_count} added, {updated_count} updated.',
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'total_count': total,
+        })
+
+    @action(detail=False, methods=['get'], url_path='download-template')
+    def download_template(self, request):
+        from django.http import HttpResponse
+        csv_content = (
+            "description,category,icd10_code,icd11_code\r\n"
+            "Malaria (Uncomplicated),General,B54,1F40.Z\r\n"
+            "Essential Hypertension,Cardiovascular,I10,BA00\r\n"
+            "Acute Gastroenteritis,Gastrointestinal,A09,1A40\r\n"
+            "Type 2 Diabetes Mellitus,Endocrine,E11,5A11\r\n"
+            "Enteric Fever (Typhoid),Infectious,A01.0,1A07.0\r\n"
+            "Bronchial Asthma,Respiratory,J45,CA23\r\n"
+        )
+        response = HttpResponse(csv_content, content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="diagnoses_bulk_import_template.csv"'
+        return response
+
+
+class PresentingComplaintViewSet(viewsets.ModelViewSet):
+    queryset = PresentingComplaint.objects.all().order_by('category', 'name')
+    serializer_class = PresentingComplaintSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        include_inactive = self.request.query_params.get('all', 'false').lower() == 'true'
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(category__icontains=search)
+            )
+        category = self.request.query_params.get('category', '').strip()
+        if category and category != 'all':
+            qs = qs.filter(category__iexact=category)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        name = request.data.get('name', '').strip()
+        if not name:
+            return Response({'detail': 'Complaint name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        category = request.data.get('category', 'general').strip() or 'general'
+
+        # Check existing (case-insensitive)
+        existing = PresentingComplaint.objects.filter(name__iexact=name).first()
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save()
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        complaint = PresentingComplaint.objects.create(
+            name=name,
+            category=category,
+            is_active=True
+        )
+        serializer = self.get_serializer(complaint)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='categories')
+    def categories(self, request):
+        return Response([
+            {'value': k, 'label': v}
+            for k, v in PresentingComplaint.CATEGORY_CHOICES
+        ])
+
+    @action(detail=False, methods=['post'], url_path='bulk-import')
+    def bulk_import(self, request):
+        """
+        Bulk import presenting complaints via uploaded file (.xlsx, .xls, .csv)
+        or via raw JSON payload: {"items": [{"name": "...", "category": "..."}]}
+        """
+        records_to_process = []
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+            filename = uploaded_file.name.lower()
+            try:
+                if filename.endswith('.csv'):
+                    import io, csv
+                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    reader = csv.DictReader(io.StringIO(decoded_file))
+                    for row in reader:
+                        clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
+                        name = clean_row.get('name') or clean_row.get('complaint') or clean_row.get('description')
+                        if name and str(name).strip():
+                            cat = clean_row.get('category') or 'general'
+                            records_to_process.append({
+                                'name': str(name).strip(),
+                                'category': str(cat).strip().lower() or 'general',
+                            })
+                elif filename.endswith(('.xlsx', '.xls')):
+                    import pandas as pd
+                    import io
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    for _, row in df.iterrows():
+                        name = row.get('name') or row.get('complaint') or row.get('description')
+                        if pd.notna(name) and str(name).strip():
+                            cat = row.get('category') if pd.notna(row.get('category')) else 'general'
+                            records_to_process.append({
+                                'name': str(name).strip(),
+                                'category': str(cat).strip().lower() or 'general',
+                            })
+            except Exception as e:
+                return Response(
+                    {'success': False, 'detail': f'Error reading uploaded file: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            items = request.data.get('items', [])
+            if isinstance(items, list):
+                for it in items:
+                    name = it.get('name') or it.get('complaint') or it.get('description')
+                    if name and str(name).strip():
+                        cat = it.get('category') or 'general'
+                        records_to_process.append({
+                            'name': str(name).strip(),
+                            'category': str(cat).strip().lower() or 'general',
+                        })
+
+        if not records_to_process:
+            return Response(
+                {'success': False, 'detail': 'No valid complaint records found in upload.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        valid_categories = dict(PresentingComplaint.CATEGORY_CHOICES)
+        created_count = 0
+        updated_count = 0
+
+        for rec in records_to_process:
+            name = rec['name']
+            cat = rec['category']
+            if cat not in valid_categories:
+                found_key = None
+                for k, v in valid_categories.items():
+                    if cat in v.lower() or cat == k.lower():
+                        found_key = k
+                        break
+                cat = found_key or 'general'
+
+            existing = PresentingComplaint.objects.filter(name__iexact=name).first()
+            if existing:
+                updated = False
+                if not existing.is_active:
+                    existing.is_active = True
+                    updated = True
+                if updated:
+                    existing.save()
+                    updated_count += 1
+            else:
+                PresentingComplaint.objects.create(
+                    name=name,
+                    category=cat,
+                    is_active=True
+                )
+                created_count += 1
+
+        total = created_count + updated_count
+        return Response({
+            'success': True,
+            'message': f'Successfully processed {total} complaints: {created_count} added, {updated_count} updated.',
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'total_count': total,
+        })
+
+    @action(detail=False, methods=['get'], url_path='download-template')
+    def download_template(self, request):
+        from django.http import HttpResponse
+        csv_content = (
+            "name,category\r\n"
+            "Fever / Chills,general\r\n"
+            "Severe Throbbing Headache,neurological\r\n"
+            "Chest Pain / Tightness,cardiovascular\r\n"
+            "Persistent Dry Cough,cardiovascular\r\n"
+            "Acute Abdominal Pain,gastrointestinal\r\n"
+            "Joint Pain & Stiffness,musculoskeletal\r\n"
+            "Dysuria / Painful Urination,genitourinary\r\n"
+            "Sore Throat,ent\r\n"
+            "Skin Rash / Pruritus,dermatological\r\n"
+            "Blurred Vision,eye\r\n"
+        )
+        response = HttpResponse(csv_content, content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="presenting_complaints_template.csv"'
+        return response
+
+
+
 class VisitPurposeViewSet(viewsets.ModelViewSet):
     queryset = VisitPurpose.objects.all().order_by('purpose')
     serializer_class = VisitPurposeSerializer
@@ -899,6 +1386,13 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel_appointment(self, request, pk=None):
         appointment = self.get_object()
+        if appointment.has_actions_taken():
+            return Response(
+                {
+                    'detail': 'Cannot cancel this appointment: Clinical actions (such as vitals taken, consultation held, or requests placed) have already been initiated for this patient.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         appointment.completed = 2
         appointment.save(update_fields=['completed'])
         return Response({'detail': 'Appointment cancelled successfully.', 'status': 'cancelled'})
