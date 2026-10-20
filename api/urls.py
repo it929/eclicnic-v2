@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import task_manager_views as tm_views
 from . import tariff_views
+from . import rbac_views
 from .views import (
     LoginView,
     CurrentUserView,
@@ -32,6 +33,8 @@ from .views import (
     InventoryProductViewSet,
     InventoryTransactionViewSet,
     InventoryProductRequestViewSet,
+    WrittenPrescriptionViewSet,
+    FamilyFolderViewSet,
     UserProfileView,
     UserAvatarUploadView,
     ChangePasswordView,
@@ -41,6 +44,7 @@ from .views import (
 router = DefaultRouter()
 # Patients & Queues
 router.register(r'patients', PatientViewSet, basename='patient')
+router.register(r'family-folders', FamilyFolderViewSet, basename='family-folder')
 router.register(r'patient-categories', PatientCategoryViewSet, basename='patient-category')
 router.register(r'sponsors', SponsorViewSet, basename='sponsor')
 router.register(r'patient-plans', PatientPlanViewSet, basename='patient-plan')
@@ -66,8 +70,9 @@ router.register(r'bed-allocations', BedAllocationViewSet, basename='bed-allocati
 # ANC
 router.register(r'anc', ANCRegistrationViewSet, basename='anc-registration')
 
-# Pharmacy
+# Pharmacy & Prescriptions
 router.register(r'pharmacy/drugs', PharmacyDrugViewSet, basename='pharmacy-drug')
+router.register(r'prescriptions', WrittenPrescriptionViewSet, basename='prescription')
 
 # Radio & Lab
 router.register(r'radio-lab', RadioLabViewSet, basename='radio-lab')
@@ -104,6 +109,7 @@ urlpatterns = [
     path('tariffs/registration-fees/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees'),
     path('tariffs/registration-fees/<int:pk>/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees-detail'),
     path('tariffs/lab-charges/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges'),
+    path('tariffs/lab-charges/load-general-prices/', tariff_views.LoadGeneralLabPricesView.as_view(), name='api-tariff-lab-load-general'),
     path('tariffs/lab-charges/bulk-upload/', tariff_views.BulkUploadLabTariffView.as_view(), name='api-tariff-lab-bulk-upload'),
     path('tariffs/lab-charges/download-template/', tariff_views.DownloadLabTariffTemplateView.as_view(), name='api-tariff-lab-download-template'),
     path('tariffs/lab-charges/<int:pk>/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges-detail'),
@@ -116,6 +122,7 @@ urlpatterns = [
     path('tariffs/other-services/', tariff_views.OtherServicesView.as_view(), name='api-tariff-other-services'),
     path('tariffs/other-services/<int:pk>/', tariff_views.OtherServicesView.as_view(), name='api-tariff-other-services-detail'),
     path('tariffs/medication-fees/', tariff_views.MedicationFeesView.as_view(), name='api-tariff-medication-fees'),
+    path('tariffs/medication-fees/load-general-prices/', tariff_views.LoadGeneralMedicationPricesView.as_view(), name='api-tariff-medication-load-general'),
     path('tariffs/medication-fees/bulk-upload/', tariff_views.BulkUploadMedicationTariffView.as_view(), name='api-tariff-medication-bulk-upload'),
     path('tariffs/medication-fees/download-template/', tariff_views.DownloadMedicationTariffTemplateView.as_view(), name='api-tariff-medication-download-template'),
     path('tariffs/medication-fees/<int:pk>/', tariff_views.MedicationFeesView.as_view(), name='api-tariff-medication-fees-detail'),
@@ -128,6 +135,18 @@ urlpatterns = [
     # Meta & stats
     path('departments/', DepartmentListView.as_view(), name='api-departments'),
     path('dashboard/stats/', DashboardStatsView.as_view(), name='api-dashboard-stats'),
+
+    # RBAC: Roles, Modules, Submodules & Permissions
+    path('rbac/roles/', rbac_views.RoleListView.as_view(), name='api-rbac-roles'),
+    path('rbac/roles/<int:pk>/', rbac_views.RoleDetailView.as_view(), name='api-rbac-role-detail'),
+    path('rbac/modules/', rbac_views.SystemModuleListView.as_view(), name='api-rbac-modules'),
+    path('rbac/modules/<int:pk>/', rbac_views.SystemModuleDetailView.as_view(), name='api-rbac-module-detail'),
+    path('rbac/submodules/', rbac_views.SubModuleView.as_view(), name='api-rbac-submodules'),
+    path('rbac/submodules/<int:pk>/', rbac_views.SubModuleView.as_view(), name='api-rbac-submodule-detail'),
+    path('rbac/permissions/', rbac_views.RolePermissionView.as_view(), name='api-rbac-permissions'),
+    path('rbac/assign-user-role/', rbac_views.UserRoleAssignmentView.as_view(), name='api-rbac-assign-user-role'),
+    path('rbac/user-permissions/', rbac_views.UserPermissionsView.as_view(), name='api-rbac-user-permissions'),
+    path('rbac/seed/', rbac_views.SeedRbacView.as_view(), name='api-rbac-seed'),
 
     # Routers
     path('', include(router.urls)),

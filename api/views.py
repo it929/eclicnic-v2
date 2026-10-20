@@ -10,10 +10,13 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 
 from users.models import User, Category
-from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
+from patients.models import (
+    PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor,
+    FamilyFolder, FamilyMember, format_family_number
+)
 from queue_operations.models import (
     NurseWaitingList, VisitPurpose, DoctorWaitingList, PatientEncounter,
-    PatientDiagnosis, PresentingComplaint
+    PatientDiagnosis, PresentingComplaint, WrittenPrescriptions
 )
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
@@ -28,6 +31,8 @@ from .serializers import (
     PatientCategorySerializer,
     PatientPlanSerializer,
     SponsorSerializer,
+    FamilyFolderSerializer,
+    FamilyMemberSerializer,
     NurseWaitingListSerializer,
     DoctorWaitingListSerializer,
     PatientEncounterSerializer,
@@ -46,6 +51,7 @@ from .serializers import (
     PatientAppointmentSerializer,
     PatientDiagnosisSerializer,
     PresentingComplaintSerializer,
+    WrittenPrescriptionSerializer,
 )
 
 
@@ -88,11 +94,17 @@ class LoginView(APIView):
         token, _ = Token.objects.get_or_create(user=user)
         user_data = UserSerializer(user).data
 
+        role_name = user_data.get('role_name') or (user.department.department if user.department else 'Admin')
+        modules = user_data.get('role_modules') or (user.department.modules if (user.department and user.department.modules) else [])
+        submodules = user_data.get('role_submodules') or {}
+
         return Response({
             'token': token.key,
             'user': user_data,
-            'department': user.department.department if user.department else 'Admin',
-            'modules': user.department.modules if (user.department and user.department.modules) else [],
+            'department': role_name,
+            'role': role_name,
+            'modules': modules,
+            'submodules': submodules,
         })
 
 
@@ -101,10 +113,17 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         serializer = UserSerializer(request.user)
+        user_data = serializer.data
+        role_name = user_data.get('role_name') or (request.user.department.department if request.user.department else 'Admin')
+        modules = user_data.get('role_modules') or (request.user.department.modules if (request.user.department and request.user.department.modules) else [])
+        submodules = user_data.get('role_submodules') or {}
+
         return Response({
-            'user': serializer.data,
-            'department': request.user.department.department if request.user.department else 'Admin',
-            'modules': request.user.department.modules if (request.user.department and request.user.department.modules) else [],
+            'user': user_data,
+            'department': role_name,
+            'role': role_name,
+            'modules': modules,
+            'submodules': submodules,
         })
 
 
@@ -128,7 +147,7 @@ class UserProfileView(APIView):
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response({
             'user': UserSerializer(user, context={'request': request}).data,
-            'has_pin': bool(user.pin and user.pin != 0),
+            'has_pin': bool(user.has_pin),
             'department': user.department.department if user.department else 'Admin'
         })
 
@@ -138,8 +157,8 @@ class UserProfileView(APIView):
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         pin_code = request.data.get('pin_code')
-        if user.pin and user.pin != 0:
-            if not pin_code or str(pin_code) != str(user.pin):
+        if user.has_pin:
+            if not pin_code or not user.check_pin(pin_code):
                 return Response({'detail': 'Incorrect Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Update profile fields
@@ -190,11 +209,15 @@ class ChangePasswordView(APIView):
         if not user:
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        old_password = request.data.get('old_password', '')
-        new_password = request.data.get('new_password', '')
+        data = request.data if isinstance(request.data, dict) else {}
+        old_password = data.get('old_password') or data.get('current_password') or ''
+        new_password = data.get('new_password', '')
 
         if not new_password:
             return Response({'detail': 'New password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 6:
+            return Response({'detail': 'New password must be at least 6 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if user.has_usable_password() and request.user.is_authenticated:
             if not user.check_password(old_password):
@@ -202,6 +225,14 @@ class ChangePasswordView(APIView):
 
         user.set_password(new_password)
         user.save()
+
+        if request.user.is_authenticated:
+            try:
+                from django.contrib.auth import update_session_auth_hash
+                update_session_auth_hash(request, user)
+            except Exception:
+                pass
+
         return Response({'detail': 'Password changed successfully!'})
 
 
@@ -217,7 +248,7 @@ class UpdatePinView(APIView):
         if not new_pin or not str(new_pin).isdigit() or len(str(new_pin)) != 4:
             return Response({'detail': 'PIN must be a 4-digit number.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user.pin = int(new_pin)
+        user.set_pin(new_pin)
         user.save()
         return Response({'detail': 'Security PIN updated successfully!'})
 
@@ -367,23 +398,117 @@ class PatientViewSet(viewsets.ModelViewSet):
     ordering = ['-created_date']
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related('sponsor', 'family_folder')
         query = self.request.query_params.get('search', None)
         if query:
+            q = query.strip()
             qs = qs.filter(
-                Q(surname__icontains=query) |
-                Q(first_name__icontains=query) |
-                Q(other_name__icontains=query) |
-                Q(hospital_number__icontains=query) |
-                Q(phone_number__icontains=query)
+                Q(surname__icontains=q) |
+                Q(first_name__icontains=q) |
+                Q(other_name__icontains=q) |
+                Q(hospital_number__icontains=q) |
+                Q(phone_number__icontains=q) |
+                Q(email_address__icontains=q) |
+                Q(next_of_kin_name__icontains=q) |
+                Q(next_of_kin_phone__icontains=q) |
+                Q(insurance_policy_number__icontains=q) |
+                Q(family_folder__family_number__icontains=q) |
+                Q(family_folder__family_name__icontains=q)
             )
+
         category_id = self.request.query_params.get('category', None)
         if category_id:
             qs = qs.filter(category_id=category_id)
+
+        sponsor_id = self.request.query_params.get('sponsor', None)
+        if sponsor_id:
+            qs = qs.filter(sponsor_id=sponsor_id)
+
+        gender = self.request.query_params.get('gender', None)
+        if gender:
+            qs = qs.filter(gender__iexact=gender)
+
         active = self.request.query_params.get('active', None)
-        if active is not None:
+        if active is not None and active != '':
             qs = qs.filter(active=active)
+
+        today_only = self.request.query_params.get('today', None)
+        if today_only in ['1', 'true', 'True']:
+            from django.utils import timezone
+            qs = qs.filter(created_date__date=timezone.localdate())
+
+        has_family = self.request.query_params.get('has_family_folder', None)
+        if has_family in ['1', 'true', 'True']:
+            qs = qs.filter(family_folder__isnull=False)
+        elif has_family in ['0', 'false', 'False']:
+            qs = qs.filter(family_folder__isnull=True)
+
+        date_from = self.request.query_params.get('date_from', None)
+        if date_from:
+            qs = qs.filter(created_date__date__gte=date_from)
+
+        date_to = self.request.query_params.get('date_to', None)
+        if date_to:
+            qs = qs.filter(created_date__date__lte=date_to)
+
         return qs
+
+    @action(detail=False, methods=['get'], url_path='directory-stats')
+    def directory_stats(self, request):
+        from django.utils import timezone
+        today = timezone.localdate()
+        total = PatientProfile.objects.count()
+        active = PatientProfile.objects.filter(active=1).count()
+        inactive = PatientProfile.objects.filter(active=0).count()
+        registered_today = PatientProfile.objects.filter(created_date__date=today).count()
+        private_count = PatientProfile.objects.filter(category__category__iexact='Private').count()
+        hmo_count = PatientProfile.objects.filter(category__category__iexact='HMO').count()
+        anc_count = PatientProfile.objects.filter(category__category__iexact='ANC').count()
+        retainership_count = PatientProfile.objects.filter(category__category__iexact='Retainership').count()
+        in_family_count = PatientProfile.objects.filter(family_folder__isnull=False).count()
+
+        return Response({
+            'total': total,
+            'active': active,
+            'inactive': inactive,
+            'registered_today': registered_today,
+            'private': private_count,
+            'hmo': hmo_count,
+            'anc': anc_count,
+            'retainership': retainership_count,
+            'in_family': in_family_count,
+        })
+
+    @action(detail=True, methods=['post'], url_path='toggle-active')
+    def toggle_active(self, request, pk=None):
+        patient = self.get_object()
+        from django.utils import timezone
+
+        user_display = 'Administrator'
+        if request.user and request.user.is_authenticated:
+            user_display = getattr(request.user, 'fullname', '') or request.user.username or 'Staff'
+
+        if patient.active == 1:
+            patient.active = 0
+            patient.deactivated_date = timezone.now()
+            patient.deactivated_by = user_display
+            patient.save(update_fields=['active', 'deactivated_date', 'deactivated_by'])
+            action_label = 'deactivated'
+        else:
+            patient.active = 1
+            patient.deactivated_date = None
+            patient.deactivated_by = None
+            patient.save(update_fields=['active', 'deactivated_date', 'deactivated_by'])
+            action_label = 'activated'
+
+        return Response({
+            'success': True,
+            'message': f"Patient {patient.get_full_name()} ({patient.hospital_number}) has been {action_label} successfully.",
+            'active': patient.active,
+            'deactivated_date': patient.deactivated_date,
+            'deactivated_by': patient.deactivated_by,
+            'patient': self.get_serializer(patient).data
+        })
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -541,6 +666,452 @@ class PatientPlanViewSet(viewsets.ModelViewSet):
         return qs
 
 
+class FamilyFolderViewSet(viewsets.ModelViewSet):
+    queryset = FamilyFolder.objects.all().select_related(
+        'category', 'sponsor', 'principal_patient', 'created_by'
+    ).prefetch_related(
+        'members__patient__category', 'members__patient__sponsor', 'members__patient__plan'
+    ).order_by('-created_date')
+    serializer_class = FamilyFolderSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search', None)
+        if search:
+            search = search.strip()
+            qs = qs.filter(
+                Q(family_name__icontains=search) |
+                Q(family_number__icontains=search) |
+                Q(physical_folder_number__icontains=search) |
+                Q(principal_patient__surname__icontains=search) |
+                Q(principal_patient__first_name__icontains=search) |
+                Q(principal_patient__hospital_number__icontains=search) |
+                Q(members__patient__surname__icontains=search) |
+                Q(members__patient__first_name__icontains=search) |
+                Q(members__assigned_hospital_number__icontains=search) |
+                Q(phone_number__icontains=search)
+            ).distinct()
+
+        folder_type = self.request.query_params.get('folder_type', None)
+        if folder_type:
+            qs = qs.filter(folder_type=folder_type)
+
+        category_id = self.request.query_params.get('category', None)
+        if category_id:
+            qs = qs.filter(category_id=category_id)
+
+        sponsor_id = self.request.query_params.get('sponsor', None)
+        if sponsor_id:
+            qs = qs.filter(sponsor_id=sponsor_id)
+
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            active_bool = str(is_active).lower() in ['1', 'true', 'yes']
+            qs = qs.filter(is_active=active_bool)
+
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        user = request.user if request.user.is_authenticated else None
+
+        family_name = data.get('family_name', '').strip()
+        if not family_name:
+            return Response({'detail': 'Family name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        category_id = data.get('category')
+        sponsor_id = data.get('sponsor')
+        principal_patient_id = data.get('principal_patient_id') or data.get('principal_patient')
+
+        category = None
+        if category_id:
+            category = PatientCategory.objects.filter(id=category_id).first()
+
+        sponsor = None
+        if sponsor_id:
+            sponsor = Sponsor.objects.filter(id=sponsor_id).first()
+
+        principal_patient = None
+        if principal_patient_id:
+            principal_patient = PatientProfile.objects.filter(id=principal_patient_id).first()
+
+        # Determine folder_type (default to private_folder if Private category, hmo_group if HMO)
+        folder_type = data.get('folder_type')
+        if not folder_type:
+            if category and 'hmo' in category.category.lower():
+                folder_type = 'hmo_group'
+            else:
+                folder_type = 'private_folder'
+
+        # Auto-detect category & sponsor from principal patient if not provided
+        if principal_patient:
+            if not category and principal_patient.category:
+                category = principal_patient.category
+            if not sponsor and principal_patient.sponsor:
+                sponsor = principal_patient.sponsor
+            if not folder_type:
+                if category and 'hmo' in category.category.lower():
+                    folder_type = 'hmo_group'
+                else:
+                    folder_type = 'private_folder'
+
+        # Generate Family Number
+        family_number = data.get('family_number', '').strip()
+        if not family_number:
+            if principal_patient and principal_patient.hospital_number:
+                family_number = format_family_number(principal_patient.hospital_number)
+            elif sponsor and sponsor.code:
+                import random
+                rand_num = random.randint(1000, 9999)
+                family_number = f"F/{sponsor.code.strip().upper()}/ISL-{rand_num}"
+            else:
+                import random
+                rand_num = random.randint(1000, 9999)
+                family_number = f"F/ISL-{rand_num}"
+
+        # Clean family number: ensure it starts with F/
+        if not family_number.upper().startswith('F/'):
+            family_number = f"F/{family_number}"
+
+        # Check uniqueness of family_number
+        if FamilyFolder.objects.filter(family_number__iexact=family_number).exists():
+            import random
+            rand_suffix = random.randint(10, 99)
+            family_number = f"{family_number}-{rand_suffix}"
+
+        # Physical folder number for private families
+        physical_folder_number = data.get('physical_folder_number', '').strip()
+        if not physical_folder_number and folder_type == 'private_folder':
+            physical_folder_number = family_number
+
+        storage_location = data.get('storage_location', '').strip()
+        phone_number = data.get('phone_number') or (principal_patient.phone_number if principal_patient else '')
+        address = data.get('address') or (principal_patient.address if principal_patient else '')
+        notes = data.get('notes', '')
+
+        folder = FamilyFolder.objects.create(
+            family_name=family_name,
+            family_number=family_number,
+            category=category,
+            sponsor=sponsor,
+            folder_type=folder_type,
+            physical_folder_number=physical_folder_number if folder_type == 'private_folder' else None,
+            storage_location=storage_location if folder_type == 'private_folder' else None,
+            principal_patient=principal_patient,
+            phone_number=phone_number,
+            address=address,
+            notes=notes,
+            created_by=user
+        )
+
+        # If a principal patient was specified, add them as the first member (Suffix 'A')
+        if principal_patient:
+            assigned_number = f"{family_number}-A"
+            orig_hosp_num = principal_patient.hospital_number
+
+            # Update patient profile
+            principal_patient.hospital_number = assigned_number
+            principal_patient.family_folder = folder
+            principal_patient.family_member_suffix = 'A'
+            principal_patient.save()
+
+            FamilyMember.objects.create(
+                family=folder,
+                patient=principal_patient,
+                letter_suffix='A',
+                assigned_hospital_number=assigned_number,
+                original_hospital_number=orig_hosp_num,
+                relationship='Principal',
+                is_principal=True,
+                added_by=user
+            )
+
+        serializer = self.get_serializer(folder)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='add-member')
+    def add_member(self, request, pk=None):
+        folder = self.get_object()
+        data = request.data
+        user = request.user if request.user.is_authenticated else None
+
+        patient_id = data.get('patient_id')
+        new_patient_data = data.get('new_patient_data')
+        relationship = data.get('relationship', 'Dependent')
+        is_principal = bool(data.get('is_principal', False))
+
+        if not patient_id and not new_patient_data:
+            return Response({'detail': 'Either patient_id or new_patient_data must be provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        letter_suffix = folder.get_next_letter_suffix()
+        assigned_number = f"{folder.family_number}-{letter_suffix}"
+
+        if patient_id:
+            patient = PatientProfile.objects.filter(id=patient_id).first()
+            if not patient:
+                return Response({'detail': 'Patient not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if patient already belongs to a family
+            if hasattr(patient, 'family_membership') and patient.family_membership:
+                if patient.family_membership.family_id == folder.id:
+                    return Response({'detail': f'Patient is already a member of this family (Suffix {patient.family_membership.letter_suffix}).'}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({
+                        'detail': f'Patient already belongs to another family: {patient.family_membership.family.family_name} ({patient.family_membership.family.family_number}). Please remove them first.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+            orig_hosp_num = patient.hospital_number
+            patient.hospital_number = assigned_number
+            patient.family_folder = folder
+            patient.family_member_suffix = letter_suffix
+
+            # Determine principal member of folder
+            principal = folder.principal_patient
+            if not principal and folder.members.exists():
+                head_m = folder.members.filter(is_principal=True).first() or folder.members.filter(letter_suffix='A').first()
+                if head_m:
+                    principal = head_m.patient
+                    folder.principal_patient = principal
+                    folder.save(update_fields=['principal_patient'])
+
+            # If this patient is designated principal or folder has none, set them as principal
+            if is_principal or not folder.principal_patient:
+                folder.principal_patient = patient
+                folder.save(update_fields=['principal_patient'])
+                patient.save()
+                # Propagate this principal's sponsor and plan to any existing members
+                folder.sync_members_to_principal()
+            else:
+                # Family members MUST maintain the same category, sponsor, and plan of the Principal Member
+                if principal:
+                    if principal.category:
+                        patient.category = principal.category
+                    if principal.sponsor:
+                        patient.sponsor = principal.sponsor
+                    if principal.plan:
+                        patient.plan = principal.plan
+                    if getattr(principal, 'insurance_policy_number', None) and not patient.insurance_policy_number:
+                        patient.insurance_policy_number = principal.insurance_policy_number
+                else:
+                    if folder.category:
+                        patient.category = folder.category
+                    if folder.sponsor:
+                        patient.sponsor = folder.sponsor
+
+                patient.save()
+
+            FamilyMember.objects.create(
+                family=folder,
+                patient=patient,
+                letter_suffix=letter_suffix,
+                assigned_hospital_number=assigned_number,
+                original_hospital_number=orig_hosp_num,
+                relationship=relationship,
+                is_principal=is_principal or (folder.principal_patient_id == patient.id),
+                added_by=user
+            )
+
+        elif new_patient_data:
+            # Create a brand new patient profile directly in this family
+            surname = new_patient_data.get('surname', '').strip()
+            first_name = new_patient_data.get('first_name', '').strip()
+            if not surname or not first_name:
+                return Response({'detail': 'Surname and first name are required for new patient.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            dob = new_patient_data.get('dob') or date.today().isoformat()
+            gender = new_patient_data.get('gender', 'Female')
+            phone = new_patient_data.get('phone_number') or folder.phone_number or ''
+            address = new_patient_data.get('address') or folder.address or ''
+
+            # Optional email address with uniqueness validation
+            email = new_patient_data.get('email_address', '').strip() or None
+            if email and PatientProfile.objects.filter(email_address__iexact=email).exists():
+                return Response({'detail': f'A patient with email "{email}" is already registered.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Optional Next of Kin fields
+            next_of_kin_name = new_patient_data.get('next_of_kin_name', '').strip() or None
+            next_of_kin_relationship = new_patient_data.get('next_of_kin_relationship', '').strip() or None
+            next_of_kin_phone = new_patient_data.get('next_of_kin_phone', '').strip() or None
+
+            # Determine principal member to inherit sponsor and plan
+            principal = folder.principal_patient
+            if not principal and folder.members.exists():
+                head_m = folder.members.filter(is_principal=True).first() or folder.members.filter(letter_suffix='A').first()
+                if head_m:
+                    principal = head_m.patient
+                    folder.principal_patient = principal
+                    folder.save(update_fields=['principal_patient'])
+
+            # Inherit sponsor, plan, and category from Principal Member
+            member_category = principal.category if principal and principal.category else folder.category
+            member_sponsor = principal.sponsor if principal and principal.sponsor else folder.sponsor
+            member_plan = principal.plan if principal and principal.plan else None
+            member_policy = (principal.insurance_policy_number if principal and getattr(principal, 'insurance_policy_number', None) else new_patient_data.get('insurance_policy_number'))
+
+            patient = PatientProfile.objects.create(
+                surname=surname,
+                first_name=first_name,
+                other_name=new_patient_data.get('other_name', ''),
+                dob=dob,
+                gender=gender,
+                phone_number=phone,
+                email_address=email,
+                address=address,
+                category=member_category,
+                sponsor=member_sponsor,
+                plan=member_plan,
+                insurance_policy_number=member_policy,
+                hospital_number=assigned_number,
+                family_folder=folder,
+                family_member_suffix=letter_suffix,
+                allergies=new_patient_data.get('allergies', ''),
+                patient_type=new_patient_data.get('patient_type', 'Single'),
+                relationship_to_patient=relationship,
+                full_name=next_of_kin_name,
+                phone_numbers=next_of_kin_phone,
+                next_of_kin_name=next_of_kin_name,
+                next_of_kin_relationship=next_of_kin_relationship,
+                next_of_kin_phone=next_of_kin_phone,
+                created_by=user
+            )
+
+            if is_principal or not folder.principal_patient:
+                folder.principal_patient = patient
+                folder.save(update_fields=['principal_patient'])
+                folder.sync_members_to_principal()
+
+            FamilyMember.objects.create(
+                family=folder,
+                patient=patient,
+                letter_suffix=letter_suffix,
+                assigned_hospital_number=assigned_number,
+                original_hospital_number=None,
+                relationship=relationship,
+                is_principal=is_principal or (folder.principal_patient_id == patient.id),
+                added_by=user
+            )
+
+        # Refresh folder
+        folder.refresh_from_db()
+        return Response(self.get_serializer(folder).data)
+
+    @action(detail=True, methods=['post'], url_path='sync-plan')
+    def sync_plan(self, request, pk=None):
+        folder = self.get_object()
+        folder.sync_members_to_principal()
+        folder.refresh_from_db()
+        return Response(self.get_serializer(folder).data)
+
+    @action(detail=True, methods=['post'], url_path='remove-member')
+    def remove_member(self, request, pk=None):
+        folder = self.get_object()
+        data = request.data
+        member_id = data.get('member_id')
+        patient_id = data.get('patient_id')
+        restore_hospital_number = bool(data.get('restore_hospital_number', True))
+
+        member = None
+        if member_id:
+            member = FamilyMember.objects.filter(id=member_id, family=folder).first()
+        elif patient_id:
+            member = FamilyMember.objects.filter(patient_id=patient_id, family=folder).first()
+
+        if not member:
+            return Response({'detail': 'Family member record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        patient = member.patient
+        if restore_hospital_number and member.original_hospital_number:
+            patient.hospital_number = member.original_hospital_number
+        patient.family_folder = None
+        patient.family_member_suffix = None
+        patient.save()
+
+        # Update principal patient if the removed member was principal
+        if folder.principal_patient_id == patient.id:
+            next_principal = folder.members.exclude(id=member.id).first()
+            folder.principal_patient = next_principal.patient if next_principal else None
+            folder.save()
+
+        member.delete()
+        folder.refresh_from_db()
+        return Response(self.get_serializer(folder).data)
+
+    @action(detail=True, methods=['post'], url_path='set-principal')
+    def set_principal(self, request, pk=None):
+        folder = self.get_object()
+        patient_id = request.data.get('patient_id')
+        if not patient_id:
+            return Response({'detail': 'patient_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        member = FamilyMember.objects.filter(family=folder, patient_id=patient_id).first()
+        if not member:
+            return Response({'detail': 'Patient is not a member of this family.'}, status=status.HTTP_404_NOT_FOUND)
+
+        folder.principal_patient = member.patient
+        folder.save()
+
+        folder.members.all().update(is_principal=False)
+        member.is_principal = True
+        member.relationship = 'Principal'
+        member.save()
+
+        folder.refresh_from_db()
+        return Response(self.get_serializer(folder).data)
+
+    @action(detail=False, methods=['get'], url_path='preview-number')
+    def preview_number(self, request):
+        patient_id = request.query_params.get('patient_id')
+        sponsor_id = request.query_params.get('sponsor_id')
+        sponsor_code = request.query_params.get('sponsor_code')
+
+        if patient_id:
+            patient = PatientProfile.objects.filter(id=patient_id).first()
+            if patient and patient.hospital_number:
+                fam_num = format_family_number(patient.hospital_number)
+                return Response({
+                    'family_number': fam_num,
+                    'first_member_number': f"{fam_num}-A",
+                    'principal_patient_name': patient.get_full_name(),
+                    'principal_hospital_number': patient.hospital_number,
+                    'category_id': patient.category_id,
+                    'category_name': patient.category.category if patient.category else 'Private',
+                    'sponsor_id': patient.sponsor_id,
+                    'sponsor_name': patient.get_sponsor_name(),
+                })
+
+        code = ''
+        if sponsor_id:
+            sp = Sponsor.objects.filter(id=sponsor_id).first()
+            if sp and sp.code:
+                code = sp.code.strip().upper()
+        elif sponsor_code:
+            code = sponsor_code.strip().upper()
+
+        import random
+        rand_num = random.randint(1000, 9999)
+        fam_num = f"F/{code}/ISL-{rand_num}" if code else f"F/ISL-{rand_num}"
+        return Response({
+            'family_number': fam_num,
+            'first_member_number': f"{fam_num}-A"
+        })
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        total_families = FamilyFolder.objects.count()
+        private_folders = FamilyFolder.objects.filter(folder_type='private_folder').count()
+        hmo_groups = FamilyFolder.objects.filter(folder_type='hmo_group').count()
+        total_members = FamilyMember.objects.count()
+
+        return Response({
+            'total_families': total_families,
+            'private_folders': private_folders,
+            'hmo_groups': hmo_groups,
+            'total_members': total_members,
+        })
+
+
 class NurseWaitingListViewSet(viewsets.ModelViewSet):
     queryset = NurseWaitingList.objects.all().select_related('attendant', 'patient')
     serializer_class = NurseWaitingListSerializer
@@ -600,25 +1171,41 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        current_user = request.user if (request.user and request.user.is_authenticated) else None
+        # Identify the attending staff member attempting this clinical authorization
         authorizing_staff = None
+        if request.user and request.user.is_authenticated:
+            authorizing_staff = request.user
+        elif request.data.get('staff_id'):
+            try:
+                authorizing_staff = User.objects.filter(id=request.data.get('staff_id'), is_active=True).first()
+            except Exception:
+                pass
+        elif request.data.get('staff_username'):
+            authorizing_staff = User.objects.filter(
+                username__iexact=str(request.data.get('staff_username')).strip(),
+                is_active=True
+            ).first()
 
-        if current_user and getattr(current_user, 'pin', 0) == pin_int and pin_int > 0:
-            authorizing_staff = current_user
-        else:
-            matching_staff = User.objects.filter(pin=pin_int, is_active=True).exclude(pin=0).first()
-            if matching_staff:
-                authorizing_staff = matching_staff
-            elif current_user and getattr(current_user, 'pin', 0) == 0:
-                return Response(
-                    {'detail': 'Your account has no security PIN configured. Please set your 4-digit PIN in Profile Settings.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            else:
-                return Response(
-                    {'detail': 'Incorrect Security PIN. Authorization denied.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if not authorizing_staff:
+            return Response(
+                {'detail': 'Authentication required. Please log in as an attending staff member to authorize vitals.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Check if the attending staff member has a security PIN configured
+        if not authorizing_staff.has_pin:
+            staff_name = getattr(authorizing_staff, 'fullname', '') or authorizing_staff.username
+            return Response(
+                {'detail': f'Staff member "{staff_name}" has no security PIN configured. Please set your 4-digit PIN in Profile Settings before authorizing vitals.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Strictly verify that the entered PIN matches the attending staff member's own PIN
+        if not authorizing_staff.check_pin(pin_str):
+            return Response(
+                {'detail': 'Incorrect Security PIN. Authorization denied.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1359,19 +1946,21 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
         now_time = timezone.localtime().time()
 
         if status_filter == 'today':
-            qs = qs.filter(arrival_date=today, completed=0).order_by('arrival_time', 'created_date')
+            qs = qs.filter(arrival_date=today).order_by('completed', '-arrival_time', '-created_date', '-id')
         elif status_filter == 'upcoming':
-            qs = qs.filter(arrival_date__gt=today, completed=0).order_by('arrival_date', 'arrival_time')
+            qs = qs.filter(arrival_date__gt=today, completed=0).order_by('-arrival_date', '-arrival_time', '-created_date', '-id')
         elif status_filter == 'completed':
-            qs = qs.filter(completed=1)
+            qs = qs.filter(completed=1).order_by('-arrival_date', '-arrival_time', '-created_date', '-id')
         elif status_filter == 'cancelled':
-            qs = qs.filter(completed=2)
+            qs = qs.filter(completed=2).order_by('-arrival_date', '-arrival_time', '-created_date', '-id')
         elif status_filter == 'expired':
-            qs = qs.filter(arrival_date__lt=today, completed=0)
+            qs = qs.filter(arrival_date__lt=today, completed=0).order_by('-arrival_date', '-arrival_time', '-created_date', '-id')
+        else:
+            qs = qs.order_by('-arrival_date', '-arrival_time', '-created_date', '-id')
 
         date_param = self.request.query_params.get('date', None)
         if date_param:
-            qs = qs.filter(arrival_date=date_param)
+            qs = qs.filter(arrival_date=date_param).order_by('completed', '-arrival_time', '-created_date', '-id')
 
         return qs
 
@@ -1408,7 +1997,7 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
     def summary(self, request):
         today = timezone.localdate()
         all_count = PatientAppointment.objects.count()
-        today_count = PatientAppointment.objects.filter(arrival_date=today, completed=0).count()
+        today_count = PatientAppointment.objects.filter(arrival_date=today).count()
         upcoming_count = PatientAppointment.objects.filter(arrival_date__gt=today, completed=0).count()
         completed_count = PatientAppointment.objects.filter(completed=1).count()
         cancelled_count = PatientAppointment.objects.filter(completed=2).count()
@@ -1457,6 +2046,1049 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 tu.save()
             except Exception:
                 pass
+
+    @action(detail=False, methods=['post'], url_path='create-consultation-bills')
+    def create_consultation_bills(self, request):
+        import uuid
+        from django.db import transaction
+        from Billings.models import TransactionUpdate
+        from queue_operations.models import OtherService
+
+        patient_id = request.data.get('patient_id') or request.data.get('patient')
+        if not patient_id:
+            return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category').get(id=patient_id)
+        except PatientProfile.DoesNotExist:
+            return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        prescriptions = request.data.get('prescriptions', [])
+        lab_orders = request.data.get('lab_orders', [])
+        radiology_orders = request.data.get('radiology_orders', [])
+        other_service_orders = request.data.get('other_service_orders', [])
+
+        user = request.user if request.user.is_authenticated else None
+        category = patient.category
+
+        # Payment option determination
+        payment_option = request.data.get('payment_option')
+        if not payment_option:
+            if patient.plan and patient.plan.plan:
+                payment_option = patient.plan.plan
+            elif patient.sponsor and patient.sponsor.name:
+                payment_option = patient.sponsor.name
+            else:
+                payment_option = 'Cash'
+
+        # Generate a unified invoice number for this consultation encounter batch
+        invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
+        invoices_to_create = []
+        total_amount = 0
+
+        with transaction.atomic():
+            # 1. Prescriptions
+            for p in prescriptions:
+                drug_name = (p.get('drug') or p.get('item') or '').strip()
+                if not drug_name:
+                    continue
+                qty = int(p.get('dispense_quantity') or p.get('qty') or 1)
+                rate = p.get('tariff_rate')
+                if rate is None or rate == '':
+                    try:
+                        from inventory.models import PharmacyTariff
+                        t = PharmacyTariff.objects.filter(product_name__icontains=drug_name).first()
+                        rate = t.rate if t else 0
+                    except Exception:
+                        rate = 0
+                try:
+                    unit_price = int(round(float(rate)))
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                disp_detail = p.get('dispense_detail') or ''
+                product_label = f"{drug_name} ({disp_detail})" if disp_detail else drug_name
+
+                invoices_to_create.append(Invoice(
+                    patient=patient,
+                    invoice_number=invoice_number,
+                    product=product_label[:60],
+                    qty=qty,
+                    price=unit_price,
+                    discount=0,
+                    payment_option=payment_option,
+                    category=category,
+                    staff=user,
+                    completed=0,
+                    original_source_model='prescriptions',
+                    original_source_id=p.get('id') if isinstance(p.get('id'), int) and p.get('id') < 2147483647 else None,
+                ))
+                total_amount += (unit_price * qty)
+
+            # 2. Laboratory Orders
+            for l in lab_orders:
+                test_name = (l.get('test') or l.get('item') or '').strip()
+                if not test_name:
+                    continue
+                qty = 1
+                rate = l.get('tariff_rate')
+                if rate is None or rate == '':
+                    try:
+                        from radio_lab.models import RadioLabInventory
+                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
+                        rate = t.rate if t else 0
+                    except Exception:
+                        rate = 0
+                try:
+                    unit_price = int(round(float(rate)))
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                product_label = f"Lab: {test_name}"
+                invoices_to_create.append(Invoice(
+                    patient=patient,
+                    invoice_number=invoice_number,
+                    product=product_label[:60],
+                    qty=qty,
+                    price=unit_price,
+                    discount=0,
+                    payment_option=payment_option,
+                    category=category,
+                    staff=user,
+                    completed=0,
+                    original_source_model='lab',
+                ))
+                total_amount += unit_price
+
+                # Also insert RadiologyLab for the Laboratory queue
+                try:
+                    RadiologyLab.objects.create(
+                        item=test_name,
+                        item_type='L',
+                        rate=unit_price,
+                        patient=patient,
+                        category=category,
+                        plan=patient.plan,
+                        staff=user,
+                        billing_waiting_status=1,
+                        completed=0,
+                    )
+                except Exception as ex:
+                    print("Error creating RadiologyLab test record:", ex)
+
+            # 3. Radiology & Scans Orders
+            for r in radiology_orders:
+                scan_name = (r.get('scan') or r.get('item') or '').strip()
+                if not scan_name:
+                    continue
+                qty = 1
+                rate = r.get('tariff_rate')
+                if rate is None or rate == '':
+                    try:
+                        from radio_lab.models import RadioLabInventory
+                        t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
+                        rate = t.rate if t else 0
+                    except Exception:
+                        rate = 0
+                try:
+                    unit_price = int(round(float(rate)))
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                product_label = f"Scan: {scan_name}"
+                invoices_to_create.append(Invoice(
+                    patient=patient,
+                    invoice_number=invoice_number,
+                    product=product_label[:60],
+                    qty=qty,
+                    price=unit_price,
+                    discount=0,
+                    payment_option=payment_option,
+                    category=category,
+                    staff=user,
+                    completed=0,
+                    original_source_model='radiology',
+                ))
+                total_amount += unit_price
+
+                # Also insert RadiologyLab for the Radiology queue
+                try:
+                    RadiologyLab.objects.create(
+                        item=scan_name,
+                        item_type='R',
+                        rate=unit_price,
+                        patient=patient,
+                        category=category,
+                        plan=patient.plan,
+                        staff=user,
+                        billing_waiting_status=1,
+                        completed=0,
+                    )
+                except Exception as ex:
+                    print("Error creating RadiologyLab scan record:", ex)
+
+            # 4. Other Clinical Services Orders
+            for s in other_service_orders:
+                service_name = (s.get('service') or s.get('item') or '').strip()
+                if not service_name:
+                    continue
+                qty = 1
+                rate = s.get('tariff_rate')
+                if rate is None or rate == '':
+                    try:
+                        from myAdmins.models import OtherService2
+                        t = OtherService2.objects.filter(service__icontains=service_name).first()
+                        rate = t.rate if t else 0
+                    except Exception:
+                        rate = 0
+                try:
+                    unit_price = int(round(float(rate)))
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                product_label = f"Service: {service_name}"
+                invoices_to_create.append(Invoice(
+                    patient=patient,
+                    invoice_number=invoice_number,
+                    product=product_label[:60],
+                    qty=qty,
+                    price=unit_price,
+                    discount=0,
+                    payment_option=payment_option,
+                    category=category,
+                    staff=user,
+                    completed=0,
+                    original_source_model='other_services',
+                ))
+                total_amount += unit_price
+
+                # Also insert OtherService for ward / clinical procedures tracking
+                try:
+                    OtherService.objects.create(
+                        patient=patient,
+                        provider=user,
+                        category=category,
+                        plan=patient.plan,
+                        purpose=service_name,
+                        price=unit_price,
+                        completed=0,
+                    )
+                except Exception as ex:
+                    print("Error creating OtherService record:", ex)
+
+            # Bulk create all invoices
+            if invoices_to_create:
+                Invoice.objects.bulk_create(invoices_to_create)
+
+                # Update or create TransactionUpdate for billing overview
+                try:
+                    tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
+                    tu.invoice_ids = invoice_number
+                    tu.invoice_raised = (tu.invoice_raised or 0) + total_amount
+                    tu.total_invoiced_items = (tu.total_invoiced_items or 0) + len(invoices_to_create)
+                    if user:
+                        tu.staff = user
+                    tu.save()
+                except Exception as ex:
+                    print("Error updating TransactionUpdate:", ex)
+
+        return Response({
+            'status': 'success',
+            'invoice_number': invoice_number,
+            'items_count': len(invoices_to_create),
+            'total_amount': total_amount,
+            'message': f'Successfully routed {len(invoices_to_create)} item(s) to billing for payment (Invoice #{invoice_number})'
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='save-consultation-orders')
+    def save_consultation_orders(self, request):
+        """
+        Doctor consultation: persists prescribed medications, lab investigations,
+        radiology scans, and other clinical services into their respective queue models
+        without pre-generating invoices. Creates/updates TransactionUpdate so patient
+        immediately appears in the Encounters Billing Queue.
+        """
+        import uuid
+        from django.db import transaction
+        from Billings.models import TransactionUpdate
+        from queue_operations.models import OtherService, WrittenPrescriptions, DoctorWaitingList
+        from radio_lab.models import RadiologyLab
+        from inventory.models import PharmacyTariff
+        from radio_lab.models import RadioLabInventory
+        from myAdmins.models import OtherService2
+
+        patient_id = request.data.get('patient_id') or request.data.get('patient')
+        if not patient_id:
+            return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category').get(id=patient_id)
+        except PatientProfile.DoesNotExist:
+            return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        prescriptions = request.data.get('prescriptions', [])
+        lab_orders = request.data.get('lab_orders', [])
+        radiology_orders = request.data.get('radiology_orders', [])
+        other_service_orders = request.data.get('other_service_orders', [])
+
+        user = request.user if request.user.is_authenticated else None
+        if not user:
+            user = User.objects.filter(is_staff=True).first() or User.objects.first()
+        category = patient.category
+
+        saved_counts = {'prescriptions': 0, 'lab': 0, 'radiology': 0, 'services': 0}
+
+        with transaction.atomic():
+            # 1. Prescriptions
+            for p in prescriptions:
+                drug_name = (p.get('drug') or p.get('item') or '').strip()
+                if not drug_name:
+                    continue
+                disp_qty = int(p.get('dispense_quantity') or p.get('qty') or 1)
+                dosage_form = p.get('dosage_form') or 'Tablet'
+                strength = p.get('strength') or ''
+                dose_qty = str(p.get('dose_qty') or '1')
+                dose_unit = p.get('dose_unit') or ('tab' if dosage_form == 'Tablet' else 'ml')
+                frequency = p.get('frequency') or 'Twice daily (bd)'
+                duration = str(p.get('duration') or '5')
+                duration_unit = p.get('duration_unit') or 'Day(s)'
+                dispense_unit = p.get('dispense_unit') or ('Bottles' if dosage_form in ['Syrup', 'Suspension'] else 'Pieces')
+                dispense_detail = p.get('dispense_detail') or ''
+                comment = p.get('comment') or p.get('notes') or ''
+                start_date = p.get('start_date') or timezone.now().date()
+                instruction = p.get('instruction') or f"{dose_qty} {dose_unit} {frequency} for {duration} {duration_unit}"
+
+                if p.get('is_pay_from_purse') or p.get('payment_mode') == 'pay_from_purse':
+                    if not comment:
+                        comment = '[Pay from your purse]'
+                    elif '[Pay from your purse]' not in comment:
+                        comment = f"[Pay from your purse] {comment}".strip()
+
+                # Avoid duplicate insertion if exact prescription already pending today
+                existing_rx = WrittenPrescriptions.objects.filter(
+                    patient=patient, item=drug_name[:200], status='pending',
+                    created_date__date=timezone.now().date()
+                ).first()
+                if not existing_rx:
+                    WrittenPrescriptions.objects.create(
+                        patient=patient,
+                        provider=user,
+                        item=drug_name[:200],
+                        instruction=instruction,
+                        quantity=disp_qty,
+                        dosage_form=dosage_form,
+                        strength=strength,
+                        dose_qty=dose_qty,
+                        dose_unit=dose_unit,
+                        frequency=frequency,
+                        duration=duration,
+                        duration_unit=duration_unit,
+                        dispense_unit=dispense_unit,
+                        dispense_quantity=disp_qty,
+                        dispense_detail=dispense_detail,
+                        comment=comment,
+                        start_date=start_date,
+                        status='pending'
+                    )
+                saved_counts['prescriptions'] += 1
+
+            # 2. Laboratory Orders
+            for l in lab_orders:
+                test_name = (l.get('test') or l.get('item') or '').strip()
+                if not test_name:
+                    continue
+                rate = l.get('tariff_rate')
+                if rate is None or rate == '':
+                    t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
+                    rate = t.rate if t else 0
+                try:
+                    unit_price = float(rate)
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                comment = (l.get('comment') or l.get('notes') or '').strip()
+                if l.get('is_pay_from_purse') or l.get('payment_mode') == 'pay_from_purse':
+                    if not comment:
+                        comment = '[Pay from your purse]'
+                    elif '[Pay from your purse]' not in comment:
+                        comment = f"[Pay from your purse] {comment}".strip()
+
+                existing_lab = RadiologyLab.objects.filter(
+                    patient=patient, item=test_name, item_type='L', completed=0,
+                    created_date__date=timezone.now().date()
+                ).first()
+                if not existing_lab:
+                    RadiologyLab.objects.create(
+                        item=test_name,
+                        item_type='L',
+                        rate=unit_price,
+                        comment=comment,
+                        patient=patient,
+                        category=category,
+                        plan=patient.plan,
+                        staff=user,
+                        billing_waiting_status=1,
+                        completed=0,
+                    )
+                saved_counts['lab'] += 1
+
+            # 3. Radiology Scans
+            for r in radiology_orders:
+                scan_name = (r.get('scan') or r.get('item') or '').strip()
+                if not scan_name:
+                    continue
+                rate = r.get('tariff_rate')
+                if rate is None or rate == '':
+                    t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
+                    rate = t.rate if t else 0
+                try:
+                    unit_price = float(rate)
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                existing_rad = RadiologyLab.objects.filter(
+                    patient=patient, item=scan_name, item_type='R', completed=0,
+                    created_date__date=timezone.now().date()
+                ).first()
+                if not existing_rad:
+                    RadiologyLab.objects.create(
+                        item=scan_name,
+                        item_type='R',
+                        rate=unit_price,
+                        patient=patient,
+                        category=category,
+                        plan=patient.plan,
+                        staff=user,
+                        billing_waiting_status=1,
+                        completed=0,
+                    )
+                saved_counts['radiology'] += 1
+
+            # 4. Other Clinical Services
+            for s in other_service_orders:
+                service_name = (s.get('service') or s.get('item') or '').strip()
+                if not service_name:
+                    continue
+                rate = s.get('tariff_rate')
+                if rate is None or rate == '':
+                    t = OtherService2.objects.filter(service__icontains=service_name).first()
+                    rate = t.rate if t else 0
+                try:
+                    unit_price = float(rate)
+                except (ValueError, TypeError):
+                    unit_price = 0
+
+                existing_srv = OtherService.objects.filter(
+                    patient=patient, purpose=service_name, completed=0,
+                    created_date__date=timezone.now().date()
+                ).first()
+                if not existing_srv:
+                    OtherService.objects.create(
+                        patient=patient,
+                        provider=user,
+                        category=category,
+                        plan=patient.plan,
+                        purpose=service_name,
+                        price=int(unit_price),
+                        completed=0,
+                    )
+                saved_counts['services'] += 1
+
+            # Update TransactionUpdate record
+            tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
+            tu.updated_date = timezone.now()
+            tu.save()
+
+            # Mark active doctor waiting list as consultation done
+            DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
+                waiting_status=1,
+                encounter_status=1,
+                completed_by=getattr(user, 'fullname', 'Doctor') if user else 'Doctor'
+            )
+
+        total_saved = sum(saved_counts.values())
+        return Response({
+            'status': 'success',
+            'saved_counts': saved_counts,
+            'total_items': total_saved,
+            'message': f'Consultation orders ({total_saved} items) routed to Encounters Billing Queue for cashier generation.'
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='encounter-billing-queue')
+    def encounter_billing_queue(self, request):
+        """
+        Returns list of patients for the Encounters Billing Queue:
+        1. Defaults to patients scheduled for TODAY, with support for filtering by date ('YYYY-MM-DD' or 'all').
+        2. Includes patients with active appointments, unbilled doctor prescriptions, lab tests, radiology scans,
+           and clinical procedures.
+        3. Pre-populates Registration Fee (if new/unpaid) and Consultation Fee (so patient pays before doctor consults),
+           along with all doctor prescribed drugs, lab investigations, radiology scans, and services.
+        4. Supports filtering by patient name, card number (hospital_number), phone number, and policy number.
+        """
+        from datetime import datetime
+        from django.utils import timezone
+        from Billings.models import TransactionUpdate, Invoice
+        from queue_operations.models import OtherService, WrittenPrescriptions, DoctorWaitingList, NurseWaitingList, PatientEncounter, VisitPurpose, RegFee, GetRegistrationFee
+        from radio_lab.models import RadiologyLab
+        from inventory.models import PharmacyTariff
+        from radio_lab.models import RadioLabInventory
+        from myAdmins.models import OtherService2
+        from patients.models import PatientAppointment
+
+        # Filter parameters
+        filter_date_param = request.query_params.get('date', '').strip()
+        search_query = request.query_params.get('search', '').strip().lower()
+        card_query = request.query_params.get('card_no', '').strip().lower()
+        phone_query = request.query_params.get('phone', '').strip().lower()
+        name_query = request.query_params.get('patient_name', '').strip().lower()
+
+        # Date handling: default is today
+        today = timezone.localdate()
+        target_date = today
+
+        if filter_date_param.lower() == 'all':
+            target_date = None
+        elif filter_date_param and filter_date_param.lower() != 'today':
+            try:
+                target_date = datetime.strptime(filter_date_param, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                target_date = today
+
+        # Gather target patient IDs
+        unbilled_patient_ids = set()
+
+        if target_date:
+            # 1. Appointments scheduled for target date
+            appt_pids = PatientAppointment.objects.filter(
+                arrival_date=target_date, completed__in=[0, 1]
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(appt_pids)
+
+            # 2. Patients registered on target date or with pending registration fee on target date
+            reg_pids = PatientProfile.objects.filter(
+                created_date__date=target_date
+            ).values_list('id', flat=True).distinct()
+            unbilled_patient_ids.update(reg_pids)
+
+            reg_fee_pids = GetRegistrationFee.objects.filter(
+                created_date__date=target_date, completed=0
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(reg_fee_pids)
+
+            # 3. Active unbilled clinical orders created on target date
+            rx_pids = WrittenPrescriptions.objects.filter(
+                status='pending', created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(rx_pids)
+
+            lab_pids = RadiologyLab.objects.filter(
+                completed=0, created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(lab_pids)
+
+            srv_pids = OtherService.objects.filter(
+                completed=0, created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(srv_pids)
+
+            nw_pids = NurseWaitingList.objects.filter(
+                completed=0, created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(nw_pids)
+
+            dw_pids = DoctorWaitingList.objects.filter(
+                completed=0, created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(dw_pids)
+
+            tu_pids = TransactionUpdate.objects.filter(
+                completed=0, created_date__date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(tu_pids)
+        else:
+            # When target_date is None ("All Dates")
+            appt_pids = PatientAppointment.objects.filter(
+                completed__in=[0, 1]
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(appt_pids)
+
+            reg_fee_pids = GetRegistrationFee.objects.filter(
+                completed=0
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(reg_fee_pids)
+
+            rx_pids = WrittenPrescriptions.objects.filter(status='pending').values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(rx_pids)
+
+            lab_pids = RadiologyLab.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(lab_pids)
+
+            srv_pids = OtherService.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(srv_pids)
+
+            nw_pids = NurseWaitingList.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(nw_pids)
+
+            dw_pids = DoctorWaitingList.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(dw_pids)
+
+            tu_pids = TransactionUpdate.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(tu_pids)
+
+        unbilled_patient_ids.discard(None)
+
+        results = []
+        patients = PatientProfile.objects.filter(id__in=unbilled_patient_ids).select_related(
+            'sponsor', 'plan', 'category'
+        )
+
+        for pat in patients:
+            pat_name = f"{pat.surname} {pat.first_name} {pat.other_name or ''}".strip()
+            hosp_num = pat.hospital_number or ''
+            phone_num = pat.phone_number or ''
+            sponsor_name = pat.sponsor.name if pat.sponsor else 'Self-Pay / Cash'
+            plan_name = pat.plan.plan if pat.plan else 'Private / Standard'
+            policy_num = getattr(pat.plan, 'policy_number', None) or getattr(pat, 'insurance_policy_number', None) or 'N/A'
+            tag_num = f"{pat.id + 380}"
+
+            # Filter checks
+            if card_query and card_query not in hosp_num.lower():
+                continue
+            if phone_query and phone_query not in phone_num.lower():
+                continue
+            if name_query and name_query not in pat_name.lower():
+                continue
+            if search_query:
+                combined_text = f"{pat_name} {hosp_num} {phone_num} {sponsor_name} {plan_name} {policy_num} TAG #: {tag_num}".lower()
+                if search_query not in combined_text:
+                    continue
+
+            # Find appointment for target_date or latest appointment
+            if target_date:
+                appt = PatientAppointment.objects.filter(patient=pat, arrival_date=target_date).order_by('-arrival_time').first()
+                latest_dw = DoctorWaitingList.objects.filter(patient=pat, created_date__date=target_date).order_by('-created_date').first()
+                latest_nw = NurseWaitingList.objects.filter(patient=pat, created_date__date=target_date).order_by('-created_date').first()
+                latest_enc = PatientEncounter.objects.filter(patient=pat, created_at__date=target_date).order_by('-created_at').first()
+            else:
+                appt = PatientAppointment.objects.filter(patient=pat).order_by('-arrival_date', '-arrival_time').first()
+                latest_dw = DoctorWaitingList.objects.filter(patient=pat).order_by('-created_date').first()
+                latest_nw = NurseWaitingList.objects.filter(patient=pat).order_by('-created_date').first()
+                latest_enc = PatientEncounter.objects.filter(patient=pat).order_by('-created_at').first()
+
+            seen_by = 'Dr. Attending Physician'
+            if appt and appt.clinician:
+                seen_by = appt.clinician
+            elif latest_dw and latest_dw.staff:
+                seen_by = getattr(latest_dw.staff, 'fullname', None) or latest_dw.staff.get_full_name() or f"Dr. {latest_dw.staff.username}"
+            elif latest_nw and latest_nw.attendant:
+                seen_by = getattr(latest_nw.attendant, 'fullname', None) or latest_nw.attendant.get_full_name() or f"Nurse {latest_nw.attendant.username}"
+            elif latest_enc and latest_enc.provider:
+                seen_by = getattr(latest_enc.provider, 'fullname', None) or latest_enc.provider.get_full_name() or f"Dr. {latest_enc.provider.username}"
+
+            visit_date_raw = target_date or (appt.arrival_date if appt and appt.arrival_date else None) or (latest_dw.created_date.date() if latest_dw and latest_dw.created_date else None) or (latest_nw.created_date.date() if latest_nw and latest_nw.created_date else None) or (pat.created_date.date() if pat.created_date else today)
+            visit_date_str = visit_date_raw.strftime('%d/%m/%Y')
+            visit_time_str = appt.arrival_time.strftime('%I:%M%p') if (appt and appt.arrival_time) else (latest_dw.created_date.strftime('%I:%M%p') if (latest_dw and latest_dw.created_date) else '09:00AM')
+            visit_datetime_str = f"{visit_time_str} {visit_date_raw.strftime('%d %b %Y')}"
+
+            purpose = (appt.purpose if appt and appt.purpose else '') or (latest_dw.purpose if latest_dw and latest_dw.purpose else '') or (latest_nw.purpose if latest_nw and latest_nw.purpose else '') or (pat.category.category if pat.category else '') or 'General Consultation'
+            visit_type = (appt.visit_type if appt and appt.visit_type else '') or 'Follow-up'
+
+            default_payment_option = 'Claim' if (pat.sponsor or pat.plan) else 'Cash'
+
+            # Gather all billable items for this patient
+            items = []
+
+            # -------------------------------------------------------------
+            # A. Patient Registration & Card Fee (if new or unpaid)
+            # -------------------------------------------------------------
+            already_registered = Invoice.objects.filter(patient=pat, product__icontains='Registration').exists() or GetRegistrationFee.objects.filter(patient=pat, completed=1).exists()
+            is_new_case = (visit_type == 'New-case')
+            has_unbilled_reg = GetRegistrationFee.objects.filter(patient=pat, completed=0).exists()
+
+            reg_date_match = True
+            if target_date and pat.created_date:
+                reg_date_match = (pat.created_date.date() == target_date)
+
+            if ((not already_registered and reg_date_match) or (is_new_case and reg_date_match) or has_unbilled_reg):
+                reg_obj = GetRegistrationFee.objects.filter(patient=pat, completed=0).first()
+                if reg_obj and reg_obj.price:
+                    reg_price = float(reg_obj.price)
+                else:
+                    rf = RegFee.objects.first()
+                    reg_price = float(rf.price) if rf else 2500.0
+
+                items.append({
+                    'id': f"reg_{pat.id}",
+                    'service_item': 'Patient Registration & Card Fee',
+                    'uom': 'Each',
+                    'quantity': 1,
+                    'rate': reg_price,
+                    'discount': 0,
+                    'total': reg_price,
+                    'payment_option': default_payment_option,
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'registration',
+                    'original_model': 'GetRegistrationFee',
+                    'original_id': pat.id,
+                })
+
+            # -------------------------------------------------------------
+            # B. Consultation Fee (Pay before seeing doctor)
+            # -------------------------------------------------------------
+            consult_date_check = target_date or today
+            consult_already_invoiced = Invoice.objects.filter(
+                patient=pat, product__icontains='Consultation', created_date__date=consult_date_check
+            ).exists()
+
+            has_clinical_visit = bool(appt or latest_dw or latest_nw or latest_enc)
+            if has_clinical_visit and not consult_already_invoiced:
+                # Determine consultation rate from VisitPurpose
+                vp = None
+                if purpose:
+                    vp = VisitPurpose.objects.filter(purpose__iexact=purpose).first()
+                    if not vp:
+                        vp = VisitPurpose.objects.filter(purpose__icontains=purpose.split()[0]).first()
+
+                if vp and vp.price:
+                    consult_price = float(vp.price)
+                else:
+                    p_lower = (purpose or '').lower()
+                    if any(s in p_lower for s in ['specialist', 'cardiology', 'dental', 'eye', 'pediatric', 'antenatal', 'anc']):
+                        consult_price = 5000.0
+                    else:
+                        consult_price = 2000.0
+
+                items.append({
+                    'id': f"consult_{pat.id}_{appt.id if appt else '0'}",
+                    'service_item': f"Consultation Fee: {purpose}",
+                    'uom': 'Each',
+                    'quantity': 1,
+                    'rate': consult_price,
+                    'discount': 0,
+                    'total': consult_price,
+                    'payment_option': default_payment_option,
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'consultation',
+                    'original_model': 'PatientAppointment' if appt else 'DoctorWaitingList',
+                    'original_id': appt.id if appt else pat.id,
+                })
+
+            # -------------------------------------------------------------
+            # C. Prescriptions (Prescribed drugs from doctor)
+            # -------------------------------------------------------------
+            if target_date:
+                rx_items = WrittenPrescriptions.objects.filter(patient=pat, status='pending', created_date__date=target_date).order_by('created_date')
+            else:
+                rx_items = WrittenPrescriptions.objects.filter(patient=pat, status='pending').order_by('created_date')
+
+            for rx in rx_items:
+                t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
+                rate = float(t.rate) if (t and t.rate) else 0.0
+                qty = rx.dispense_quantity or rx.quantity or 1
+                uom = rx.dispense_unit or ('Bottles' if rx.dosage_form in ['Syrup', 'Suspension'] else 'Each')
+                disp_desc = f" ({rx.dispense_detail})" if rx.dispense_detail else ''
+
+                is_purse = ('[Pay from your purse]' in (rx.comment or '') or '[Pay from purse]' in (rx.instruction or ''))
+                rx_payment_option = 'Cash' if is_purse else default_payment_option
+                purse_tag = ' [Pay from your purse]' if is_purse else ''
+
+                items.append({
+                    'id': f"rx_{rx.id}",
+                    'service_item': f"{rx.item}{disp_desc}{purse_tag}",
+                    'uom': uom,
+                    'quantity': qty,
+                    'rate': rate,
+                    'discount': 0,
+                    'total': round(qty * rate, 2),
+                    'payment_option': rx_payment_option,
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'prescription',
+                    'original_model': 'WrittenPrescriptions',
+                    'original_id': rx.id,
+                })
+
+            # -------------------------------------------------------------
+            # D. Investigations (Laboratory Tests & Radiology Scans)
+            # -------------------------------------------------------------
+            if target_date:
+                rad_lab_items = RadiologyLab.objects.filter(patient=pat, completed=0, created_date__date=target_date).order_by('created_date')
+            else:
+                rad_lab_items = RadiologyLab.objects.filter(patient=pat, completed=0).order_by('created_date')
+
+            for rl in rad_lab_items:
+                rate = float(rl.rate or 0)
+                is_lab = (rl.item_type == 'L')
+                label_prefix = "Lab: " if is_lab else "Scan: "
+                uom = "Tests" if is_lab else "Scans"
+
+                is_purse = ('[Pay from your purse]' in (rl.comment or ''))
+                rl_payment_option = 'Cash' if is_purse else default_payment_option
+                purse_tag = ' [Pay from your purse]' if is_purse else ''
+
+                items.append({
+                    'id': f"rl_{rl.id}",
+                    'service_item': f"{label_prefix}{rl.item}{purse_tag}",
+                    'uom': uom,
+                    'quantity': 1,
+                    'rate': rate,
+                    'discount': 0,
+                    'total': rate,
+                    'payment_option': rl_payment_option,
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'investigation',
+                    'original_model': 'RadiologyLab',
+                    'original_id': rl.id,
+                })
+
+            # -------------------------------------------------------------
+            # E. Other Clinical Services & Procedures
+            # -------------------------------------------------------------
+            if target_date:
+                other_services = OtherService.objects.filter(patient=pat, completed=0, created_date__date=target_date).order_by('created_date')
+            else:
+                other_services = OtherService.objects.filter(patient=pat, completed=0).order_by('created_date')
+
+            for os in other_services:
+                rate = float(os.price or 0)
+                items.append({
+                    'id': f"os_{os.id}",
+                    'service_item': f"Service: {os.purpose}",
+                    'uom': 'Each',
+                    'quantity': 1,
+                    'rate': rate,
+                    'discount': 0,
+                    'total': rate,
+                    'payment_option': default_payment_option,
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'service',
+                    'original_model': 'OtherService',
+                    'original_id': os.id,
+                })
+
+            rx_count = len([it for it in items if it['category'] == 'prescription'])
+            inv_count = len([it for it in items if it['category'] == 'investigation'])
+            srv_count = len([it for it in items if it['category'] == 'service'])
+
+            # Query invoices generated for this patient on target date to track settlements
+            if target_date:
+                settled_invoices_qs = Invoice.objects.filter(
+                    patient=pat,
+                    created_date__date=target_date
+                ).order_by('created_date')
+            else:
+                settled_invoices_qs = Invoice.objects.filter(
+                    patient=pat,
+                    created_date__date=today
+                ).order_by('created_date')
+
+            settled_invoices_today = []
+            for inv in settled_invoices_qs:
+                unit_p = float(inv.price or 0)
+                inv_qty = int(inv.qty or 1)
+                disc = float(inv.discount or 0)
+                inv_tot = float(unit_p * inv_qty * (1 - (disc / 100.0)))
+                settled_invoices_today.append({
+                    'id': inv.id,
+                    'invoice_number': inv.invoice_number or f"INV-{inv.id}",
+                    'service_item': inv.product or 'Hospital Service',
+                    'quantity': inv_qty,
+                    'rate': unit_p,
+                    'discount': disc,
+                    'total': inv_tot,
+                    'payment_option': inv.payment_option or 'Cash',
+                    'completed': bool(inv.completed),
+                    'created_time': inv.created_date.strftime('%I:%M %p') if inv.created_date else '',
+                })
+
+            consult_inv = next((it for it in settled_invoices_today if 'consultation' in (it['service_item'] or '').lower()), None)
+            consultation_settled = consult_inv is not None
+            consultation_settled_amount = float(consult_inv['total']) if consult_inv else 0.0
+
+            reg_inv = next((it for it in settled_invoices_today if 'registration' in (it['service_item'] or '').lower()), None)
+            registration_settled = reg_inv is not None
+            registration_settled_amount = float(reg_inv['total']) if reg_inv else 0.0
+
+            total_invoiced_today = sum(it['total'] for it in settled_invoices_today)
+            total_paid_today = sum(it['total'] for it in settled_invoices_today if it['completed'])
+            has_pending_items = len(items) > 0
+
+            # If filtering by target_date, skip patient if they have no billable items and no settled invoices
+            if target_date and not items and not settled_invoices_today:
+                continue
+
+            results.append({
+                'patient_id': pat.id,
+                'patient_name': pat_name,
+                'hospital_number': hosp_num,
+                'phone_number': phone_num,
+                'sponsor': sponsor_name,
+                'plan': plan_name,
+                'policy_number': policy_num,
+                'tag_number': tag_num,
+                'visit_date': visit_date_str,
+                'visit_time': visit_time_str,
+                'visit_datetime': visit_datetime_str,
+                'purpose': purpose,
+                'visit_type': visit_type,
+                'seen_by': seen_by,
+                'prescriptions_count': rx_count,
+                'investigations_count': inv_count,
+                'services_count': srv_count,
+                'has_consultation_fee': any(it['category'] == 'consultation' for it in items),
+                'has_registration_fee': any(it['category'] == 'registration' for it in items),
+                'total_items_count': len(items),
+                'billable_items': items,
+                'settled_invoices_today': settled_invoices_today,
+                'consultation_settled': consultation_settled,
+                'consultation_settled_amount': consultation_settled_amount,
+                'registration_settled': registration_settled,
+                'registration_settled_amount': registration_settled_amount,
+                'total_invoiced_today': total_invoiced_today,
+                'total_paid_today': total_paid_today,
+                'has_pending_items': has_pending_items,
+            })
+
+        return Response(results, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='generate-encounter-bill')
+    def generate_encounter_bill(self, request):
+        """
+        Called when cashier reviews the Combined Encounter Bill modal and clicks
+        'Generate Invoice' or 'Pay & Clear Bill'. Creates Invoice records, marks source records as billed,
+        optionally records Receipt settlement, and creates/updates TransactionUpdate for the patient.
+        """
+        import uuid
+        import random
+        from django.db import transaction
+        from Billings.models import TransactionUpdate, Receipt
+        from queue_operations.models import OtherService, WrittenPrescriptions, NurseWaitingList, GetRegistrationFee
+        from radio_lab.models import RadiologyLab
+        from patients.models import PatientAppointment
+
+        patient_id = request.data.get('patient_id')
+        if not patient_id:
+            return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category').get(id=patient_id)
+        except PatientProfile.DoesNotExist:
+            return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        selected_items = request.data.get('items', [])
+        if not selected_items:
+            return Response({'error': 'No billable items selected to generate invoice.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        category = patient.category
+        mark_as_paid = bool(request.data.get('mark_as_paid', False))
+
+        invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
+        receipt_number = f"REC-{random.randint(10000, 99999)}" if mark_as_paid else None
+        invoices_to_create = []
+        total_amount = 0.0
+
+        with transaction.atomic():
+            for item in selected_items:
+                product_name = str(item.get('service_item') or item.get('product') or '').strip()
+                if not product_name:
+                    continue
+
+                qty = int(item.get('quantity') or item.get('qty') or 1)
+                rate = float(item.get('rate') or 0)
+                discount = int(item.get('discount') or 0)
+                pay_option = item.get('payment_option') or 'Cash'
+                pa_code = item.get('pa_code') or item.get('auth_code') or ''
+
+                item_total = float(item.get('total') or (qty * rate * (1 - discount / 100.0)))
+                total_amount += item_total
+
+                orig_model = item.get('original_model') or ''
+                orig_id = item.get('original_id')
+
+                label = product_name[:60]
+
+                invoices_to_create.append(Invoice(
+                    patient=patient,
+                    invoice_number=invoice_number,
+                    product=label,
+                    qty=qty,
+                    price=int(round(item_total)),
+                    discount=discount,
+                    payment_option=pay_option,
+                    category=category,
+                    staff=user,
+                    completed=1 if mark_as_paid else 0,
+                    original_source_model=orig_model[:50] if orig_model else None,
+                    original_source_id=int(orig_id) if isinstance(orig_id, int) and orig_id < 2147483647 else None,
+                ))
+
+                # Mark source records as billed!
+                if orig_model == 'WrittenPrescriptions' and orig_id:
+                    WrittenPrescriptions.objects.filter(id=orig_id).update(status='billed')
+                elif orig_model == 'RadiologyLab' and orig_id:
+                    RadiologyLab.objects.filter(id=orig_id).update(billing_waiting_status=0, completed=1)
+                elif orig_model == 'OtherService' and orig_id:
+                    OtherService.objects.filter(id=orig_id).update(completed=1)
+                elif orig_model == 'NurseWaitingList' and orig_id:
+                    NurseWaitingList.objects.filter(id=orig_id).update(completed=1)
+                elif orig_model == 'GetRegistrationFee':
+                    GetRegistrationFee.objects.filter(patient=patient).update(completed=1)
+                elif orig_model in ['PatientAppointment', 'Appointment'] and orig_id:
+                    # Paying consultation fee in billing settles the bill/invoice, but does NOT complete the clinical appointment.
+                    # The patient is still waiting to see the doctor for their consultation encounter.
+                    pass
+
+            if invoices_to_create:
+                Invoice.objects.bulk_create(invoices_to_create)
+
+                if mark_as_paid:
+                    primary_pay_opt = selected_items[0].get('payment_option') or 'Cash'
+                    Receipt.objects.create(
+                        patient=patient,
+                        invoice_number=invoice_number,
+                        receipt_number=receipt_number,
+                        remarks=f"Payment cleared for {len(invoices_to_create)} encounter item(s)",
+                        total_price=int(round(total_amount)),
+                        category=category,
+                        payment_type=primary_pay_opt,
+                        staff=user,
+                    )
+
+                # Update or create TransactionUpdate
+                try:
+                    tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
+                    tu.invoice_ids = invoice_number
+                    tu.invoice_raised = int(round(total_amount))
+                    tu.total_invoiced_items = len(invoices_to_create)
+                    if mark_as_paid:
+                        tu.receipt_given = (tu.receipt_given or 0) + 1
+                    if user:
+                        tu.staff = user
+                    tu.updated_date = timezone.now()
+                    tu.save()
+                except Exception as ex:
+                    print("Error updating TransactionUpdate:", ex)
+
+        action_word = 'paid & settled' if mark_as_paid else 'invoiced'
+        return Response({
+            'status': 'success',
+            'invoice_number': invoice_number,
+            'receipt_number': receipt_number,
+            'is_paid': mark_as_paid,
+            'items_count': len(invoices_to_create),
+            'total_amount': total_amount,
+            'message': f'Bill #{invoice_number} successfully {action_word} for {patient.surname} {patient.first_name} ({len(invoices_to_create)} item(s) - ₦{total_amount:,.2f})'
+        }, status=status.HTTP_201_CREATED)
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):
@@ -1658,4 +3290,170 @@ class InventoryProductRequestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
         serializer.save(staff=staff)
+
+
+class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
+    """
+    Prescription and Pharmacy Dispensing ViewSet.
+    Handles doctor clinical prescriptions, calculated pieces/bottles,
+    and pharmacy dispensing queue.
+    """
+    queryset = WrittenPrescriptions.objects.all().select_related('patient', 'provider', 'dispensed_by').order_by('-created_date')
+    serializer_class = WrittenPrescriptionSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        patient_id = self.request.query_params.get('patient', None)
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+
+        status_param = self.request.query_params.get('status', None)
+        if status_param:
+            qs = qs.filter(status__iexact=status_param)
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(item__icontains=search) |
+                Q(patient__surname__icontains=search) |
+                Q(patient__first_name__icontains=search) |
+                Q(patient__hospital_number__icontains=search)
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        if not user or not user.is_authenticated:
+            # Fallback to first available staff/superuser
+            user = User.objects.filter(is_staff=True).first() or User.objects.first()
+        serializer.save(provider=user)
+
+    @action(detail=False, methods=['post'], url_path='bulk-save')
+    def bulk_save(self, request):
+        """
+        Save multiple prescriptions at once from doctor consultation modal.
+        """
+        patient_id = request.data.get('patient') or request.data.get('patient_id')
+        if not patient_id:
+            return Response({'error': 'Patient ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = PatientProfile.objects.filter(id=patient_id).first()
+        if not patient:
+            return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        prescriptions_list = request.data.get('prescriptions', [])
+        if not prescriptions_list:
+            return Response({'error': 'No prescriptions provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        if not user or not user.is_authenticated:
+            user = User.objects.filter(is_staff=True).first() or User.objects.first()
+
+        created_items = []
+        for p in prescriptions_list:
+            item_name = str(p.get('item') or p.get('drug') or '').strip()
+            if not item_name:
+                continue
+
+            dosage_form = p.get('dosage_form') or 'Tablet'
+            route = p.get('route') or 'Oral'
+            strength = p.get('strength') or ''
+            dose_qty = str(p.get('dose_qty') or p.get('qty_dose') or '1')
+            dose_unit = p.get('dose_unit') or p.get('unit') or 'tab'
+            frequency = p.get('frequency') or 'Twice daily (bd)'
+            duration = str(p.get('duration') or '5')
+            duration_unit = p.get('duration_unit') or 'Day(s)'
+            dispense_unit = p.get('dispense_unit') or ('Bottles' if dosage_form in ['Syrup', 'Suspension'] else 'Pieces')
+            dispense_quantity = int(p.get('dispense_quantity') or p.get('quantity') or 0)
+            dispense_detail = p.get('dispense_detail') or ''
+            comment = p.get('comment') or p.get('notes') or ''
+            start_date = p.get('start_date') or timezone.now().date()
+            instruction = p.get('instruction') or f"{dose_qty} {dose_unit} ({dosage_form}) via {route}, {frequency} for {duration} {duration_unit}"
+
+            if p.get('is_pay_from_purse') or p.get('payment_mode') == 'pay_from_purse':
+                if not comment:
+                    comment = '[Pay from your purse]'
+                elif '[Pay from your purse]' not in comment:
+                    comment = f"[Pay from your purse] {comment}".strip()
+
+            record = WrittenPrescriptions.objects.create(
+                patient=patient,
+                provider=user,
+                item=item_name[:200],
+                instruction=instruction,
+                quantity=dispense_quantity,
+                dosage_form=dosage_form,
+                route=route,
+                strength=strength,
+                dose_qty=dose_qty,
+                dose_unit=dose_unit,
+                frequency=frequency,
+                duration=duration,
+                duration_unit=duration_unit,
+                dispense_unit=dispense_unit,
+                dispense_quantity=dispense_quantity,
+                dispense_detail=dispense_detail,
+                comment=comment,
+                start_date=start_date,
+                status='pending'
+            )
+            created_items.append(record)
+
+        serializer = self.get_serializer(created_items, many=True)
+        return Response({
+            'success': True,
+            'count': len(created_items),
+            'prescriptions': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='dispense')
+    def dispense(self, request, pk=None):
+        """
+        Dispense a prescription to patient, marking it dispensed and reducing stock.
+        """
+        prescription = self.get_object()
+        if prescription.status == 'dispensed':
+            return Response({'detail': 'Medication has already been dispensed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        prescription.status = 'dispensed'
+        prescription.dispensed_at = timezone.now()
+        if user and user.is_authenticated:
+            prescription.dispensed_by = user
+        prescription.save()
+
+        # Safely deduct from OpdDrugs inventory if matching product exists
+        stock_deducted = 0
+        matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
+        if not matching_drug:
+            # Try partial match
+            matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
+
+        if matching_drug and prescription.dispense_quantity > 0:
+            qty_to_deduct = prescription.dispense_quantity
+            matching_drug.stock = max(0, matching_drug.stock - qty_to_deduct)
+            matching_drug.save(update_fields=['stock', 'status'])
+            stock_deducted = qty_to_deduct
+
+        serializer = self.get_serializer(prescription)
+        return Response({
+            'success': True,
+            'prescription': serializer.data,
+            'stock_deducted': stock_deducted,
+            'remaining_stock': matching_drug.stock if matching_drug else None,
+            'drug_name': matching_drug.product_name if matching_drug else None,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='queue')
+    def queue(self, request):
+        """
+        Get pending prescriptions awaiting pharmacy dispensing.
+        """
+        pending = WrittenPrescriptions.objects.filter(status='pending').select_related(
+            'patient', 'provider'
+        ).order_by('-created_date')
+        serializer = self.get_serializer(pending, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 

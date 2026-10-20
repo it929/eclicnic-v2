@@ -83,42 +83,75 @@ class LabChargesView(APIView):
     def get(self, request):
         qs = RadioLabInventory.objects.filter(type='L').select_related('sponsor', 'plan', 'plan__sponsor').order_by('item')
 
+        tariff_type = request.query_params.get('tariff_type', '').strip().lower()
         patient_id = request.query_params.get('patient')
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
         search = request.query_params.get('search', '').strip()
 
-        # If filtering for a specific patient (e.g. from Doctor Consultation)
-        if patient_id:
-            try:
-                patient = PatientProfile.objects.select_related('sponsor', 'plan').get(id=patient_id)
-                patient_sponsor = patient.sponsor
-                patient_plan = patient.plan
+        # If explicitly requesting general out-of-pocket tariffs
+        if tariff_type == 'general' or (sponsor_id and str(sponsor_id).lower() in ('general', 'self', 'cash')):
+            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+        # If filtering for a specific patient
+        elif patient_id or tariff_type == 'covered':
+            if patient_id:
+                try:
+                    patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category', 'sponsor__category').get(id=patient_id)
+                    patient_sponsor = patient.sponsor
+                    patient_plan = patient.plan
 
-                if patient_sponsor and patient_plan:
-                    patient_filter = (
-                        (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                        Q(plan=patient_plan) |
-                        (Q(sponsor=patient_sponsor) & Q(plan__isnull=True)) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
+                    # Check if patient or sponsor has a Private category
+                    is_private_patient = (
+                        (patient.category and 'private' in str(patient.category.category).lower()) or
+                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
+                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
+                        (not patient_sponsor and not patient_plan)
                     )
-                elif patient_plan:
-                    patient_filter = (
-                        Q(plan=patient_plan) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                elif patient_sponsor:
-                    patient_filter = (
-                        Q(sponsor=patient_sponsor) |
-                        Q(plan__sponsor=patient_sponsor) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                else:
-                    patient_filter = (Q(sponsor__isnull=True) & Q(plan__isnull=True))
 
-                qs = qs.filter(patient_filter)
-            except PatientProfile.DoesNotExist:
-                pass
+                    if is_private_patient:
+                        # Private sponsor maintains the same price as general!
+                        # General price is always available for them because they pay out of pocket
+                        qs = qs.filter(
+                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
+                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                        )
+                    else:
+                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
+                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                            except Sponsor.DoesNotExist:
+                                pass
+                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_plan = PatientPlan.objects.get(id=plan_id)
+                            except PatientPlan.DoesNotExist:
+                                pass
+
+                        if tariff_type == 'general':
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        elif patient_sponsor and patient_plan:
+                            qs = qs.filter(
+                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                                Q(plan=patient_plan) |
+                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
+                            )
+                        elif patient_plan:
+                            qs = qs.filter(plan=patient_plan)
+                        elif patient_sponsor:
+                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
+                        else:
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                except PatientProfile.DoesNotExist:
+                    if sponsor_id and str(sponsor_id).lower() != 'all':
+                        qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
+                    if plan_id and str(plan_id).lower() != 'all':
+                        qs = qs.filter(plan_id=plan_id)
+            else:
+                if sponsor_id and str(sponsor_id).lower() != 'all':
+                    qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
+                if plan_id and str(plan_id).lower() != 'all':
+                    qs = qs.filter(plan_id=plan_id)
         else:
             if sponsor_id and str(sponsor_id).lower() != 'all':
                 qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
@@ -134,19 +167,22 @@ class LabChargesView(APIView):
         data = []
         for item in qs:
             eff_sponsor = item.sponsor or (item.plan.sponsor if item.plan else None)
+            is_gen = bool(not eff_sponsor and not item.plan)
             data.append({
                 'id': item.id,
                 'item': item.item,
                 'item_id': item.item_id or '',
                 'rate': float(item.rate),
                 'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self',
-                'sponsor_code': eff_sponsor.code if eff_sponsor else '',
+                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+                'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
                 'plan_id': item.plan.id if item.plan else None,
-                'plan_name': item.plan.plan if item.plan else 'All Plans',
-                'plan_code': item.plan.code if item.plan else '',
+                'plan_name': item.plan.plan if item.plan else ('General Price' if is_gen else 'All Plans'),
+                'plan_code': item.plan.code if item.plan else ('GENERAL' if is_gen else ''),
+                'is_general': is_gen,
+                'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
             })
-        return Response({'total': len(data), 'charges': data})
+        return Response({'total': len(data), 'charges': data, 'results': data})
 
     def post(self, request):
         item_name = request.data.get('item', '').strip() or request.data.get('item_name', '').strip()
@@ -158,27 +194,28 @@ class LabChargesView(APIView):
         if not item_name:
             return Response({'detail': 'Test item name required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        is_general = (
+            not sponsor_id or
+            str(sponsor_id).lower() in ('', 'general', 'self', 'cash', 'none', 'null')
+        )
+
         plan = None
-        if plan_id and str(plan_id).lower() != 'all':
-            try:
-                plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-            except PatientPlan.DoesNotExist:
-                return Response({'detail': 'Selected Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
-
         sponsor = None
-        if sponsor_id and str(sponsor_id).lower() != 'all':
-            try:
-                sponsor = Sponsor.objects.get(id=sponsor_id)
-            except Sponsor.DoesNotExist:
-                return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
-        elif plan and plan.sponsor:
-            sponsor = plan.sponsor
 
-        if not sponsor and not plan:
-            return Response(
-                {'detail': 'Please select a Sponsor and Plan for this laboratory charge.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not is_general:
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                except PatientPlan.DoesNotExist:
+                    return Response({'detail': 'Selected Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                except Sponsor.DoesNotExist:
+                    return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
+            elif plan and plan.sponsor:
+                sponsor = plan.sponsor
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -193,6 +230,7 @@ class LabChargesView(APIView):
         )
 
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
             'detail': f'Lab charge "{obj.item}" created successfully.',
             'id': obj.id,
@@ -200,11 +238,13 @@ class LabChargesView(APIView):
             'item_id': obj.item_id,
             'rate': float(obj.rate),
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
-            'sponsor_code': eff_sponsor.code if eff_sponsor else '',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+            'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
             'plan_id': obj.plan.id if obj.plan else None,
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans',
-            'plan_code': obj.plan.code if obj.plan else '',
+            'plan_name': obj.plan.plan if obj.plan else ('General Price' if is_gen else 'All Plans'),
+            'plan_code': obj.plan.code if obj.plan else ('GENERAL' if is_gen else ''),
+            'is_general': is_gen,
+            'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
         }, status=status.HTTP_201_CREATED)
 
     def put(self, request, pk=None):
@@ -275,45 +315,55 @@ class DownloadLabTariffTemplateView(APIView):
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
 
-        sponsor_code = "AMH"
-        plan_code = "AIICO SLIVER"
-        sponsor_name = "AIICO MULTISHIELD (AMH)"
-        plan_name = "AIICO SLIVER"
+        is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
 
-        if sponsor_id:
-            try:
-                s = Sponsor.objects.get(id=sponsor_id)
-                sponsor_code = s.code or s.name
-                sponsor_name = s.name
-            except Sponsor.DoesNotExist:
-                pass
+        if is_general:
+            sponsor_code = "GENERAL"
+            plan_code = "GENERAL"
+            sponsor_name = "General / Out-of-Pocket"
+            plan_name = "General Price (Pay from your purse)"
+        else:
+            sponsor_code = "AMH"
+            plan_code = "AIICO SLIVER"
+            sponsor_name = "AIICO MULTISHIELD (AMH)"
+            plan_name = "AIICO SLIVER"
 
-        if plan_id:
-            try:
-                p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                plan_code = p.code or p.plan
-                plan_name = p.plan
-                if p.sponsor:
-                    sponsor_code = p.sponsor.code or p.sponsor.name
-                    sponsor_name = p.sponsor.name
-            except PatientPlan.DoesNotExist:
-                pass
+            if sponsor_id:
+                try:
+                    s = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = s.code or s.name
+                    sponsor_name = s.name
+                except Sponsor.DoesNotExist:
+                    pass
+
+            if plan_id:
+                try:
+                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = p.code or p.plan
+                    plan_name = p.plan
+                    if p.sponsor:
+                        sponsor_code = p.sponsor.code or p.sponsor.name
+                        sponsor_name = p.sponsor.name
+                except PatientPlan.DoesNotExist:
+                    pass
 
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(['item_name', 'test_code', 'rate', 'sponsor_code', 'plan_code', 'notes'])
 
+        notes_text = "General Tariff - Pay from your purse" if is_general else f"Covered under {plan_name}"
+
         samples = [
-            ['Full Blood Count (FBC / CBC)', 'LAB-001', '3500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Malaria Parasite (MP by Microscopy)', 'LAB-002', '1500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Widal Agglutination Test (Typhoid)', 'LAB-003', '2000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Urinalysis (10-Parameter Strip)', 'LAB-004', '1200.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Fasting Blood Sugar (FBS)', 'LAB-005', '1000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Lipid Profile (Full)', 'LAB-006', '6500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Liver Function Test (LFT)', 'LAB-007', '5500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Kidney Function Test (Electrolytes, Urea, Creatinine)', 'LAB-008', '6000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Stool Microscopy, Culture & Sensitivity', 'LAB-009', '4000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Hepatitis B Surface Antigen (HBsAg Screening)', 'LAB-010', '2500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
+            ['Full Blood Count (FBC / CBC)', 'LAB-001', '3500.00', sponsor_code, plan_code, notes_text],
+            ['Malaria Parasite (MP by Microscopy)', 'LAB-002', '1500.00', sponsor_code, plan_code, notes_text],
+            ['Widal Agglutination Test (Typhoid)', 'LAB-003', '2000.00', sponsor_code, plan_code, notes_text],
+            ['Urinalysis (10-Parameter Strip)', 'LAB-004', '1200.00', sponsor_code, plan_code, notes_text],
+            ['Fasting Blood Sugar (FBS)', 'LAB-005', '1000.00', sponsor_code, plan_code, notes_text],
+            ['Lipid Profile (Full)', 'LAB-006', '6500.00', sponsor_code, plan_code, notes_text],
+            ['Liver Function Test (LFT)', 'LAB-007', '5500.00', sponsor_code, plan_code, notes_text],
+            ['Kidney Function Test (Electrolytes, Urea, Creatinine)', 'LAB-008', '6000.00', sponsor_code, plan_code, notes_text],
+            ['Stool Microscopy, Culture & Sensitivity', 'LAB-009', '4000.00', sponsor_code, plan_code, notes_text],
+            ['Hepatitis B Surface Antigen (HBsAg Screening)', 'LAB-010', '2500.00', sponsor_code, plan_code, notes_text],
         ]
         for row in samples:
             writer.writerow(row)
@@ -322,7 +372,7 @@ class DownloadLabTariffTemplateView(APIView):
         response = HttpResponse(csv_content, content_type='text/csv; charset=utf-8')
         safe_sponsor = str(sponsor_code).replace(' ', '_').replace('/', '_')
         safe_plan = str(plan_code).replace(' ', '_').replace('/', '_')
-        filename = f"lab_tariffs_template_{safe_sponsor}_{safe_plan}.csv"
+        filename = "lab_tariffs_template_general.csv" if is_general else f"lab_tariffs_template_{safe_sponsor}_{safe_plan}.csv"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
@@ -336,15 +386,17 @@ class BulkUploadLabTariffView(APIView):
         default_sponsor_id = request.data.get('sponsor_id') or request.data.get('default_sponsor_id')
         default_plan_id = request.data.get('plan_id') or request.data.get('default_plan_id')
 
+        is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+
         default_sponsor = None
-        if default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
+        if not is_general_default and default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
             try:
                 default_sponsor = Sponsor.objects.get(id=default_sponsor_id)
             except Sponsor.DoesNotExist:
                 pass
 
         default_plan = None
-        if default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none'):
+        if not is_general_default and default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none'):
             try:
                 default_plan = PatientPlan.objects.select_related('sponsor').get(id=default_plan_id)
                 if not default_sponsor and default_plan.sponsor:
@@ -464,71 +516,125 @@ class BulkUploadLabTariffView(APIView):
             # Resolve Sponsor
             row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name')
             row_sponsor = None
+            row_is_general = False
+
             if row_sponsor_val and str(row_sponsor_val).strip():
                 raw_s = str(row_sponsor_val).strip()
-                row_sponsor = (
-                    sponsor_by_code.get(raw_s.upper())
-                    or sponsor_by_name.get(raw_s.upper())
-                    or sponsor_by_id.get(raw_s)
-                )
+                if raw_s.upper() in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'GENERAL TARIFF', 'NONE'):
+                    row_is_general = True
+                else:
+                    row_sponsor = (
+                        sponsor_by_code.get(raw_s.upper())
+                        or sponsor_by_name.get(raw_s.upper())
+                        or sponsor_by_id.get(raw_s)
+                    )
 
-            target_sponsor = row_sponsor or default_sponsor
+            target_sponsor = None if (row_is_general or is_general_default) else (row_sponsor or default_sponsor)
 
             # Resolve Plan
             row_plan_val = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name')
             row_plan = None
-            if row_plan_val and str(row_plan_val).strip():
+            if not row_is_general and not is_general_default and row_plan_val and str(row_plan_val).strip():
                 raw_p = str(row_plan_val).strip()
-                row_plan = (
-                    plan_by_code.get(raw_p.upper())
-                    or plan_by_name.get(raw_p.upper())
-                    or plan_by_id.get(raw_p)
-                )
+                if raw_p.upper() not in ('GENERAL', 'ALL', 'NONE', 'NO HMO', 'PAY FROM YOUR PURSE', 'PURSE'):
+                    row_plan = (
+                        plan_by_code.get(raw_p.upper())
+                        or plan_by_name.get(raw_p.upper())
+                        or plan_by_id.get(raw_p)
+                    )
 
-            target_plan = row_plan or default_plan
+            target_plan = None if (row_is_general or is_general_default) else (row_plan or default_plan)
             if target_plan and target_plan.sponsor and not target_sponsor:
                 target_sponsor = target_plan.sponsor
 
-            if not target_sponsor and not target_plan:
-                skipped.append(f"Row {idx} ({item_name}): Could not identify Sponsor or Plan")
+            # Check if this row is a General Tariff (Self-Pay / Pay from your purse)
+            is_general_row = is_general_default or row_is_general or (
+                target_sponsor is None and target_plan is None and (
+                    default_sponsor_id in ('general', 'self', 'cash', 'none', '', None) or
+                    clean_row.get('sponsor_code', '').strip().upper() in ('GENERAL', 'SELF', 'CASH', '')
+                )
+            )
+
+            if not is_general_row and not target_sponsor and not target_plan:
+                skipped.append(f"Row {idx} ({item_name}): Could not identify Sponsor or Plan. Select an HMO or choose General Tariff.")
                 continue
 
-            # Check existing by item + sponsor + plan
-            existing = RadioLabInventory.objects.filter(
-                type='L',
-                item__iexact=item_name,
-                sponsor=target_sponsor,
-                plan=target_plan
-            ).first()
-
-            if not existing and test_code:
+            if is_general_row:
+                # General Tariff: sponsor=None, plan=None
                 existing = RadioLabInventory.objects.filter(
                     type='L',
-                    item_id__iexact=test_code,
+                    item__iexact=item_name,
+                    sponsor__isnull=True,
+                    plan__isnull=True
+                ).first()
+
+                if not existing and test_code:
+                    existing = RadioLabInventory.objects.filter(
+                        type='L',
+                        item_id__iexact=test_code,
+                        sponsor__isnull=True,
+                        plan__isnull=True
+                    ).first()
+
+                if existing:
+                    existing.rate = rate_val
+                    existing.item = item_name
+                    existing.item_id = test_code
+                    existing.sponsor = None
+                    existing.plan = None
+                    existing.staff = staff
+                    existing.save()
+                    updated_count += 1
+                else:
+                    RadioLabInventory.objects.create(
+                        item=item_name,
+                        item_id=test_code,
+                        rate=rate_val,
+                        type='L',
+                        sponsor=None,
+                        plan=None,
+                        staff=staff
+                    )
+                    created_count += 1
+            else:
+                # HMO Tariff: linked to specific Sponsor and/or Plan
+                existing = RadioLabInventory.objects.filter(
+                    type='L',
+                    item__iexact=item_name,
                     sponsor=target_sponsor,
                     plan=target_plan
                 ).first()
 
-            if existing:
-                existing.rate = rate_val
-                existing.item = item_name
-                existing.item_id = test_code
-                existing.staff = staff
-                existing.save()
-                updated_count += 1
-            else:
-                RadioLabInventory.objects.create(
-                    item=item_name,
-                    item_id=test_code,
-                    rate=rate_val,
-                    type='L',
-                    sponsor=target_sponsor,
-                    plan=target_plan,
-                    staff=staff
-                )
-                created_count += 1
+                if not existing and test_code:
+                    existing = RadioLabInventory.objects.filter(
+                        type='L',
+                        item_id__iexact=test_code,
+                        sponsor=target_sponsor,
+                        plan=target_plan
+                    ).first()
+
+                if existing:
+                    existing.rate = rate_val
+                    existing.item = item_name
+                    existing.item_id = test_code
+                    existing.staff = staff
+                    existing.save()
+                    updated_count += 1
+                else:
+                    RadioLabInventory.objects.create(
+                        item=item_name,
+                        item_id=test_code,
+                        rate=rate_val,
+                        type='L',
+                        sponsor=target_sponsor,
+                        plan=target_plan,
+                        staff=staff
+                    )
+                    created_count += 1
 
         msg = f"Bulk upload completed: {created_count} laboratory tariffs created, {updated_count} updated."
+        if is_general_default:
+            msg = f"Bulk upload for General Laboratory Tariffs completed: {created_count} created, {updated_count} updated."
         if skipped:
             msg += f" {len(skipped)} rows were skipped."
 
@@ -1166,53 +1272,71 @@ class MedicationFeesView(APIView):
     def get(self, request):
         qs = PharmacyTariff.objects.all().select_related('sponsor', 'plan', 'plan__sponsor').order_by('product_name')
 
+        tariff_type = request.query_params.get('tariff_type', '').strip().lower()
         patient_id = request.query_params.get('patient')
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
         search = request.query_params.get('search', '').strip()
 
+        # If explicitly requesting general out-of-pocket tariffs
+        if tariff_type == 'general' or (sponsor_id and str(sponsor_id).lower() in ('general', 'self', 'cash')):
+            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
         # If filtering for a specific patient
-        if patient_id:
-            try:
-                patient = PatientProfile.objects.select_related('sponsor', 'plan').get(id=patient_id)
-                patient_sponsor = patient.sponsor
-                patient_plan = patient.plan
+        elif patient_id or tariff_type == 'covered':
+            if patient_id:
+                try:
+                    patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category', 'sponsor__category').get(id=patient_id)
+                    patient_sponsor = patient.sponsor
+                    patient_plan = patient.plan
 
-                # If patient record didn't have sponsor/plan directly attached, fallback to query params
-                if not patient_sponsor and sponsor_id and str(sponsor_id).lower() != 'all':
-                    try:
-                        patient_sponsor = Sponsor.objects.get(id=sponsor_id)
-                    except Sponsor.DoesNotExist:
-                        pass
-                if not patient_plan and plan_id and str(plan_id).lower() != 'all':
-                    try:
-                        patient_plan = PatientPlan.objects.get(id=plan_id)
-                    except PatientPlan.DoesNotExist:
-                        pass
+                    # Check if patient or sponsor has a Private category
+                    is_private_patient = (
+                        (patient.category and 'private' in str(patient.category.category).lower()) or
+                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
+                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
+                        (not patient_sponsor and not patient_plan)
+                    )
 
-                if patient_sponsor and patient_plan:
-                    patient_filter = (
-                        (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                        Q(plan=patient_plan) |
-                        (Q(sponsor=patient_sponsor) & Q(plan__isnull=True)) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                elif patient_plan:
-                    patient_filter = (
-                        Q(plan=patient_plan) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                elif patient_sponsor:
-                    patient_filter = (
-                        Q(sponsor=patient_sponsor) |
-                        Q(plan__sponsor=patient_sponsor) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                else:
-                    patient_filter = (Q(sponsor__isnull=True) & Q(plan__isnull=True))
+                    if is_private_patient:
+                        # Private sponsor maintains the same price as general!
+                        # General price is always available for them because they pay out of pocket
+                        qs = qs.filter(
+                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
+                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                        )
+                    else:
+                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
+                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                            except Sponsor.DoesNotExist:
+                                pass
+                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_plan = PatientPlan.objects.get(id=plan_id)
+                            except PatientPlan.DoesNotExist:
+                                pass
 
-                qs = qs.filter(patient_filter)
-            except PatientProfile.DoesNotExist:
+                        if tariff_type == 'general':
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        elif patient_sponsor and patient_plan:
+                            qs = qs.filter(
+                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                                Q(plan=patient_plan) |
+                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
+                            )
+                        elif patient_plan:
+                            qs = qs.filter(plan=patient_plan)
+                        elif patient_sponsor:
+                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
+                        else:
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                except PatientProfile.DoesNotExist:
+                    if sponsor_id and str(sponsor_id).lower() != 'all':
+                        qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
+                    if plan_id and str(plan_id).lower() != 'all':
+                        qs = qs.filter(plan_id=plan_id)
+            else:
                 if sponsor_id and str(sponsor_id).lower() != 'all':
                     qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
                 if plan_id and str(plan_id).lower() != 'all':
@@ -1232,6 +1356,7 @@ class MedicationFeesView(APIView):
         data = []
         for p in qs:
             eff_sponsor = p.sponsor or (p.plan.sponsor if p.plan else None)
+            is_gen = bool(not eff_sponsor and not p.plan)
             data.append({
                 'id': p.id,
                 'product_name': p.product_name,
@@ -1239,11 +1364,13 @@ class MedicationFeesView(APIView):
                 'sku': p.product_id,
                 'rate': float(p.rate),
                 'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self',
-                'sponsor_code': eff_sponsor.code if eff_sponsor else '',
+                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+                'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
                 'plan_id': p.plan.id if p.plan else None,
-                'plan_name': p.plan.plan if p.plan else 'All Plans',
-                'plan_code': p.plan.code if p.plan else '',
+                'plan_name': p.plan.plan if p.plan else ('General Price' if is_gen else 'All Plans'),
+                'plan_code': p.plan.code if p.plan else ('GENERAL' if is_gen else ''),
+                'is_general': is_gen,
+                'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
             })
         return Response({'total': len(data), 'medications': data, 'results': data})
 
@@ -1257,27 +1384,28 @@ class MedicationFeesView(APIView):
         if not product_name:
             return Response({'detail': 'Product name required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        is_general = (
+            not sponsor_id or
+            str(sponsor_id).lower() in ('', 'general', 'self', 'cash', 'none', 'null')
+        )
+
         plan = None
-        if plan_id and str(plan_id).lower() != 'all':
-            try:
-                plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-            except PatientPlan.DoesNotExist:
-                return Response({'detail': 'Selected Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
-
         sponsor = None
-        if sponsor_id and str(sponsor_id).lower() != 'all':
-            try:
-                sponsor = Sponsor.objects.get(id=sponsor_id)
-            except Sponsor.DoesNotExist:
-                return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
-        elif plan and plan.sponsor:
-            sponsor = plan.sponsor
 
-        if not sponsor and not plan:
-            return Response(
-                {'detail': 'Please select a Sponsor and Plan for this medication tariff.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not is_general:
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                except PatientPlan.DoesNotExist:
+                    return Response({'detail': 'Selected Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                except Sponsor.DoesNotExist:
+                    return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
+            elif plan and plan.sponsor:
+                sponsor = plan.sponsor
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -1291,6 +1419,7 @@ class MedicationFeesView(APIView):
         )
 
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
             'detail': f'Medication tariff "{obj.product_name}" created successfully.',
             'id': obj.id,
@@ -1298,10 +1427,12 @@ class MedicationFeesView(APIView):
             'product_id': obj.product_id,
             'rate': float(obj.rate),
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
-            'sponsor_code': eff_sponsor.code if eff_sponsor else '',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+            'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
             'plan_id': obj.plan.id if obj.plan else None,
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans',
+            'plan_name': obj.plan.plan if obj.plan else ('General Price' if is_gen else 'All Plans'),
+            'is_general': is_gen,
+            'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
         }, status=status.HTTP_201_CREATED)
 
     def put(self, request, pk=None):
@@ -1319,7 +1450,7 @@ class MedicationFeesView(APIView):
 
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         if sponsor_id is not None:
-            if sponsor_id and str(sponsor_id).lower() != 'all':
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'self', 'none', 'null'):
                 try:
                     obj.sponsor = Sponsor.objects.get(id=sponsor_id)
                 except Sponsor.DoesNotExist:
@@ -1329,7 +1460,7 @@ class MedicationFeesView(APIView):
 
         plan_id = request.data.get('plan_id') or request.data.get('plan')
         if plan_id is not None:
-            if plan_id and str(plan_id).lower() != 'all':
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none', 'null'):
                 try:
                     obj.plan = PatientPlan.objects.get(id=plan_id)
                     if obj.plan.sponsor and not obj.sponsor:
@@ -1341,6 +1472,7 @@ class MedicationFeesView(APIView):
 
         obj.save()
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
             'detail': 'Medication tariff updated successfully.',
             'id': obj.id,
@@ -1348,14 +1480,191 @@ class MedicationFeesView(APIView):
             'product_id': obj.product_id,
             'rate': float(obj.rate),
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
             'plan_id': obj.plan.id if obj.plan else None,
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans',
+            'plan_name': obj.plan.plan if obj.plan else ('General Price' if is_gen else 'All Plans'),
+            'is_general': is_gen,
+            'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
         })
 
     def delete(self, request, pk=None):
         PharmacyTariff.objects.filter(id=pk).delete()
         return Response({'detail': 'Medication tariff deleted.'})
+
+
+# 2.1b Load / Sync General Medication Prices (Hospital Formulary / Inventory Standard Prices)
+class LoadGeneralMedicationPricesView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        from inventory.models import Product, PharmacyTariff
+        from django.db.models import Max
+
+        staff = request.user if request.user.is_authenticated else User.objects.first()
+        created_count = 0
+        updated_count = 0
+
+        # Baseline clinical formulary prices for general self-pay patients
+        BASELINE_MED_PRICES = {
+            'Paracetamol 500mg Tablet': ('MED-001', Decimal('500.00')),
+            'Amoxicillin 500mg Capsule': ('MED-002', Decimal('1200.00')),
+            'Artemether/Lumefantrine 20/120mg (Coartem)': ('MED-003', Decimal('2500.00')),
+            'Ciprofloxacin 500mg Tablet': ('MED-004', Decimal('1800.00')),
+            'Metformin 500mg Tablet': ('MED-005', Decimal('950.00')),
+            'Amlodipine 5mg Tablet': ('MED-006', Decimal('1400.00')),
+            'Ibuprofen 400mg Tablet': ('MED-007', Decimal('600.00')),
+            'Omeprazole 20mg Capsule': ('MED-008', Decimal('1100.00')),
+            'Ceftriaxone 1g Injection': ('MED-009', Decimal('3500.00')),
+            'Oral Rehydration Salts (ORS) Sachet': ('MED-010', Decimal('300.00')),
+            'Dextromethorphan Syrup': ('MED-011', Decimal('1500.00')),
+        }
+
+        # 1. Sync from inventory Product model if any exist
+        inv_products = Product.objects.filter(price__gt=0)
+        for prod in inv_products:
+            sku = prod.product_id or f"SKU-{prod.id:04d}"
+            tariff, created = PharmacyTariff.objects.get_or_create(
+                product_name=prod.product_name,
+                sponsor__isnull=True,
+                plan__isnull=True,
+                defaults={
+                    'product_id': sku,
+                    'rate': prod.price,
+                    'staff': staff,
+                    'sponsor': None,
+                    'plan': None,
+                }
+            )
+            if created:
+                created_count += 1
+            else:
+                tariff.rate = prod.price
+                tariff.product_id = sku
+                tariff.save()
+                updated_count += 1
+
+        # 2. Sync all distinct products from PharmacyTariff that don't have general rate yet
+        existing_names = list(PharmacyTariff.objects.values_list('product_name', flat=True).distinct())
+        all_drug_names = set(existing_names).union(BASELINE_MED_PRICES.keys())
+
+        for name in all_drug_names:
+            if not name:
+                continue
+            gen_tariff = PharmacyTariff.objects.filter(
+                product_name__iexact=name.strip(),
+                sponsor__isnull=True,
+                plan__isnull=True
+            ).first()
+
+            if not gen_tariff:
+                baseline = BASELINE_MED_PRICES.get(name.strip())
+                if baseline:
+                    sku, rate = baseline
+                else:
+                    existing_t = PharmacyTariff.objects.filter(product_name__iexact=name.strip()).first()
+                    sku = (existing_t.product_id if existing_t else None) or f"GEN-{PharmacyTariff.objects.count()+1:03d}"
+                    max_rate = PharmacyTariff.objects.filter(product_name__iexact=name.strip()).aggregate(Max('rate'))['rate__max']
+                    rate = max_rate or Decimal('1000.00')
+
+                PharmacyTariff.objects.create(
+                    product_name=name.strip(),
+                    product_id=sku,
+                    rate=rate,
+                    sponsor=None,
+                    plan=None,
+                    staff=staff
+                )
+                created_count += 1
+
+                # Keep Product inventory table in sync
+                Product.objects.get_or_create(
+                    product_name=name.strip(),
+                    defaults={
+                        'product_id': sku,
+                        'price': rate,
+                        'stock': 100,
+                        'staff': staff,
+                    }
+                )
+
+        total_general = PharmacyTariff.objects.filter(sponsor__isnull=True, plan__isnull=True).count()
+        return Response({
+            'detail': f'Loaded {created_count} new general medication tariffs ({total_general} total active general rates).',
+            'created': created_count,
+            'updated': updated_count,
+            'total_general': total_general,
+        })
+
+
+class LoadGeneralLabPricesView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        from radio_lab.models import RadioLabInventory
+        from django.db.models import Max
+
+        staff = request.user if request.user.is_authenticated else User.objects.first()
+        created_count = 0
+        updated_count = 0
+
+        # Baseline clinical laboratory investigation prices for general self-pay patients
+        BASELINE_LAB_PRICES = {
+            'Full Blood Count (FBC / CBC)': ('LAB-001', Decimal('3000.00')),
+            'Malaria Parasite (MP by Microscopy)': ('LAB-002', Decimal('1500.00')),
+            'Widal Agglutination Test (Typhoid)': ('LAB-003', Decimal('2000.00')),
+            'Urinalysis (10-Parameter Strip)': ('LAB-004', Decimal('1200.00')),
+            'Fasting Blood Sugar (FBS)': ('LAB-005', Decimal('1000.00')),
+            'Lipid Profile (Full)': ('LAB-006', Decimal('6000.00')),
+            'Liver Function Test (LFT)': ('LAB-007', Decimal('5000.00')),
+            'Kidney Function Test (Electrolytes, Urea, Creatinine)': ('LAB-008', Decimal('5500.00')),
+            'Stool Microscopy, Culture & Sensitivity': ('LAB-009', Decimal('3500.00')),
+            'Hepatitis B Surface Antigen (HBsAg Screening)': ('LAB-010', Decimal('2500.00')),
+        }
+
+        # Sync all distinct laboratory tests from existing RadioLabInventory (type='L')
+        existing_items = list(RadioLabInventory.objects.filter(type='L').values_list('item', flat=True).distinct())
+        all_lab_names = set(existing_items).union(BASELINE_LAB_PRICES.keys())
+
+        for name in all_lab_names:
+            if not name:
+                continue
+            gen_tariff = RadioLabInventory.objects.filter(
+                item__iexact=name.strip(),
+                type='L',
+                sponsor__isnull=True,
+                plan__isnull=True
+            ).first()
+
+            if not gen_tariff:
+                baseline = BASELINE_LAB_PRICES.get(name.strip())
+                if baseline:
+                    code, rate = baseline
+                else:
+                    existing_t = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='L').first()
+                    code = (existing_t.item_id if existing_t else None) or f"LAB-{RadioLabInventory.objects.filter(type='L').count()+1:03d}"
+                    max_rate = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='L').aggregate(Max('rate'))['rate__max']
+                    rate = max_rate or Decimal('2000.00')
+
+                RadioLabInventory.objects.create(
+                    item=name.strip(),
+                    item_id=code,
+                    rate=rate,
+                    type='L',
+                    sponsor=None,
+                    plan=None,
+                    staff=staff
+                )
+                created_count += 1
+            else:
+                updated_count += 1
+
+        total_general = RadioLabInventory.objects.filter(type='L', sponsor__isnull=True, plan__isnull=True).count()
+        return Response({
+            'detail': f'Loaded {created_count} general laboratory tariffs ({total_general} total active general rates).',
+            'created': created_count,
+            'updated': updated_count,
+            'total_general': total_general,
+        })
 
 
 # 2.2 Download Medication Tariff Template
@@ -1584,7 +1893,10 @@ class BulkUploadMedicationTariffView(APIView):
             sponsor_hint = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name') or clean_row.get('hmo')
             if sponsor_hint:
                 s_key = str(sponsor_hint).strip().upper()
-                if s_key in sponsor_by_code:
+                if s_key in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'NONE'):
+                    target_sponsor = None
+                    target_plan = None
+                elif s_key in sponsor_by_code:
                     target_sponsor = sponsor_by_code[s_key]
                 elif s_key in sponsor_by_name:
                     target_sponsor = sponsor_by_name[s_key]
