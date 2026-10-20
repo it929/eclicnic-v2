@@ -425,12 +425,31 @@ class TransactionTb(models.Model):
 
 
 class WrittenPrescriptions(models.Model):
-    item = models.CharField(null=True, max_length=60)
-    instruction = models.TextField(null=True)
+    item = models.CharField(null=True, max_length=200)
+    instruction = models.TextField(null=True, blank=True)
     quantity = models.PositiveIntegerField(default=0)
+    dosage_form = models.CharField(max_length=50, null=True, blank=True)
+    route = models.CharField(max_length=60, null=True, blank=True)
+    strength = models.CharField(max_length=100, null=True, blank=True)
+    dose_qty = models.CharField(max_length=50, null=True, blank=True)
+    dose_unit = models.CharField(max_length=50, null=True, blank=True)
+    frequency = models.CharField(max_length=100, null=True, blank=True)
+    duration = models.CharField(max_length=50, null=True, blank=True)
+    duration_unit = models.CharField(max_length=50, null=True, blank=True)
+    dispense_unit = models.CharField(max_length=50, null=True, blank=True)
+    dispense_quantity = models.PositiveIntegerField(default=0)
+    dispense_detail = models.CharField(max_length=200, null=True, blank=True)
+    comment = models.CharField(max_length=255, null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=30, default='pending')
+    dispensed_at = models.DateTimeField(null=True, blank=True)
+    dispensed_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='dispensed_prescriptions')
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
     provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
     created_date = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['-created_date']
+
     def __str__(self):
-        return f'{self.quantity} units of {self.item} for {self.patient.surname} {self.patient.first_name}'
+        return f'{self.dispense_detail or self.quantity} of {self.item} for {self.patient.surname} {self.patient.first_name}'

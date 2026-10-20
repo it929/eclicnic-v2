@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from users.models import User, Category
-from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor
+from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor, FamilyFolder, FamilyMember
 from queue_operations.models import (
     VisitPurpose, NurseWaitingList, PatientBackgroundHealth, DoctorWaitingList,
-    PatientEncounter, PatientDiagnosis, PresentingComplaint
+    PatientEncounter, PatientDiagnosis, PresentingComplaint, WrittenPrescriptions
 )
 from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
@@ -40,12 +40,96 @@ class UserSerializer(serializers.ModelSerializer):
                     return f"/media/{val}"
         return None
 
+    role_name = serializers.SerializerMethodField(read_only=True)
+    role_modules = serializers.SerializerMethodField(read_only=True)
+    role_submodules = serializers.SerializerMethodField(read_only=True)
+
+    def get_role_name(self, obj):
+        if obj.role:
+            return obj.role.name
+        if obj.department and obj.department.department:
+            return obj.department.department
+        return 'Admin'
+
+    def get_role_modules(self, obj):
+        role = obj.role
+        if not role and obj.department:
+            from users.models import Role
+            role = Role.objects.filter(name__iexact=obj.department.department).first()
+        if not role:
+            from users.models import Role
+            role = Role.objects.filter(name='Admin').first()
+        if role:
+            from users.models import RolePermission
+            return list(RolePermission.objects.filter(role=role).values_list('module__code', flat=True))
+        return []
+
+    def get_role_submodules(self, obj):
+        role = obj.role
+        if not role and obj.department:
+            from users.models import Role
+            role = Role.objects.filter(name__iexact=obj.department.department).first()
+        if not role:
+            from users.models import Role
+            role = Role.objects.filter(name='Admin').first()
+        if role:
+            from users.models import RolePermission
+            perms = RolePermission.objects.filter(role=role).prefetch_related('submodules')
+            sub_dict = {}
+            for p in perms:
+                sub_dict[p.module.code] = list(p.submodules.values_list('code', flat=True))
+            return sub_dict
+        return {}
+
+    role_submodule_details = serializers.SerializerMethodField(read_only=True)
+
+    def get_role_submodule_details(self, obj):
+        role = obj.role
+        if not role and obj.department:
+            from users.models import Role
+            role = Role.objects.filter(name__iexact=obj.department.department).first()
+        if not role:
+            from users.models import Role
+            role = Role.objects.filter(name='Admin').first()
+        if role:
+            from users.models import RolePermission
+            perms = RolePermission.objects.filter(role=role).prefetch_related('submodules', 'module').order_by('module__order', 'module__id')
+            modules_list = []
+            for p in perms:
+                subs = [
+                    {
+                        'id': s.id,
+                        'name': s.name,
+                        'code': s.code,
+                        'route': s.route or '',
+                        'icon': s.icon or 'fa-circle',
+                        'tab_key': s.tab_key or '',
+                        'sub_tab': s.sub_tab or '',
+                        'sub_sub_tab': s.sub_sub_tab or '',
+                        'order': s.order,
+                    }
+                    for s in p.submodules.filter(is_active=True).order_by('order', 'id')
+                ]
+                modules_list.append({
+                    'id': p.module.id,
+                    'code': p.module.code,
+                    'name': p.module.name,
+                    'icon': p.module.icon,
+                    'color': p.module.color,
+                    'primary_tab': p.module.primary_tab,
+                    'submodules': subs
+                })
+            return modules_list
+        return []
+
     class Meta:
         model = User
         fields = [
             'id', 'username', 'fullname', 'email', 'status', 'gender',
             'phone_number', 'address', 'dob', 'department', 'department_name',
-            'department_modules', 'active', 'created', 'avatar', 'avatar_url'
+            'department_modules', 'role', 'role_name', 'role_modules', 'role_submodules',
+            'role_submodule_details',
+            'active', 'created', 'avatar', 'avatar_url'
         ]
         extra_kwargs = {
             'password': {'write_only': True},
@@ -114,12 +198,18 @@ class PatientPlanSerializer(serializers.ModelSerializer):
 
 
 class PatientProfileSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source='get_full_name', read_only=True)
+    patient_full_name = serializers.CharField(source='get_full_name', read_only=True)
     category_name = serializers.CharField(source='category.category', read_only=True)
     sponsor_name = serializers.CharField(source='get_sponsor_name', read_only=True)
+    sponsor_category = serializers.CharField(source='sponsor.category.category', read_only=True, default='')
     plan_name = serializers.CharField(source='plan.plan', read_only=True)
     full_name = serializers.CharField(read_only=True)
     age = serializers.IntegerField(source='get_age', read_only=True)
     created_by_name = serializers.CharField(source='created_by.fullname', read_only=True)
+    family_name = serializers.CharField(source='family_folder.family_name', read_only=True)
+    family_number = serializers.CharField(source='family_folder.family_number', read_only=True)
+    family_folder_type = serializers.CharField(source='family_folder.folder_type', read_only=True)
 
     def validate_email_address(self, value):
         if not value or not str(value).strip():
@@ -145,11 +235,126 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         model = PatientProfile
         fields = [
             'id', 'hospital_number', 'surname', 'first_name', 'other_name',
+            'patient_name', 'patient_full_name',
             'full_name', 'dob', 'age', 'gender', 'patient_type', 'phone_number',
-            'address', 'category', 'category_name', 'sponsor', 'sponsor_name',
+            'address', 'category', 'category_name', 'sponsor', 'sponsor_name', 'sponsor_category',
             'plan', 'plan_name', 'email_address', 'allergies', 'relationship_to_patient',
-            'phone_numbers', 'insurance_policy_number', 'active', 'packages',
+            'phone_numbers', 'next_of_kin_name', 'next_of_kin_relationship', 'next_of_kin_phone',
+            'insurance_policy_number', 'active', 'deactivated_date', 'deactivated_by', 'packages',
+            'family_folder', 'family_name', 'family_number', 'family_folder_type', 'family_member_suffix',
             'created_date', 'created_by', 'created_by_name'
+        ]
+
+
+class FamilyMemberSerializer(serializers.ModelSerializer):
+    patient_name = serializers.SerializerMethodField(read_only=True)
+    patient_surname = serializers.SerializerMethodField(read_only=True)
+    patient_first_name = serializers.SerializerMethodField(read_only=True)
+    patient_dob = serializers.SerializerMethodField(read_only=True)
+    patient_age = serializers.SerializerMethodField(read_only=True)
+    patient_gender = serializers.SerializerMethodField(read_only=True)
+    patient_phone = serializers.SerializerMethodField(read_only=True)
+    patient_category_name = serializers.SerializerMethodField(read_only=True)
+    patient_sponsor_name = serializers.SerializerMethodField(read_only=True)
+    patient_plan_name = serializers.SerializerMethodField(read_only=True)
+    patient_avatar = serializers.SerializerMethodField(read_only=True)
+
+    def get_patient_name(self, obj):
+        return obj.patient.get_full_name() if obj.patient else None
+
+    def get_patient_surname(self, obj):
+        return obj.patient.surname if obj.patient else None
+
+    def get_patient_first_name(self, obj):
+        return obj.patient.first_name if obj.patient else None
+
+    def get_patient_dob(self, obj):
+        return obj.patient.dob if obj.patient else None
+
+    def get_patient_age(self, obj):
+        return obj.patient.get_age if obj.patient else None
+
+    def get_patient_gender(self, obj):
+        return obj.patient.gender if obj.patient else None
+
+    def get_patient_phone(self, obj):
+        return obj.patient.phone_number if obj.patient else None
+
+    def get_patient_category_name(self, obj):
+        if obj.patient and obj.patient.category:
+            return obj.patient.category.category
+        return None
+
+    def get_patient_sponsor_name(self, obj):
+        if obj.patient:
+            return obj.patient.get_sponsor_name()
+        return None
+
+    def get_patient_plan_name(self, obj):
+        if obj.patient and obj.patient.plan:
+            return obj.patient.plan.plan
+        return None
+
+    def get_patient_avatar(self, obj):
+        try:
+            if obj.patient and obj.patient.avatar and str(obj.patient.avatar) != 'patient-profile/avatar.svg':
+                return obj.patient.avatar.url
+        except Exception:
+            pass
+        return None
+
+    class Meta:
+        model = FamilyMember
+        fields = [
+            'id', 'family', 'patient', 'patient_name', 'patient_surname', 'patient_first_name',
+            'patient_dob', 'patient_age', 'patient_gender', 'patient_phone', 'patient_category_name',
+            'patient_sponsor_name', 'patient_plan_name', 'patient_avatar', 'letter_suffix', 'assigned_hospital_number',
+            'original_hospital_number', 'relationship', 'is_principal', 'added_date', 'added_by'
+        ]
+
+
+class FamilyFolderSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.category', read_only=True)
+    sponsor_name = serializers.CharField(source='sponsor.name', read_only=True)
+    sponsor_code = serializers.CharField(source='sponsor.code', read_only=True)
+    principal_patient_name = serializers.SerializerMethodField(read_only=True)
+    principal_patient_hospital_number = serializers.SerializerMethodField(read_only=True)
+    principal_patient_phone = serializers.SerializerMethodField(read_only=True)
+    principal_patient_plan = serializers.SerializerMethodField(read_only=True)
+    principal_patient_sponsor = serializers.SerializerMethodField(read_only=True)
+    member_count = serializers.IntegerField(read_only=True)
+    members = FamilyMemberSerializer(many=True, read_only=True)
+    created_by_name = serializers.CharField(source='created_by.fullname', read_only=True)
+
+    def get_principal_patient_name(self, obj):
+        return obj.principal_patient.get_full_name() if obj.principal_patient else None
+
+    def get_principal_patient_hospital_number(self, obj):
+        return obj.principal_patient.hospital_number if obj.principal_patient else None
+
+    def get_principal_patient_phone(self, obj):
+        return obj.principal_patient.phone_number if obj.principal_patient else None
+
+    def get_principal_patient_plan(self, obj):
+        if obj.principal_patient and obj.principal_patient.plan:
+            return obj.principal_patient.plan.plan
+        return None
+
+    def get_principal_patient_sponsor(self, obj):
+        if obj.principal_patient:
+            return obj.principal_patient.get_sponsor_name()
+        return None
+
+    class Meta:
+        model = FamilyFolder
+        fields = [
+            'id', 'family_name', 'family_number', 'category', 'category_name',
+            'sponsor', 'sponsor_name', 'sponsor_code', 'folder_type',
+            'physical_folder_number', 'storage_location',
+            'principal_patient', 'principal_patient_name', 'principal_patient_hospital_number', 'principal_patient_phone',
+            'principal_patient_plan', 'principal_patient_sponsor',
+            'phone_number', 'address', 'notes', 'member_count', 'members',
+            'created_by', 'created_by_name', 'created_date', 'updated_date', 'is_active'
         ]
 
 
@@ -206,6 +411,8 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
     is_expired = serializers.BooleanField(read_only=True)
     is_completed = serializers.BooleanField(read_only=True)
     is_cancelled = serializers.BooleanField(read_only=True)
+    consultation_paid = serializers.SerializerMethodField(read_only=True)
+    consultation_invoiced = serializers.SerializerMethodField(read_only=True)
     today_vitals = serializers.SerializerMethodField(read_only=True)
     has_vitals = serializers.SerializerMethodField(read_only=True)
     has_action_taken = serializers.SerializerMethodField(read_only=True)
@@ -219,6 +426,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
             'provider', 'provider_name', 'clinician', 'purpose', 'visit_type',
             'arrival_date', 'arrival_time', 'comment', 'anc_weeks', 'created_date',
             'completed', 'is_today', 'is_upcoming', 'is_expired', 'is_completed', 'is_cancelled',
+            'consultation_paid', 'consultation_invoiced',
             'today_vitals', 'has_vitals', 'has_action_taken', 'can_cancel'
         ]
 
@@ -286,6 +494,33 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
 
     def get_can_cancel(self, obj):
         return obj.can_cancel
+
+    def get_consultation_paid(self, obj):
+        if not obj.patient_id:
+            return False
+        from Billings.models import Invoice
+        from django.utils import timezone
+        today = timezone.localdate()
+        target_date = obj.arrival_date or today
+        return Invoice.objects.filter(
+            patient_id=obj.patient_id,
+            product__icontains='Consultation',
+            created_date__date=target_date,
+            completed=1
+        ).exists()
+
+    def get_consultation_invoiced(self, obj):
+        if not obj.patient_id:
+            return False
+        from Billings.models import Invoice
+        from django.utils import timezone
+        today = timezone.localdate()
+        target_date = obj.arrival_date or today
+        return Invoice.objects.filter(
+            patient_id=obj.patient_id,
+            product__icontains='Consultation',
+            created_date__date=target_date
+        ).exists()
 
 
 # Billings Serializers
@@ -469,4 +704,28 @@ class PresentingComplaintSerializer(serializers.ModelSerializer):
     class Meta:
         model = PresentingComplaint
         fields = ['id', 'name', 'category', 'category_display', 'is_active', 'created_at']
+
+
+class WrittenPrescriptionSerializer(serializers.ModelSerializer):
+    provider_name = serializers.CharField(source='provider.fullname', read_only=True)
+    patient_name = serializers.SerializerMethodField(read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    dispensed_by_name = serializers.CharField(source='dispensed_by.fullname', read_only=True)
+
+    def get_patient_name(self, obj):
+        if obj.patient:
+            return f"{obj.patient.surname} {obj.patient.first_name}"
+        return "Unknown"
+
+    class Meta:
+        model = WrittenPrescriptions
+        fields = [
+            'id', 'patient', 'patient_name', 'hospital_number', 'provider', 'provider_name',
+            'item', 'instruction', 'quantity', 'dosage_form', 'route', 'strength',
+            'dose_qty', 'dose_unit', 'frequency', 'duration', 'duration_unit',
+            'dispense_unit', 'dispense_quantity', 'dispense_detail', 'comment',
+            'start_date', 'status', 'dispensed_at', 'dispensed_by', 'dispensed_by_name',
+            'created_date'
+        ]
+        read_only_fields = ['provider', 'created_date', 'dispensed_at', 'dispensed_by']
 

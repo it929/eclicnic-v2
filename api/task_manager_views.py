@@ -24,9 +24,11 @@ class StaffManagerView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        users = User.objects.all().select_related('department').order_by('department__department')
+        users = User.objects.all().select_related('department', 'role').order_by('department__department')
         user_list = []
         for u in users:
+            r_id = u.role.id if u.role else (u.department.linked_role.id if (u.department and hasattr(u.department, 'linked_role') and u.department.linked_role) else None)
+            r_name = u.role.name if u.role else (u.department.department if u.department else 'Admin')
             user_list.append({
                 'id': u.id,
                 'username': u.username,
@@ -38,9 +40,11 @@ class StaffManagerView(APIView):
                 'address': u.address or '',
                 'department_id': u.department.id if u.department else None,
                 'department_name': u.department.department if u.department else 'General',
+                'role_id': r_id,
+                'role_name': r_name,
                 'status': u.status or 'Active',
                 'active': u.active if u.active is not None else '1',
-                'has_pin': bool(u.pin and u.pin != 0),
+                'has_pin': bool(u.has_pin),
                 'created': u.created.isoformat() if u.created else None,
             })
         return Response({
@@ -57,6 +61,7 @@ class StaffManagerView(APIView):
         dob = request.data.get('dob') or None
         address = request.data.get('address', '').strip() or None
         department_id = request.data.get('department_id')
+        role_id = request.data.get('role_id')
         password = request.data.get('password', '').strip() or 'password123'
         pin = request.data.get('pin')
 
@@ -81,6 +86,17 @@ class StaffManagerView(APIView):
             except Category.DoesNotExist:
                 pass
 
+        role_obj = None
+        if role_id:
+            try:
+                from users.models import Role
+                role_obj = Role.objects.get(id=role_id)
+            except Exception:
+                pass
+        elif dept:
+            from users.models import Role
+            role_obj = Role.objects.filter(name__iexact=dept.department).first()
+
         user = User(
             username=username,
             fullname=fullname,
@@ -90,17 +106,15 @@ class StaffManagerView(APIView):
             dob=dob,
             address=address,
             department=dept,
+            role=role_obj,
             status='Active',
             active='1',
         )
 
-        if pin:
-            try:
-                user.pin = int(pin)
-            except (ValueError, TypeError):
-                user.pin = 1234
+        if pin and str(pin).strip() != '':
+            user.set_pin(pin)
         else:
-            user.pin = 1234
+            user.set_pin(1234)
 
         user.set_password(password)
         user.save()
@@ -129,8 +143,8 @@ class StaffManagerView(APIView):
         # Admin PIN verification if admin user has configured PIN
         pin_code = request.data.get('admin_pin')
         admin_user = request.user if request.user.is_authenticated else User.objects.first()
-        if admin_user and admin_user.pin and admin_user.pin != 0:
-            if not pin_code or str(pin_code) != str(admin_user.pin):
+        if admin_user and admin_user.has_pin:
+            if not pin_code or not admin_user.check_pin(pin_code):
                 return Response({'detail': 'Invalid Admin Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
 
         username = request.data.get('username', '').strip()
@@ -174,10 +188,23 @@ class StaffManagerView(APIView):
         if address is not None:
             target_user.address = address
 
-        if department_id:
+        role_id = request.data.get('role_id')
+        if role_id:
+            try:
+                from users.models import Role
+                target_user.role = Role.objects.get(id=role_id)
+                if target_user.role.category:
+                    target_user.department = target_user.role.category
+            except Exception:
+                pass
+        elif department_id:
             try:
                 dept = Category.objects.get(id=department_id)
                 target_user.department = dept
+                from users.models import Role
+                r = Role.objects.filter(name__iexact=dept.department).first()
+                if r:
+                    target_user.role = r
             except Category.DoesNotExist:
                 pass
 
@@ -189,10 +216,7 @@ class StaffManagerView(APIView):
             target_user.status = 'Active' if str(active_val) == '1' else 'Inactive'
 
         if pin is not None and str(pin).strip() != '':
-            try:
-                target_user.pin = int(pin)
-            except (ValueError, TypeError):
-                pass
+            target_user.set_pin(pin)
 
         if password:
             target_user.set_password(password)
@@ -214,7 +238,7 @@ class StaffManagerView(APIView):
                 'department_name': target_user.department.department if target_user.department else 'General',
                 'status': target_user.status,
                 'active': target_user.active,
-                'has_pin': bool(target_user.pin and target_user.pin != 0),
+                'has_pin': bool(target_user.has_pin),
             }
         })
 
@@ -229,8 +253,8 @@ class StaffActionView(APIView):
 
         # Admin PIN verification
         admin_user = request.user if request.user.is_authenticated else User.objects.first()
-        if admin_user and admin_user.pin and admin_user.pin != 0:
-            if not pin_code or str(pin_code) != str(admin_user.pin):
+        if admin_user and admin_user.has_pin:
+            if not pin_code or not admin_user.check_pin(pin_code):
                 return Response({'detail': 'Invalid Admin Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
