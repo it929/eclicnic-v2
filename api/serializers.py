@@ -3,7 +3,8 @@ from users.models import User, Category
 from patients.models import PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor, FamilyFolder, FamilyMember
 from queue_operations.models import (
     VisitPurpose, NurseWaitingList, PatientBackgroundHealth, DoctorWaitingList,
-    PatientEncounter, PatientDiagnosis, PresentingComplaint, WrittenPrescriptions
+    PatientEncounter, PatientDiagnosis, PresentingComplaint, WrittenPrescriptions,
+    ConsultationDraft
 )
 from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
@@ -413,6 +414,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
     is_cancelled = serializers.BooleanField(read_only=True)
     consultation_paid = serializers.SerializerMethodField(read_only=True)
     consultation_invoiced = serializers.SerializerMethodField(read_only=True)
+    has_draft = serializers.SerializerMethodField(read_only=True)
     today_vitals = serializers.SerializerMethodField(read_only=True)
     has_vitals = serializers.SerializerMethodField(read_only=True)
     has_action_taken = serializers.SerializerMethodField(read_only=True)
@@ -426,7 +428,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
             'provider', 'provider_name', 'clinician', 'purpose', 'visit_type',
             'arrival_date', 'arrival_time', 'comment', 'anc_weeks', 'created_date',
             'completed', 'is_today', 'is_upcoming', 'is_expired', 'is_completed', 'is_cancelled',
-            'consultation_paid', 'consultation_invoiced',
+            'consultation_paid', 'consultation_invoiced', 'has_draft',
             'today_vitals', 'has_vitals', 'has_action_taken', 'can_cancel'
         ]
 
@@ -522,22 +524,105 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
             created_date__date=target_date
         ).exists()
 
+    def get_has_draft(self, obj):
+        if not obj.patient_id:
+            return False
+        return ConsultationDraft.objects.filter(patient_id=obj.patient_id).exists()
+
+
 
 # Billings Serializers
 class InvoiceSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
-    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    staff_name = serializers.SerializerMethodField()
+    sponsor = serializers.SerializerMethodField()
+    plan = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
+    is_hmo = serializers.SerializerMethodField()
+    policy_number = serializers.SerializerMethodField()
+    phone_number = serializers.SerializerMethodField()
+    gender = serializers.SerializerMethodField()
+    age = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = '__all__'
 
+    def get_staff_name(self, obj):
+        if obj.staff:
+            return (getattr(obj.staff, 'fullname', None) or '').strip() or obj.staff.get_full_name() or obj.staff.username or ''
+        return ''
+
+    def get_sponsor(self, obj):
+        if obj.patient and obj.patient.sponsor:
+            return obj.patient.sponsor.name
+        return None
+
+    def get_plan(self, obj):
+        if obj.patient and obj.patient.plan:
+            return obj.patient.plan.plan
+        return None
+
+    def get_category_name(self, obj):
+        if obj.category:
+            return getattr(obj.category, 'category', str(obj.category))
+        if obj.patient and obj.patient.category:
+            return obj.patient.category.category
+        return None
+
+    def get_is_hmo(self, obj):
+        cat = ''
+        if obj.category:
+            cat = getattr(obj.category, 'category', str(obj.category)).lower()
+        elif obj.patient and obj.patient.category:
+            cat = (obj.patient.category.category or '').lower()
+        if 'hmo' in cat:
+            return True
+        if obj.patient and obj.patient.sponsor:
+            s_name = (obj.patient.sponsor.name or '').lower()
+            if any(w in s_name for w in ['hmo', 'insurance', 'nhis', 'managed care', 'aiico', 'hygeia', 'reliance', 'axa', 'leadway']):
+                return True
+        if obj.invoice_number and str(obj.invoice_number).startswith('CLM-'):
+            return True
+        return False
+
+    def get_policy_number(self, obj):
+        if obj.patient:
+            return obj.patient.insurance_policy_number or ''
+        return ''
+
+    def get_phone_number(self, obj):
+        if obj.patient:
+            return obj.patient.phone_number or ''
+        return ''
+
+    def get_gender(self, obj):
+        if obj.patient:
+            return obj.patient.gender or ''
+        return ''
+
+    def get_age(self, obj):
+        if obj.patient:
+            return obj.patient.get_age if hasattr(obj.patient, 'get_age') and obj.patient.get_age is not None else ''
+        return ''
+
+    def get_address(self, obj):
+        if obj.patient:
+            return obj.patient.address or ''
+        return ''
+
 
 class ReceiptSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
-    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    staff_name = serializers.SerializerMethodField()
+
+    def get_staff_name(self, obj):
+        if obj.staff:
+            return (getattr(obj.staff, 'fullname', None) or '').strip() or obj.staff.get_full_name() or obj.staff.username or ''
+        return ''
 
     class Meta:
         model = Receipt
@@ -547,7 +632,12 @@ class ReceiptSerializer(serializers.ModelSerializer):
 class DepositSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
-    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    staff_name = serializers.SerializerMethodField()
+
+    def get_staff_name(self, obj):
+        if obj.staff:
+            return (getattr(obj.staff, 'fullname', None) or '').strip() or obj.staff.get_full_name() or obj.staff.username or ''
+        return ''
 
     class Meta:
         model = Deposit
@@ -557,7 +647,12 @@ class DepositSerializer(serializers.ModelSerializer):
 class RefundSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
-    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    staff_name = serializers.SerializerMethodField()
+
+    def get_staff_name(self, obj):
+        if obj.staff:
+            return (getattr(obj.staff, 'fullname', None) or '').strip() or obj.staff.get_full_name() or obj.staff.username or ''
+        return ''
 
     class Meta:
         model = Refund
@@ -728,4 +823,24 @@ class WrittenPrescriptionSerializer(serializers.ModelSerializer):
             'created_date'
         ]
         read_only_fields = ['provider', 'created_date', 'dispensed_at', 'dispensed_by']
+
+
+class ConsultationDraftSerializer(serializers.ModelSerializer):
+    doctor_name = serializers.CharField(source='doctor.fullname', read_only=True)
+    patient_name = serializers.SerializerMethodField(read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+
+    def get_patient_name(self, obj):
+        if obj.patient:
+            return f"{obj.patient.surname} {obj.patient.first_name}"
+        return "Unknown"
+
+    class Meta:
+        model = ConsultationDraft
+        fields = [
+            'id', 'patient', 'doctor', 'doctor_name', 'patient_name', 'hospital_number',
+            'appointment', 'draft_data', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['doctor', 'created_at', 'updated_at']
+
 

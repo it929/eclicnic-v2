@@ -388,9 +388,33 @@ class SubModuleView(APIView):
         icon = request.data.get('icon', sub.icon).strip()
         description = request.data.get('description', '').strip()
         order = request.data.get('order', sub.order)
+        new_module_id = request.data.get('module_id')
 
         if not name:
             return Response({'detail': 'Submodule name cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle updating parent module if specified
+        if new_module_id:
+            try:
+                new_mod = SystemModule.objects.get(id=new_module_id)
+            except SystemModule.DoesNotExist:
+                return Response({'detail': 'Selected parent module does not exist.'}, status=status.HTTP_404_NOT_FOUND)
+
+            if new_mod.id != sub.module_id:
+                if SubModule.objects.filter(module=new_mod, code=sub.code).exclude(id=sub.id).exists():
+                    return Response({
+                        'detail': f'Submodule with code "{sub.code}" already exists in module "{new_mod.name}".'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                old_mod = sub.module
+                sub.module = new_mod
+
+                # Migrate permissions: for any role that currently has this submodule assigned,
+                # attach it to the role's permission for new_mod
+                for old_rp in RolePermission.objects.filter(module=old_mod, submodules=sub):
+                    old_rp.submodules.remove(sub)
+                    new_rp, _ = RolePermission.objects.get_or_create(role=old_rp.role, module=new_mod)
+                    new_rp.submodules.add(sub)
 
         try:
             order_val = int(order)
