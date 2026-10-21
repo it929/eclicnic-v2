@@ -654,42 +654,75 @@ class RadiologyChargesView(APIView):
     def get(self, request):
         qs = RadioLabInventory.objects.filter(type='R').select_related('sponsor', 'plan', 'plan__sponsor').order_by('item')
 
+        tariff_type = request.query_params.get('tariff_type', '').strip().lower()
         patient_id = request.query_params.get('patient')
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
         search = request.query_params.get('search', '').strip()
 
-        # If filtering for a specific patient (e.g. from Doctor Consultation)
-        if patient_id:
-            try:
-                patient = PatientProfile.objects.select_related('sponsor', 'plan').get(id=patient_id)
-                patient_sponsor = patient.sponsor
-                patient_plan = patient.plan
+        # If explicitly requesting general out-of-pocket tariffs
+        if tariff_type == 'general' or (sponsor_id and str(sponsor_id).lower() in ('general', 'self', 'cash')):
+            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+        # If filtering for a specific patient
+        elif patient_id or tariff_type == 'covered':
+            if patient_id:
+                try:
+                    patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category', 'sponsor__category').get(id=patient_id)
+                    patient_sponsor = patient.sponsor
+                    patient_plan = patient.plan
 
-                if patient_sponsor and patient_plan:
-                    patient_filter = (
-                        (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                        Q(plan=patient_plan) |
-                        (Q(sponsor=patient_sponsor) & Q(plan__isnull=True)) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
+                    # Check if patient or sponsor has a Private category
+                    is_private_patient = (
+                        (patient.category and 'private' in str(patient.category.category).lower()) or
+                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
+                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
+                        (not patient_sponsor and not patient_plan)
                     )
-                elif patient_plan:
-                    patient_filter = (
-                        Q(plan=patient_plan) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                elif patient_sponsor:
-                    patient_filter = (
-                        Q(sponsor=patient_sponsor) |
-                        Q(plan__sponsor=patient_sponsor) |
-                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
-                    )
-                else:
-                    patient_filter = (Q(sponsor__isnull=True) & Q(plan__isnull=True))
 
-                qs = qs.filter(patient_filter)
-            except PatientProfile.DoesNotExist:
-                pass
+                    if is_private_patient:
+                        # Private sponsor maintains the same price as general!
+                        # General price is always available for them because they pay out of pocket
+                        qs = qs.filter(
+                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
+                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                        )
+                    else:
+                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
+                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                            except Sponsor.DoesNotExist:
+                                pass
+                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
+                            try:
+                                patient_plan = PatientPlan.objects.get(id=plan_id)
+                            except PatientPlan.DoesNotExist:
+                                pass
+
+                        if tariff_type == 'general':
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        elif patient_sponsor and patient_plan:
+                            qs = qs.filter(
+                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                                Q(plan=patient_plan) |
+                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
+                            )
+                        elif patient_plan:
+                            qs = qs.filter(plan=patient_plan)
+                        elif patient_sponsor:
+                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
+                        else:
+                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                except PatientProfile.DoesNotExist:
+                    if sponsor_id and str(sponsor_id).lower() != 'all':
+                        qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
+                    if plan_id and str(plan_id).lower() != 'all':
+                        qs = qs.filter(plan_id=plan_id)
+            else:
+                if sponsor_id and str(sponsor_id).lower() != 'all':
+                    qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
+                if plan_id and str(plan_id).lower() != 'all':
+                    qs = qs.filter(plan_id=plan_id)
         else:
             if sponsor_id and str(sponsor_id).lower() != 'all':
                 qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
@@ -705,21 +738,25 @@ class RadiologyChargesView(APIView):
         data = []
         for item in qs:
             eff_sponsor = item.sponsor or (item.plan.sponsor if item.plan else None)
+            is_gen = bool(not eff_sponsor and not item.plan)
             data.append({
                 'id': item.id,
                 'item': item.item,
                 'item_id': item.item_id or '',
                 'rate': float(item.rate),
                 'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self',
-                'sponsor_code': eff_sponsor.code if eff_sponsor else '',
+                'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+                'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
                 'plan_id': item.plan.id if item.plan else None,
-                'plan_name': item.plan.plan if item.plan else 'All Plans',
+                'plan_name': item.plan.plan if item.plan else ('General Price' if is_gen else 'All Plans'),
+                'plan_code': item.plan.code if item.plan else ('GENERAL' if is_gen else ''),
+                'is_general': is_gen,
+                'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
             })
-        return Response({'total': len(data), 'charges': data})
+        return Response({'total': len(data), 'charges': data, 'results': data})
 
     def post(self, request):
-        item_name = request.data.get('item', '').strip()
+        item_name = request.data.get('item', '').strip() or request.data.get('item_name', '').strip()
         item_id = request.data.get('item_id', '').strip()
         rate = request.data.get('rate', 0)
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
@@ -728,21 +765,28 @@ class RadiologyChargesView(APIView):
         if not item_name:
             return Response({'detail': 'Scan item name required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        sponsor = None
-        if sponsor_id and str(sponsor_id).lower() != 'all':
-            try:
-                sponsor = Sponsor.objects.get(id=sponsor_id)
-            except Sponsor.DoesNotExist:
-                return Response({'detail': 'Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
+        is_general = (
+            not sponsor_id or
+            str(sponsor_id).lower() in ('', 'general', 'self', 'cash', 'none', 'null')
+        )
 
         plan = None
-        if plan_id and str(plan_id).lower() != 'all':
-            try:
-                plan = PatientPlan.objects.get(id=plan_id)
-                if plan.sponsor and not sponsor:
-                    sponsor = plan.sponsor
-            except PatientPlan.DoesNotExist:
-                return Response({'detail': 'Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
+        sponsor = None
+
+        if not is_general:
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                except PatientPlan.DoesNotExist:
+                    return Response({'detail': 'Selected Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                except Sponsor.DoesNotExist:
+                    return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
+            elif plan and plan.sponsor:
+                sponsor = plan.sponsor
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -763,6 +807,7 @@ class RadiologyChargesView(APIView):
             staff=staff
         )
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
             'detail': f'Radiology charge "{obj.item}" created successfully.',
             'id': obj.id,
@@ -770,14 +815,18 @@ class RadiologyChargesView(APIView):
             'item_id': obj.item_id,
             'rate': float(obj.rate),
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+            'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
             'plan_id': obj.plan.id if obj.plan else None,
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans',
+            'plan_name': obj.plan.plan if obj.plan else ('General Price' if is_gen else 'All Plans'),
+            'plan_code': obj.plan.code if obj.plan else ('GENERAL' if is_gen else ''),
+            'is_general': is_gen,
+            'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
         }, status=status.HTTP_201_CREATED)
 
     def put(self, request, pk=None):
         try:
-            obj = RadioLabInventory.objects.get(id=pk, type='R')
+            obj = RadioLabInventory.objects.select_related('sponsor', 'plan').get(id=pk, type='R')
         except RadioLabInventory.DoesNotExist:
             return Response({'detail': 'Radiology charge not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -793,7 +842,7 @@ class RadiologyChargesView(APIView):
 
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         if sponsor_id is not None:
-            if sponsor_id and str(sponsor_id).lower() != 'all':
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none', 'null', ''):
                 try:
                     obj.sponsor = Sponsor.objects.get(id=sponsor_id)
                 except Sponsor.DoesNotExist:
@@ -803,7 +852,7 @@ class RadiologyChargesView(APIView):
 
         plan_id = request.data.get('plan_id') or request.data.get('plan')
         if plan_id is not None:
-            if plan_id and str(plan_id).lower() != 'all':
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none', 'null', ''):
                 try:
                     obj.plan = PatientPlan.objects.get(id=plan_id)
                     if obj.plan.sponsor and not obj.sponsor:
@@ -815,6 +864,7 @@ class RadiologyChargesView(APIView):
 
         obj.save()
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
             'detail': 'Radiology charge updated successfully.',
             'id': obj.id,
@@ -822,9 +872,13 @@ class RadiologyChargesView(APIView):
             'item_id': obj.item_id,
             'rate': float(obj.rate),
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
+            'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
             'plan_id': obj.plan.id if obj.plan else None,
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans',
+            'plan_name': obj.plan.plan if obj.plan else ('General Price' if is_gen else 'All Plans'),
+            'plan_code': obj.plan.code if obj.plan else ('GENERAL' if is_gen else ''),
+            'is_general': is_gen,
+            'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
         })
 
     def delete(self, request, pk=None):
@@ -833,6 +887,7 @@ class RadiologyChargesView(APIView):
             return Response({'detail': 'Radiology charge deleted.'})
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 # 1.3.1 Download Radiology Tariff Template
@@ -846,51 +901,65 @@ class DownloadRadiologyTariffTemplateView(APIView):
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
 
-        sponsor_code = "AMH"
-        plan_code = "AIICO SLIVER"
-        sponsor_name = "AIICO MULTISHIELD (AMH)"
-        plan_name = "AIICO SLIVER"
+        is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
 
-        if sponsor_id:
-            try:
-                s = Sponsor.objects.get(id=sponsor_id)
-                sponsor_code = s.code or s.name
-                sponsor_name = s.name
-            except Sponsor.DoesNotExist:
-                pass
+        if is_general:
+            sponsor_code = "GENERAL"
+            plan_code = "GENERAL"
+            sponsor_name = "General / Out-of-Pocket"
+            plan_name = "General Tariff"
+        else:
+            sponsor_code = "AMH"
+            plan_code = "AIICO SLIVER"
+            sponsor_name = "AIICO MULTISHIELD (AMH)"
+            plan_name = "AIICO SLIVER"
 
-        if plan_id:
-            try:
-                p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                plan_code = p.code or p.plan
-                plan_name = p.plan
-                if p.sponsor:
-                    sponsor_code = p.sponsor.code or p.sponsor.name
-                    sponsor_name = p.sponsor.name
-            except PatientPlan.DoesNotExist:
-                pass
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'none'):
+                try:
+                    s = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = s.code or s.name
+                    sponsor_name = s.name
+                except Sponsor.DoesNotExist:
+                    pass
+
+            if plan_id and str(plan_id).lower() not in ('all', 'none'):
+                try:
+                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = p.code or p.plan
+                    plan_name = p.plan
+                    if p.sponsor:
+                        sponsor_code = p.sponsor.code or p.sponsor.name
+                        sponsor_name = p.sponsor.name
+                except PatientPlan.DoesNotExist:
+                    pass
 
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(['item_name', 'procedure_code', 'rate', 'sponsor_code', 'plan_code', 'notes'])
 
+        notes_text = "General Tariff - Pay from your purse" if is_general else f"Covered under {plan_name}"
+
         samples = [
-            ['Chest X-Ray (PA View)', 'RAD-001', '5000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Abdominal Ultrasound Scan', 'RAD-002', '6000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Pelvic Ultrasound Scan', 'RAD-003', '5500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Obstetric Ultrasound (Pregnancy Scan)', 'RAD-004', '4500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Lumbosacral Spine X-Ray (AP & Lateral)', 'RAD-005', '7500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Brain CT Scan (Non-Contrast)', 'RAD-006', '35000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Echocardiography (ECHO)', 'RAD-007', '20000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Electrocardiogram (ECG / EKG)', 'RAD-008', '4000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Mammography (Bilateral)', 'RAD-009', '15000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Knee Joint X-Ray (AP & Lateral)', 'RAD-010', '6000.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
+            ['Chest X-Ray (PA View)', 'RAD-001', '5000.00', sponsor_code, plan_code, notes_text],
+            ['Abdominal Ultrasound Scan', 'RAD-002', '6000.00', sponsor_code, plan_code, notes_text],
+            ['Pelvic Ultrasound Scan', 'RAD-003', '5500.00', sponsor_code, plan_code, notes_text],
+            ['Obstetric Ultrasound (Pregnancy Scan)', 'RAD-004', '4500.00', sponsor_code, plan_code, notes_text],
+            ['Lumbosacral Spine X-Ray (AP & Lateral)', 'RAD-005', '7500.00', sponsor_code, plan_code, notes_text],
+            ['Brain CT Scan (Non-Contrast)', 'RAD-006', '35000.00', sponsor_code, plan_code, notes_text],
+            ['Echocardiography (ECHO)', 'RAD-007', '20000.00', sponsor_code, plan_code, notes_text],
+            ['Electrocardiogram (ECG / EKG)', 'RAD-008', '4000.00', sponsor_code, plan_code, notes_text],
+            ['Mammography (Bilateral)', 'RAD-009', '15000.00', sponsor_code, plan_code, notes_text],
+            ['Knee Joint X-Ray (AP & Lateral)', 'RAD-010', '6000.00', sponsor_code, plan_code, notes_text],
         ]
         for row in samples:
             writer.writerow(row)
 
-        response = HttpResponse(output.getvalue(), content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="radiology_tariffs_template.csv"'
+        csv_content = output.getvalue()
+        response = HttpResponse(csv_content, content_type='text/csv; charset=utf-8')
+        safe_sponsor = str(sponsor_code).replace(' ', '_').replace('/', '_')
+        safe_plan = str(plan_code).replace(' ', '_').replace('/', '_')
+        filename = "radiology_tariffs_template_general.csv" if is_general else f"radiology_tariffs_template_{safe_sponsor}_{safe_plan}.csv"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
 
@@ -901,21 +970,23 @@ class BulkUploadRadiologyTariffView(APIView):
     def post(self, request):
         import csv, io
         uploaded_file = request.FILES.get('file')
-        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
-        default_plan_id = request.data.get('plan_id') or request.data.get('plan')
+        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor') or request.data.get('default_sponsor_id')
+        default_plan_id = request.data.get('plan_id') or request.data.get('plan') or request.data.get('default_plan_id')
+
+        is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
 
         default_sponsor = None
-        if default_sponsor_id and str(default_sponsor_id).lower() != 'all':
+        if not is_general_default and default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
             try:
                 default_sponsor = Sponsor.objects.get(id=default_sponsor_id)
             except Sponsor.DoesNotExist:
                 pass
 
         default_plan = None
-        if default_plan_id and str(default_plan_id).lower() != 'all':
+        if not is_general_default and default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none'):
             try:
-                default_plan = PatientPlan.objects.get(id=default_plan_id)
-                if default_plan.sponsor and not default_sponsor:
+                default_plan = PatientPlan.objects.select_related('sponsor').get(id=default_plan_id)
+                if not default_sponsor and default_plan.sponsor:
                     default_sponsor = default_plan.sponsor
             except PatientPlan.DoesNotExist:
                 pass
@@ -924,31 +995,24 @@ class BulkUploadRadiologyTariffView(APIView):
 
         if uploaded_file:
             fname = uploaded_file.name.lower()
-            if fname.endswith('.csv'):
-                try:
-                    file_data = uploaded_file.read().decode('utf-8', errors='replace')
+            try:
+                if fname.endswith('.csv'):
+                    file_data = uploaded_file.read().decode('utf-8-sig', errors='ignore')
                     reader = csv.DictReader(io.StringIO(file_data))
                     for row in reader:
                         raw_rows.append(row)
-                except Exception as e:
-                    return Response({'detail': f'Could not parse CSV file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-            elif fname.endswith(('.xls', '.xlsx')):
-                try:
-                    import openpyxl
-                    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
-                    ws = wb.active
-                    headers = [str(cell.value or '').strip() for cell in ws[1]]
-                    for row in ws.iter_rows(min_row=2, values_only=True):
-                        if any(v is not None for v in row):
-                            row_dict = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
-                            raw_rows.append(row_dict)
-                except Exception as e:
-                    return Response({'detail': f'Could not parse Excel file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response(
-                    {'detail': 'Unsupported file format. Please upload a .csv or .xlsx file.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                elif fname.endswith(('.xls', '.xlsx')):
+                    import pandas as pd
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df = df.where(pd.notnull(df), None)
+                    raw_rows = df.to_dict(orient='records')
+                else:
+                    return Response(
+                        {'detail': 'Unsupported file format. Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response({'detail': f'Error reading uploaded file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
         elif 'items' in request.data:
             items = request.data.get('items', [])
             if isinstance(items, list):
@@ -1034,10 +1098,16 @@ class BulkUploadRadiologyTariffView(APIView):
                 counter += 1
                 proc_code = f"RAD-{counter:03d}"
 
-            # Resolve Sponsor
+            # Check if this row is explicitly marked as general or if default mode is general
             row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name')
+            is_general_row = (
+                is_general_default or
+                (row_sponsor_val and str(row_sponsor_val).strip().upper() in ('GENERAL', 'SELF', 'CASH', 'NONE'))
+            )
+
+            # Resolve Sponsor
             row_sponsor = None
-            if row_sponsor_val and str(row_sponsor_val).strip():
+            if not is_general_row and row_sponsor_val and str(row_sponsor_val).strip():
                 raw_s = str(row_sponsor_val).strip()
                 row_sponsor = (
                     sponsor_by_code.get(raw_s.upper())
@@ -1045,12 +1115,12 @@ class BulkUploadRadiologyTariffView(APIView):
                     or sponsor_by_id.get(raw_s)
                 )
 
-            target_sponsor = row_sponsor or default_sponsor
+            target_sponsor = None if is_general_row else (row_sponsor or default_sponsor)
 
             # Resolve Plan
             row_plan_val = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name')
             row_plan = None
-            if row_plan_val and str(row_plan_val).strip():
+            if not is_general_row and row_plan_val and str(row_plan_val).strip():
                 raw_p = str(row_plan_val).strip()
                 row_plan = (
                     plan_by_code.get(raw_p.upper())
@@ -1058,48 +1128,86 @@ class BulkUploadRadiologyTariffView(APIView):
                     or plan_by_id.get(raw_p)
                 )
 
-            target_plan = row_plan or default_plan
+            target_plan = None if is_general_row else (row_plan or default_plan)
             if target_plan and target_plan.sponsor and not target_sponsor:
                 target_sponsor = target_plan.sponsor
 
-            if not target_sponsor and not target_plan:
+            if not is_general_row and not target_sponsor and not target_plan:
                 skipped.append(f"Row {idx} ({item_name}): Could not identify Sponsor or Plan")
                 continue
 
-            # Check existing by item + sponsor + plan
-            existing = RadioLabInventory.objects.filter(
-                type='R',
-                item__iexact=item_name,
-                sponsor=target_sponsor,
-                plan=target_plan
-            ).first()
-
-            if not existing and proc_code:
+            if is_general_row:
+                # General Tariff: sponsor=None, plan=None
                 existing = RadioLabInventory.objects.filter(
                     type='R',
-                    item_id__iexact=proc_code,
+                    item__iexact=item_name,
+                    sponsor__isnull=True,
+                    plan__isnull=True
+                ).first()
+
+                if not existing and proc_code:
+                    existing = RadioLabInventory.objects.filter(
+                        type='R',
+                        item_id__iexact=proc_code,
+                        sponsor__isnull=True,
+                        plan__isnull=True
+                    ).first()
+
+                if existing:
+                    existing.rate = rate_val
+                    existing.item = item_name
+                    existing.item_id = proc_code
+                    existing.sponsor = None
+                    existing.plan = None
+                    existing.staff = staff
+                    existing.save()
+                    updated_count += 1
+                else:
+                    RadioLabInventory.objects.create(
+                        item=item_name,
+                        item_id=proc_code,
+                        rate=rate_val,
+                        type='R',
+                        sponsor=None,
+                        plan=None,
+                        staff=staff
+                    )
+                    created_count += 1
+            else:
+                # HMO Tariff: linked to specific Sponsor and/or Plan
+                existing = RadioLabInventory.objects.filter(
+                    type='R',
+                    item__iexact=item_name,
                     sponsor=target_sponsor,
                     plan=target_plan
                 ).first()
 
-            if existing:
-                existing.rate = rate_val
-                existing.item = item_name
-                existing.item_id = proc_code
-                existing.staff = staff
-                existing.save()
-                updated_count += 1
-            else:
-                RadioLabInventory.objects.create(
-                    item=item_name,
-                    item_id=proc_code,
-                    rate=rate_val,
-                    type='R',
-                    sponsor=target_sponsor,
-                    plan=target_plan,
-                    staff=staff
-                )
-                created_count += 1
+                if not existing and proc_code:
+                    existing = RadioLabInventory.objects.filter(
+                        type='R',
+                        item_id__iexact=proc_code,
+                        sponsor=target_sponsor,
+                        plan=target_plan
+                    ).first()
+
+                if existing:
+                    existing.rate = rate_val
+                    existing.item = item_name
+                    existing.item_id = proc_code
+                    existing.staff = staff
+                    existing.save()
+                    updated_count += 1
+                else:
+                    RadioLabInventory.objects.create(
+                        item=item_name,
+                        item_id=proc_code,
+                        rate=rate_val,
+                        type='R',
+                        sponsor=target_sponsor,
+                        plan=target_plan,
+                        staff=staff
+                    )
+                    created_count += 1
 
         msg = f"Bulk upload completed: {created_count} radiology tariffs created, {updated_count} updated."
         if skipped:
@@ -1661,6 +1769,78 @@ class LoadGeneralLabPricesView(APIView):
         total_general = RadioLabInventory.objects.filter(type='L', sponsor__isnull=True, plan__isnull=True).count()
         return Response({
             'detail': f'Loaded {created_count} general laboratory tariffs ({total_general} total active general rates).',
+            'created': created_count,
+            'updated': updated_count,
+            'total_general': total_general,
+        })
+
+
+# 1.3.3 Load / Initialize General Radiology Prices
+class LoadGeneralRadiologyPricesView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        from radio_lab.models import RadioLabInventory
+        from django.db.models import Max
+
+        staff = request.user if request.user.is_authenticated else User.objects.first()
+        created_count = 0
+        updated_count = 0
+
+        # Baseline clinical radiology & imaging scan investigation prices for general self-pay patients
+        BASELINE_RADIOLOGY_PRICES = {
+            'Chest X-Ray (PA View)': ('RAD-001', Decimal('5000.00')),
+            'Abdominal Ultrasound Scan': ('RAD-002', Decimal('6000.00')),
+            'Pelvic Ultrasound Scan': ('RAD-003', Decimal('5500.00')),
+            'Obstetric Ultrasound (Pregnancy Scan)': ('RAD-004', Decimal('4500.00')),
+            'Lumbosacral Spine X-Ray (AP & Lateral)': ('RAD-005', Decimal('7500.00')),
+            'Brain CT Scan (Non-Contrast)': ('RAD-006', Decimal('35000.00')),
+            'Echocardiography (ECHO)': ('RAD-007', Decimal('20000.00')),
+            'Electrocardiogram (ECG / EKG)': ('RAD-008', Decimal('4000.00')),
+            'Mammography (Bilateral)': ('RAD-009', Decimal('15000.00')),
+            'Knee Joint X-Ray (AP & Lateral)': ('RAD-010', Decimal('6000.00')),
+        }
+
+        # Sync all distinct radiology scans from existing RadioLabInventory (type='R')
+        existing_items = list(RadioLabInventory.objects.filter(type='R').values_list('item', flat=True).distinct())
+        all_rad_names = set(existing_items).union(BASELINE_RADIOLOGY_PRICES.keys())
+
+        for name in all_rad_names:
+            if not name:
+                continue
+            gen_tariff = RadioLabInventory.objects.filter(
+                item__iexact=name.strip(),
+                type='R',
+                sponsor__isnull=True,
+                plan__isnull=True
+            ).first()
+
+            if not gen_tariff:
+                baseline = BASELINE_RADIOLOGY_PRICES.get(name.strip())
+                if baseline:
+                    code, rate = baseline
+                else:
+                    existing_t = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='R').first()
+                    code = (existing_t.item_id if existing_t else None) or f"RAD-{RadioLabInventory.objects.filter(type='R').count()+1:03d}"
+                    max_rate = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='R').aggregate(Max('rate'))['rate__max']
+                    rate = max_rate or Decimal('5000.00')
+
+                RadioLabInventory.objects.create(
+                    item=name.strip(),
+                    item_id=code,
+                    rate=rate,
+                    type='R',
+                    sponsor=None,
+                    plan=None,
+                    staff=staff
+                )
+                created_count += 1
+            else:
+                updated_count += 1
+
+        total_general = RadioLabInventory.objects.filter(type='R', sponsor__isnull=True, plan__isnull=True).count()
+        return Response({
+            'detail': f'Loaded {created_count} general radiology tariffs ({total_general} total active general rates).',
             'created': created_count,
             'updated': updated_count,
             'total_general': total_general,

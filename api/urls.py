@@ -16,6 +16,7 @@ from .views import (
     NurseWaitingListViewSet,
     DoctorWaitingListViewSet,
     PatientEncounterViewSet,
+    ConsultationDraftViewSet,
     PatientDiagnosisViewSet,
     PresentingComplaintViewSet,
     VisitPurposeViewSet,
@@ -51,6 +52,7 @@ router.register(r'patient-plans', PatientPlanViewSet, basename='patient-plan')
 router.register(r'queues', NurseWaitingListViewSet, basename='nurse-queue')
 router.register(r'vitals', DoctorWaitingListViewSet, basename='vitals')
 router.register(r'encounters', PatientEncounterViewSet, basename='encounter')
+router.register(r'consultation-drafts', ConsultationDraftViewSet, basename='consultation-draft')
 router.register(r'diagnoses', PatientDiagnosisViewSet, basename='diagnosis')
 router.register(r'complaints', PresentingComplaintViewSet, basename='complaint')
 router.register(r'visit-purposes', VisitPurposeViewSet, basename='visit-purpose')
@@ -114,6 +116,7 @@ urlpatterns = [
     path('tariffs/lab-charges/download-template/', tariff_views.DownloadLabTariffTemplateView.as_view(), name='api-tariff-lab-download-template'),
     path('tariffs/lab-charges/<int:pk>/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges-detail'),
     path('tariffs/radiology-charges/', tariff_views.RadiologyChargesView.as_view(), name='api-tariff-radio-charges'),
+    path('tariffs/radiology-charges/load-general-prices/', tariff_views.LoadGeneralRadiologyPricesView.as_view(), name='api-tariff-radiology-load-general'),
     path('tariffs/radiology-charges/bulk-upload/', tariff_views.BulkUploadRadiologyTariffView.as_view(), name='api-tariff-radiology-bulk-upload'),
     path('tariffs/radiology-charges/download-template/', tariff_views.DownloadRadiologyTariffTemplateView.as_view(), name='api-tariff-radiology-download-template'),
     path('tariffs/radiology-charges/<int:pk>/', tariff_views.RadiologyChargesView.as_view(), name='api-tariff-radio-charges-detail'),

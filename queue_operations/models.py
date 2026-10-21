@@ -453,3 +453,19 @@ class WrittenPrescriptions(models.Model):
 
     def __str__(self):
         return f'{self.dispense_detail or self.quantity} of {self.item} for {self.patient.surname} {self.patient.first_name}'
+
+
+class ConsultationDraft(models.Model):
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='consultation_drafts')
+    doctor = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True)
+    appointment = models.ForeignKey('patients.PatientAppointment', on_delete=models.SET_NULL, null=True, blank=True)
+    draft_data = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"Consultation Draft for {self.patient} ({self.updated_at})"
+
