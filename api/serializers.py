@@ -556,16 +556,28 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return ''
 
     def get_sponsor(self, obj):
+        if obj.invoice_number and str(obj.invoice_number).startswith('INV-'):
+            pay_opt = (obj.payment_option or '').strip().lower()
+            if pay_opt != 'claim':
+                return 'PAY FROM PURSE / CASH'
         if obj.patient and obj.patient.sponsor:
             return obj.patient.sponsor.name
         return None
 
     def get_plan(self, obj):
+        if obj.invoice_number and str(obj.invoice_number).startswith('INV-'):
+            pay_opt = (obj.payment_option or '').strip().lower()
+            if pay_opt != 'claim':
+                return 'OUT-OF-POCKET TARIFF'
         if obj.patient and obj.patient.plan:
             return obj.patient.plan.plan
         return None
 
     def get_category_name(self, obj):
+        if obj.invoice_number and str(obj.invoice_number).startswith('INV-'):
+            pay_opt = (obj.payment_option or '').strip().lower()
+            if pay_opt != 'claim':
+                return 'Private'
         if obj.category:
             return getattr(obj.category, 'category', str(obj.category))
         if obj.patient and obj.patient.category:
@@ -573,6 +585,17 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return None
 
     def get_is_hmo(self, obj):
+        if obj.invoice_number and str(obj.invoice_number).startswith('INV-'):
+            return False
+        pay_opt = (obj.payment_option or '').strip().lower()
+        if pay_opt and pay_opt not in ['claim', 'hmo']:
+            return False
+
+        if obj.invoice_number and str(obj.invoice_number).startswith('CLM-'):
+            return True
+        if pay_opt in ['claim', 'hmo']:
+            return True
+
         cat = ''
         if obj.category:
             cat = getattr(obj.category, 'category', str(obj.category)).lower()
@@ -584,8 +607,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             s_name = (obj.patient.sponsor.name or '').lower()
             if any(w in s_name for w in ['hmo', 'insurance', 'nhis', 'managed care', 'aiico', 'hygeia', 'reliance', 'axa', 'leadway']):
                 return True
-        if obj.invoice_number and str(obj.invoice_number).startswith('CLM-'):
-            return True
         return False
 
     def get_policy_number(self, obj):
@@ -618,11 +639,17 @@ class ReceiptSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
     staff_name = serializers.SerializerMethodField()
+    sponsor = serializers.SerializerMethodField()
 
     def get_staff_name(self, obj):
         if obj.staff:
             return (getattr(obj.staff, 'fullname', None) or '').strip() or obj.staff.get_full_name() or obj.staff.username or ''
         return ''
+
+    def get_sponsor(self, obj):
+        if obj.patient and obj.patient.sponsor:
+            return obj.patient.sponsor.name
+        return 'Self-Pay / Cash'
 
     class Meta:
         model = Receipt
