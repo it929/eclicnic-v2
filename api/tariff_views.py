@@ -100,48 +100,31 @@ class LabChargesView(APIView):
                     patient_sponsor = patient.sponsor
                     patient_plan = patient.plan
 
-                    # Check if patient or sponsor has a Private category
-                    is_private_patient = (
-                        (patient.category and 'private' in str(patient.category.category).lower()) or
-                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
-                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
-                        (not patient_sponsor and not patient_plan)
-                    )
+                    if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                        except Sponsor.DoesNotExist:
+                            pass
+                    if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_plan = PatientPlan.objects.get(id=plan_id)
+                        except PatientPlan.DoesNotExist:
+                            pass
 
-                    if is_private_patient:
-                        # Private sponsor maintains the same price as general!
-                        # General price is always available for them because they pay out of pocket
+                    if tariff_type == 'general':
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                    elif patient_sponsor and patient_plan:
                         qs = qs.filter(
-                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
-                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                            (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                            Q(plan=patient_plan) |
+                            (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
                         )
+                    elif patient_plan:
+                        qs = qs.filter(plan=patient_plan)
+                    elif patient_sponsor:
+                        qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
                     else:
-                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
-                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
-                            except Sponsor.DoesNotExist:
-                                pass
-                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_plan = PatientPlan.objects.get(id=plan_id)
-                            except PatientPlan.DoesNotExist:
-                                pass
-
-                        if tariff_type == 'general':
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
-                        elif patient_sponsor and patient_plan:
-                            qs = qs.filter(
-                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                                Q(plan=patient_plan) |
-                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
-                            )
-                        elif patient_plan:
-                            qs = qs.filter(plan=patient_plan)
-                        elif patient_sponsor:
-                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
-                        else:
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
                 except PatientProfile.DoesNotExist:
                     if sponsor_id and str(sponsor_id).lower() != 'all':
                         qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
@@ -671,48 +654,31 @@ class RadiologyChargesView(APIView):
                     patient_sponsor = patient.sponsor
                     patient_plan = patient.plan
 
-                    # Check if patient or sponsor has a Private category
-                    is_private_patient = (
-                        (patient.category and 'private' in str(patient.category.category).lower()) or
-                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
-                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
-                        (not patient_sponsor and not patient_plan)
-                    )
+                    if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                        except Sponsor.DoesNotExist:
+                            pass
+                    if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_plan = PatientPlan.objects.get(id=plan_id)
+                        except PatientPlan.DoesNotExist:
+                            pass
 
-                    if is_private_patient:
-                        # Private sponsor maintains the same price as general!
-                        # General price is always available for them because they pay out of pocket
+                    if tariff_type == 'general':
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                    elif patient_sponsor and patient_plan:
                         qs = qs.filter(
-                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
-                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                            (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                            Q(plan=patient_plan) |
+                            (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
                         )
+                    elif patient_plan:
+                        qs = qs.filter(plan=patient_plan)
+                    elif patient_sponsor:
+                        qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
                     else:
-                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
-                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
-                            except Sponsor.DoesNotExist:
-                                pass
-                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_plan = PatientPlan.objects.get(id=plan_id)
-                            except PatientPlan.DoesNotExist:
-                                pass
-
-                        if tariff_type == 'general':
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
-                        elif patient_sponsor and patient_plan:
-                            qs = qs.filter(
-                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                                Q(plan=patient_plan) |
-                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
-                            )
-                        elif patient_plan:
-                            qs = qs.filter(plan=patient_plan)
-                        elif patient_sponsor:
-                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
-                        else:
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
                 except PatientProfile.DoesNotExist:
                     if sponsor_id and str(sponsor_id).lower() != 'all':
                         qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))
@@ -1397,48 +1363,31 @@ class MedicationFeesView(APIView):
                     patient_sponsor = patient.sponsor
                     patient_plan = patient.plan
 
-                    # Check if patient or sponsor has a Private category
-                    is_private_patient = (
-                        (patient.category and 'private' in str(patient.category.category).lower()) or
-                        (patient_sponsor and patient_sponsor.category and 'private' in str(patient_sponsor.category.category).lower()) or
-                        (patient_sponsor and ('private' in patient_sponsor.name.lower() or 'self' in patient_sponsor.name.lower())) or
-                        (not patient_sponsor and not patient_plan)
-                    )
+                    if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_sponsor = Sponsor.objects.get(id=sponsor_id)
+                        except Sponsor.DoesNotExist:
+                            pass
+                    if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general', 'self', 'cash'):
+                        try:
+                            patient_plan = PatientPlan.objects.get(id=plan_id)
+                        except PatientPlan.DoesNotExist:
+                            pass
 
-                    if is_private_patient:
-                        # Private sponsor maintains the same price as general!
-                        # General price is always available for them because they pay out of pocket
+                    if tariff_type == 'general':
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                    elif patient_sponsor and patient_plan:
                         qs = qs.filter(
-                            (Q(sponsor__isnull=True) & Q(plan__isnull=True)) |
-                            (Q(sponsor=patient_sponsor) if patient_sponsor else Q(pk__in=[]))
+                            (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
+                            Q(plan=patient_plan) |
+                            (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
                         )
+                    elif patient_plan:
+                        qs = qs.filter(plan=patient_plan)
+                    elif patient_sponsor:
+                        qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
                     else:
-                        # HMO Sponsor: uses covered plan tariffs (claims requiring HMO approval)
-                        if not patient_sponsor and sponsor_id and str(sponsor_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_sponsor = Sponsor.objects.get(id=sponsor_id)
-                            except Sponsor.DoesNotExist:
-                                pass
-                        if not patient_plan and plan_id and str(plan_id).lower() not in ('all', 'general'):
-                            try:
-                                patient_plan = PatientPlan.objects.get(id=plan_id)
-                            except PatientPlan.DoesNotExist:
-                                pass
-
-                        if tariff_type == 'general':
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
-                        elif patient_sponsor and patient_plan:
-                            qs = qs.filter(
-                                (Q(sponsor=patient_sponsor) & Q(plan=patient_plan)) |
-                                Q(plan=patient_plan) |
-                                (Q(sponsor=patient_sponsor) & Q(plan__isnull=True))
-                            )
-                        elif patient_plan:
-                            qs = qs.filter(plan=patient_plan)
-                        elif patient_sponsor:
-                            qs = qs.filter(Q(sponsor=patient_sponsor) | Q(plan__sponsor=patient_sponsor))
-                        else:
-                            qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                        qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
                 except PatientProfile.DoesNotExist:
                     if sponsor_id and str(sponsor_id).lower() != 'all':
                         qs = qs.filter(Q(sponsor_id=sponsor_id) | Q(plan__sponsor_id=sponsor_id))

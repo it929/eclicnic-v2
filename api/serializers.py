@@ -139,9 +139,31 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class PatientCategorySerializer(serializers.ModelSerializer):
+    sponsors_count = serializers.SerializerMethodField(read_only=True)
+    plans_count = serializers.SerializerMethodField(read_only=True)
+    patients_count = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = PatientCategory
-        fields = ['id', 'category']
+        fields = ['id', 'category', 'sponsors_count', 'plans_count', 'patients_count']
+
+    def get_sponsors_count(self, obj):
+        try:
+            return obj.sponsors.count()
+        except Exception:
+            return 0
+
+    def get_plans_count(self, obj):
+        try:
+            return obj.plans.count()
+        except Exception:
+            return 0
+
+    def get_patients_count(self, obj):
+        try:
+            return obj.patientprofile_set.count()
+        except Exception:
+            return 0
 
 
 class SponsorSerializer(serializers.ModelSerializer):
