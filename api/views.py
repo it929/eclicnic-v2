@@ -577,25 +577,118 @@ class SponsorViewSet(viewsets.ModelViewSet):
             )
         return qs
 
+    @action(detail=False, methods=['get'], url_path='download-template')
+    def download_template(self, request):
+        """
+        Download Excel (.xlsx) template for bulk uploading sponsors.
+        """
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from django.http import HttpResponse
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sponsors"
+
+        # Headers
+        headers = ["S/N", "Sponsor Name", "Billing Code", "Category"]
+        ws.append(headers)
+
+        # Style header row
+        header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        center_align = Alignment(horizontal="center", vertical="center")
+        left_align = Alignment(horizontal="left", vertical="center")
+        thin_border = Border(
+            left=Side(style="thin", color="D9D9D9"),
+            right=Side(style="thin", color="D9D9D9"),
+            top=Side(style="thin", color="D9D9D9"),
+            bottom=Side(style="thin", color="D9D9D9")
+        )
+
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_align
+
+        # Sample rows to guide the user
+        samples = [
+            (1, "AIICO MULTISHIELD", "AMH", "HMO"),
+            (2, "BASTION HEALTH", "BH", "HMO"),
+            (3, "TOTAL ENERGIES RETAINERSHIP", "TER", "Private Retainership"),
+            (4, "FIRST BANK CORPORATE", "FBN", "Corporate"),
+            (5, "ISALU STAFF SCHEME", "ISS", "Staff"),
+        ]
+
+        for r_idx, row_data in enumerate(samples, start=2):
+            for c_idx, val in enumerate(row_data, start=1):
+                cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                cell.border = thin_border
+                cell.alignment = center_align if c_idx in [1, 3] else left_align
+
+        # Column widths
+        ws.column_dimensions["A"].width = 8
+        ws.column_dimensions["B"].width = 38
+        ws.column_dimensions["C"].width = 18
+        ws.column_dimensions["D"].width = 24
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="sponsors_bulk_upload_template.xlsx"'
+        wb.save(response)
+        return response
+
     @action(detail=False, methods=['post'], url_path='import-sponsors')
     def import_sponsors(self, request):
         """
-        Import sponsors from uploaded Excel file or the default Sponsor.xlsx in project root.
+        Import sponsors from uploaded Excel/CSV file or fallback to Sponsor.xlsx in project root.
+        Supports columns: [S/N, Sponsor Name, Billing Code, Category] or [Sponsor Name, Billing Code, Category].
         """
         import os
+        import csv
+        import io
         import openpyxl
         from django.conf import settings
 
         uploaded_file = request.FILES.get('file')
+        default_category_id = request.data.get('category_id') or request.data.get('category')
+        
+        default_category = None
+        if default_category_id:
+            try:
+                default_category = PatientCategory.objects.get(id=default_category_id)
+            except Exception:
+                default_category = None
+
+        if not default_category:
+            default_category, _ = PatientCategory.objects.get_or_create(category='HMO')
+
+        rows_data = []
 
         if uploaded_file:
-            try:
-                wb = openpyxl.load_workbook(uploaded_file, data_only=True)
-            except Exception as e:
-                return Response(
-                    {'detail': f'Could not read uploaded Excel file: {str(e)}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            fname = (uploaded_file.name or '').lower()
+            if fname.endswith('.csv'):
+                try:
+                    content = uploaded_file.read().decode('utf-8-sig')
+                    reader = csv.reader(io.StringIO(content))
+                    rows_data = list(reader)
+                except Exception as e:
+                    return Response(
+                        {'detail': f'Could not read uploaded CSV file: {str(e)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                try:
+                    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+                    sheet = wb.active
+                    rows_data = list(sheet.iter_rows(values_only=True))
+                except Exception as e:
+                    return Response(
+                        {'detail': f'Could not read uploaded Excel file: {str(e)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
         else:
             possible_paths = [
                 os.path.join(settings.BASE_DIR, '..', 'Sponsor.xlsx'),
@@ -609,51 +702,83 @@ class SponsorViewSet(viewsets.ModelViewSet):
                     break
             if not found_path:
                 return Response(
-                    {'detail': 'Sponsor.xlsx not found in project root. Please upload an Excel file.'},
+                    {'detail': 'No file uploaded and Sponsor.xlsx not found in project root.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
             try:
                 wb = openpyxl.load_workbook(found_path, data_only=True)
+                sheet = wb.active
+                rows_data = list(sheet.iter_rows(values_only=True))
             except Exception as e:
                 return Response(
                     {'detail': f'Could not load Sponsor.xlsx: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
-        sheet = wb.active
-        hmo_category, _ = PatientCategory.objects.get_or_create(category='HMO')
-
         created_count = 0
         updated_count = 0
+        skipped_count = 0
 
-        for row in sheet.iter_rows(values_only=True):
+        # Pre-cache existing categories for quick name matching
+        cat_map = {c.category.strip().upper(): c for c in PatientCategory.objects.all()}
+
+        for row in rows_data:
             if not row or not any(row):
+                continue
+
+            cleaned_row = [str(c).strip() if c is not None else '' for c in row]
+            non_empty = [c for c in cleaned_row if c]
+            if not non_empty:
+                continue
+
+            # Skip header-like rows
+            first_upper = non_empty[0].upper()
+            if any(first_upper.startswith(hdr) for hdr in ['CURRENT HMO LIST', 'CURRENT SPONSOR', 'SN', 'S/N', 'ID', 'SPONSOR NAME', 'HMO']):
                 continue
 
             name = None
             code = None
+            category_str = None
 
-            if len(row) >= 3 and row[1] and row[2]:
-                val1 = str(row[1]).strip()
-                val2 = str(row[2]).strip()
-                if val1.upper() in ['HMO', 'NAME', 'SPONSOR', 'PLAN NAME', 'CURRENT HMO LIST']:
-                    continue
-                name = val1
-                code = val2
-            elif len(row) >= 2 and row[0] and row[1]:
-                val0 = str(row[0]).strip()
-                val1 = str(row[1]).strip()
-                if val0.upper() in ['SN', 'S/N', 'ID', 'CURRENT HMO LIST']:
-                    continue
-                name = val0
-                code = val1
+            # Pattern A: [SN, Name, Code, Optional Category, ...]
+            # Pattern B: [Name, Code, Optional Category, ...]
+            if cleaned_row[0].isdigit() and len(cleaned_row) >= 3:
+                name = cleaned_row[1]
+                code = cleaned_row[2]
+                if len(cleaned_row) >= 4 and cleaned_row[3]:
+                    category_str = cleaned_row[3]
+            elif len(cleaned_row) >= 2 and not cleaned_row[0].isdigit():
+                # Check if col 0 is Name and col 1 is Code
+                # or if col 0 is SN like '1' string
+                name = cleaned_row[0]
+                code = cleaned_row[1]
+                if len(cleaned_row) >= 3 and cleaned_row[2]:
+                    category_str = cleaned_row[2]
+            elif len(cleaned_row) == 1:
+                name = cleaned_row[0]
+                code = ''
 
-            if not name or name.isdigit():
+            if not name or name.upper() in ['HMO', 'NAME', 'SPONSOR', 'SPONSOR NAME', 'PLAN NAME']:
+                skipped_count += 1
                 continue
+
+            # Determine sponsor category
+            target_category = default_category
+            if category_str:
+                up_cat = category_str.strip().upper()
+                if up_cat in cat_map:
+                    target_category = cat_map[up_cat]
+                else:
+                    new_cat, _ = PatientCategory.objects.get_or_create(category=category_str.strip())
+                    cat_map[up_cat] = new_cat
+                    target_category = new_cat
 
             sp, created = Sponsor.objects.update_or_create(
                 name=name,
-                defaults={'code': code, 'category': hmo_category}
+                defaults={
+                    'code': code if code else None,
+                    'category': target_category
+                }
             )
             if created:
                 created_count += 1
@@ -661,9 +786,10 @@ class SponsorViewSet(viewsets.ModelViewSet):
                 updated_count += 1
 
         return Response({
-            'message': f'Successfully synced sponsors: {created_count} created, {updated_count} updated.',
+            'message': f'Sponsors processed successfully: {created_count} created, {updated_count} updated.',
             'created': created_count,
             'updated': updated_count,
+            'skipped': skipped_count,
             'total': Sponsor.objects.count()
         })
 
