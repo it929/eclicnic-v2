@@ -530,6 +530,32 @@ class PatientCategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
     pagination_class = None
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search', None)
+        if search:
+            qs = qs.filter(category__icontains=search)
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        sponsors_count = instance.sponsors.count()
+        plans_count = instance.plans.count()
+        patients_count = instance.patientprofile_set.count()
+        if sponsors_count > 0 or plans_count > 0 or patients_count > 0:
+            reasons = []
+            if sponsors_count > 0:
+                reasons.append(f"{sponsors_count} sponsor(s)")
+            if plans_count > 0:
+                reasons.append(f"{plans_count} plan(s)")
+            if patients_count > 0:
+                reasons.append(f"{patients_count} patient(s)")
+            return Response(
+                {"detail": f"Cannot delete category '{instance.category}' because it is linked to {', '.join(reasons)}. Please reassign them first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class SponsorViewSet(viewsets.ModelViewSet):
     queryset = Sponsor.objects.all().select_related('category').prefetch_related('plans').order_by('name')
