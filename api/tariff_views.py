@@ -1807,45 +1807,53 @@ class DownloadMedicationTariffTemplateView(APIView):
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
 
-        sponsor_code = "AMH"
-        plan_code = "AIICO SLIVER"
-        sponsor_name = "AIICO MULTISHIELD (AMH)"
-        plan_name = "AIICO SLIVER"
+        is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
 
-        if sponsor_id:
-            try:
-                s = Sponsor.objects.get(id=sponsor_id)
-                sponsor_code = s.code or s.name
-                sponsor_name = s.name
-            except Sponsor.DoesNotExist:
-                pass
+        if is_general:
+            sponsor_code = "GENERAL"
+            plan_code = "GENERAL"
+            sponsor_name = "General / Out-of-Pocket (Self-Pay)"
+            plan_name = "General Baseline Tariff"
+        else:
+            sponsor_code = "AMH"
+            plan_code = "AIICO SLIVER"
+            sponsor_name = "AIICO MULTISHIELD (AMH)"
+            plan_name = "AIICO SLIVER"
 
-        if plan_id:
-            try:
-                p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                plan_code = p.code or p.plan
-                plan_name = p.plan
-                if p.sponsor:
-                    sponsor_code = p.sponsor.code or p.sponsor.name
-                    sponsor_name = p.sponsor.name
-            except PatientPlan.DoesNotExist:
-                pass
+            if sponsor_id and str(sponsor_id).lower() not in ('all', '', 'none', 'null'):
+                try:
+                    s = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = s.code or s.name
+                    sponsor_name = s.name
+                except Sponsor.DoesNotExist:
+                    pass
+
+            if plan_id and str(plan_id).lower() not in ('all', '', 'none', 'null'):
+                try:
+                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = p.code or p.plan
+                    plan_name = p.plan
+                    if p.sponsor:
+                        sponsor_code = p.sponsor.code or p.sponsor.name
+                        sponsor_name = p.sponsor.name
+                except PatientPlan.DoesNotExist:
+                    pass
 
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(['product_name', 'sku', 'rate', 'sponsor_code', 'plan_code', 'notes'])
 
         samples = [
-            ['Paracetamol 500mg Tablet', 'MED-001', '500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Amoxicillin 500mg Capsule', 'MED-002', '1200.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Artemether/Lumefantrine 20/120mg (Coartem)', 'MED-003', '2500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Ciprofloxacin 500mg Tablet', 'MED-004', '1800.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Metformin 500mg Tablet', 'MED-005', '950.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Amlodipine 5mg Tablet', 'MED-006', '1400.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Ibuprofen 400mg Tablet', 'MED-007', '600.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Omeprazole 20mg Capsule', 'MED-008', '1100.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Ceftriaxone 1g Injection', 'MED-009', '3500.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
-            ['Oral Rehydration Salts (ORS) Sachet', 'MED-010', '300.00', sponsor_code, plan_code, f'Covered under {plan_name}'],
+            ['Paracetamol 500mg Tablet', 'MED-001', '500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Amoxicillin 500mg Capsule', 'MED-002', '1200.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Artemether/Lumefantrine 20/120mg (Coartem)', 'MED-003', '2500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Ciprofloxacin 500mg Tablet', 'MED-004', '1800.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Metformin 500mg Tablet', 'MED-005', '950.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Amlodipine 5mg Tablet', 'MED-006', '1400.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Ibuprofen 400mg Tablet', 'MED-007', '600.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Omeprazole 20mg Capsule', 'MED-008', '1100.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Ceftriaxone 1g Injection', 'MED-009', '3500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ['Oral Rehydration Salts (ORS) Sachet', 'MED-010', '300.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
         ]
         for row in samples:
             writer.writerow(row)
@@ -1868,20 +1876,22 @@ class BulkUploadMedicationTariffView(APIView):
         default_sponsor_id = request.data.get('sponsor_id') or request.data.get('default_sponsor_id')
         default_plan_id = request.data.get('plan_id') or request.data.get('default_plan_id')
 
+        is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+
         default_sponsor = None
-        if default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
+        if not is_general_default and default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
             try:
                 default_sponsor = Sponsor.objects.get(id=default_sponsor_id)
-            except Sponsor.DoesNotExist:
+            except (Sponsor.DoesNotExist, ValueError):
                 pass
 
         default_plan = None
-        if default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none'):
+        if not is_general_default and default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none', 'general'):
             try:
                 default_plan = PatientPlan.objects.select_related('sponsor').get(id=default_plan_id)
                 if not default_sponsor and default_plan.sponsor:
                     default_sponsor = default_plan.sponsor
-            except PatientPlan.DoesNotExist:
+            except (PatientPlan.DoesNotExist, ValueError):
                 pass
 
         raw_rows = []
@@ -1994,46 +2004,56 @@ class BulkUploadMedicationTariffView(APIView):
                 counter += 1
                 sku = f"MED-{counter:04d}"
 
-            # Resolve Plan
-            target_plan = default_plan
-            plan_hint = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name') or clean_row.get('coverage_plan')
-            if plan_hint:
-                plan_key = str(plan_hint).strip().upper()
-                if plan_key in plan_by_code:
-                    target_plan = plan_by_code[plan_key]
-                elif plan_key in plan_by_name:
-                    target_plan = plan_by_name[plan_key]
-                elif str(plan_hint).strip() in plan_by_id:
-                    target_plan = plan_by_id[str(plan_hint).strip()]
-                else:
-                    # Fuzzy match fallback (e.g. "Silver", "Gold", "Bronze")
-                    clean_hint = plan_key.replace(' ', '').replace('_', '')
-                    for p in all_plans:
-                        p_clean = (p.plan or '').upper().replace(' ', '').replace('_', '')
-                        if clean_hint and (clean_hint in p_clean or p_clean in clean_hint):
-                            target_plan = p
-                            break
-                        if ('SILVER' in clean_hint and 'SLIVER' in p_clean) or ('SLIVER' in clean_hint and 'SILVER' in p_clean):
-                            target_plan = p
-                            break
+            # Resolve Sponsor & Plan
+            row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name') or clean_row.get('hmo')
+            row_is_general = False
+            row_sponsor = None
 
-            # Resolve Sponsor
-            target_sponsor = default_sponsor
-            sponsor_hint = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name') or clean_row.get('hmo')
-            if sponsor_hint:
-                s_key = str(sponsor_hint).strip().upper()
-                if s_key in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'NONE'):
-                    target_sponsor = None
-                    target_plan = None
+            if row_sponsor_val and str(row_sponsor_val).strip():
+                s_key = str(row_sponsor_val).strip().upper()
+                if s_key in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'GENERAL TARIFF', 'NONE'):
+                    row_is_general = True
                 elif s_key in sponsor_by_code:
-                    target_sponsor = sponsor_by_code[s_key]
+                    row_sponsor = sponsor_by_code[s_key]
                 elif s_key in sponsor_by_name:
-                    target_sponsor = sponsor_by_name[s_key]
-                elif str(sponsor_hint).strip() in sponsor_by_id:
-                    target_sponsor = sponsor_by_id[str(sponsor_hint).strip()]
+                    row_sponsor = sponsor_by_name[s_key]
+                elif str(row_sponsor_val).strip() in sponsor_by_id:
+                    row_sponsor = sponsor_by_id[str(row_sponsor_val).strip()]
 
-            if not target_sponsor and target_plan and target_plan.sponsor:
-                target_sponsor = target_plan.sponsor
+            # Determine if this row is General (Self-Pay)
+            is_row_general = is_general_default or row_is_general
+
+            if is_row_general:
+                target_sponsor = None
+                target_plan = None
+            else:
+                target_sponsor = row_sponsor or default_sponsor
+                target_plan = default_plan
+
+                plan_hint = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name') or clean_row.get('coverage_plan')
+                if plan_hint:
+                    plan_key = str(plan_hint).strip().upper()
+                    if plan_key in ('GENERAL', 'SELF', 'CASH', 'NONE'):
+                        target_plan = None
+                    elif plan_key in plan_by_code:
+                        target_plan = plan_by_code[plan_key]
+                    elif plan_key in plan_by_name:
+                        target_plan = plan_by_name[plan_key]
+                    elif str(plan_hint).strip() in plan_by_id:
+                        target_plan = plan_by_id[str(plan_hint).strip()]
+                    else:
+                        clean_hint = plan_key.replace(' ', '').replace('_', '')
+                        for p in all_plans:
+                            p_clean = (p.plan or '').upper().replace(' ', '').replace('_', '')
+                            if clean_hint and (clean_hint in p_clean or p_clean in clean_hint):
+                                target_plan = p
+                                break
+                            if ('SILVER' in clean_hint and 'SLIVER' in p_clean) or ('SLIVER' in clean_hint and 'SILVER' in p_clean):
+                                target_plan = p
+                                break
+
+                if not target_sponsor and target_plan and target_plan.sponsor:
+                    target_sponsor = target_plan.sponsor
 
             # Look for existing tariff for this product and (sponsor, plan)
             existing = PharmacyTariff.objects.filter(
