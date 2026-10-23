@@ -1277,6 +1277,93 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
             qs = qs.filter(patient_id=patient_id)
         return qs
 
+    def create(self, request, *args, **kwargs):
+        pin_code = request.data.get('pin_code')
+        if pin_code is None or str(pin_code).strip() == '':
+            return Response(
+                {'detail': 'Security PIN is required to authorize and complete consultation.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pin_str = str(pin_code).strip()
+        if not pin_str.isdigit():
+            return Response(
+                {'detail': 'Invalid security PIN format. PIN must be numeric.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pin_int = int(pin_str)
+        if pin_int == 0:
+            return Response(
+                {'detail': 'PIN 0000 is invalid. Please enter your valid security PIN.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Identify attending doctor attempting this clinical authorization
+        authorizing_doctor = None
+        if request.user and request.user.is_authenticated:
+            authorizing_doctor = request.user
+        elif request.data.get('doctor_id'):
+            try:
+                authorizing_doctor = User.objects.filter(id=request.data.get('doctor_id'), is_active=True).first()
+            except Exception:
+                pass
+        elif request.data.get('doctor_username'):
+            authorizing_doctor = User.objects.filter(
+                username__iexact=str(request.data.get('doctor_username')).strip(),
+                is_active=True
+            ).first()
+
+        if not authorizing_doctor:
+            return Response(
+                {'detail': 'Authentication required. Please log in as an attending doctor to authorize consultation.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Check if doctor has a security PIN configured
+        if not authorizing_doctor.has_pin:
+            doc_name = getattr(authorizing_doctor, 'fullname', '') or authorizing_doctor.username
+            return Response(
+                {'detail': f'Doctor "{doc_name}" has no security PIN configured. Please set your 4-digit PIN in Profile Settings before completing consultation.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Strictly verify that the entered PIN matches the doctor's security PIN
+        if not authorizing_doctor.check_pin(pin_str):
+            return Response(
+                {'detail': 'Incorrect Security PIN. Authorization denied.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        encounter = serializer.save(provider=authorizing_doctor)
+
+        # Update DoctorWaitingList if patient is in active doctor queue
+        patient = encounter.patient
+        doc_display_name = getattr(authorizing_doctor, 'fullname', None) or authorizing_doctor.get_full_name() or authorizing_doctor.username or 'Doctor'
+        if patient:
+            try:
+                DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
+                    completed=1,
+                    waiting_status=1,
+                    encounter_status=1,
+                    completed_by=doc_display_name
+                )
+            except Exception:
+                pass
+            # Automatically clear any in-progress draft for this patient upon completing encounter
+            try:
+                ConsultationDraft.objects.filter(patient=patient).delete()
+            except Exception:
+                pass
+
+        headers = self.get_success_headers(serializer.data)
+        response_data = serializer.data
+        response_data['provider_name'] = doc_display_name
+        response_data['authorized_by'] = doc_display_name
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
         encounter = serializer.save(provider=user)
@@ -1286,7 +1373,9 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
         if patient:
             try:
                 DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
+                    completed=1,
                     waiting_status=1,
+                    encounter_status=1,
                     completed_by=getattr(user, 'fullname', 'Doctor') if user else 'Doctor'
                 )
             except Exception:
@@ -2446,6 +2535,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         other_service_orders = request.data.get('other_service_orders', [])
 
         user = request.user if request.user.is_authenticated else None
+        if not user and request.data.get('doctor_id'):
+            try:
+                user = User.objects.filter(id=request.data.get('doctor_id'), is_active=True).first()
+            except Exception:
+                pass
+        if not user and request.data.get('doctor_username'):
+            user = User.objects.filter(username__iexact=str(request.data.get('doctor_username')).strip(), is_active=True).first()
         if not user:
             user = User.objects.filter(is_staff=True).first() or User.objects.first()
         category = patient.category
@@ -2998,6 +3094,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             else:
                 rx_items = WrittenPrescriptions.objects.filter(patient=pat, status='pending').order_by('created_date')
 
+            enc_consultation_text = (latest_enc.comments_on_diagnosis or '') if latest_enc else ''
+            enc_consult_lower = enc_consultation_text.lower()
+
             for rx in rx_items:
                 t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
                 rate = float(t.rate) if (t and t.rate) else 0.0
@@ -3005,7 +3104,34 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 uom = rx.dispense_unit or ('Bottles' if rx.dosage_form in ['Syrup', 'Suspension'] else 'Each')
                 disp_desc = f" ({rx.dispense_detail})" if rx.dispense_detail else ''
 
-                is_purse = ('[Pay from your purse]' in (rx.comment or '') or '[Pay from purse]' in (rx.instruction or ''))
+                rx_cmt = (rx.comment or '').lower()
+                rx_inst = (rx.instruction or '').lower()
+                rx_name = (rx.item or '').lower()
+
+                is_purse = (
+                    'pay from your purse' in rx_cmt or
+                    'pay from purse' in rx_cmt or
+                    'out-of-pocket' in rx_cmt or
+                    'out of pocket' in rx_cmt or
+                    'non-tariff' in rx_cmt or
+                    'pay from your purse' in rx_inst or
+                    'pay from purse' in rx_inst or
+                    'out-of-pocket' in rx_inst or
+                    'non-tariff' in rx_inst or
+                    'pay from your purse' in rx_name or
+                    'pay from purse' in rx_name
+                )
+
+                if not is_purse and enc_consult_lower and rx.item:
+                    rx_keyword = rx.item.split()[0].lower()
+                    if rx_keyword in enc_consult_lower:
+                        for line in enc_consultation_text.splitlines():
+                            if rx_keyword in line.lower():
+                                l_low = line.lower()
+                                if any(k in l_low for k in ['pay from your purse', 'pay from purse', 'out-of-pocket', 'out of pocket', 'non-tariff', 'non tariff']):
+                                    is_purse = True
+                                    break
+
                 rx_payment_option = 'Cash' if is_purse else default_payment_option
                 purse_tag = ' [Pay from your purse]' if is_purse else ''
 
@@ -3018,6 +3144,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     'discount': 0,
                     'total': round(qty * rate, 2),
                     'payment_option': rx_payment_option,
+                    'is_pay_from_purse': is_purse,
                     'compulsory_pa_code': False,
                     'bill': True,
                     'pa_code': '',
@@ -3040,7 +3167,29 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 label_prefix = "Lab: " if is_lab else "Scan: "
                 uom = "Tests" if is_lab else "Scans"
 
-                is_purse = ('[Pay from your purse]' in (rl.comment or ''))
+                rl_cmt = (rl.comment or '').lower()
+                rl_name = (rl.item or '').lower()
+
+                is_purse = (
+                    'pay from your purse' in rl_cmt or
+                    'pay from purse' in rl_cmt or
+                    'out-of-pocket' in rl_cmt or
+                    'out of pocket' in rl_cmt or
+                    'non-tariff' in rl_cmt or
+                    'pay from your purse' in rl_name or
+                    'pay from purse' in rl_name
+                )
+
+                if not is_purse and enc_consult_lower and rl.item:
+                    rl_keyword = rl.item.split()[0].lower()
+                    if rl_keyword in enc_consult_lower:
+                        for line in enc_consultation_text.splitlines():
+                            if rl_keyword in line.lower():
+                                l_low = line.lower()
+                                if any(k in l_low for k in ['pay from your purse', 'pay from purse', 'out-of-pocket', 'out of pocket', 'non-tariff', 'non tariff']):
+                                    is_purse = True
+                                    break
+
                 rl_payment_option = 'Cash' if is_purse else default_payment_option
                 purse_tag = ' [Pay from your purse]' if is_purse else ''
 
@@ -3053,6 +3202,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     'discount': 0,
                     'total': rate,
                     'payment_option': rl_payment_option,
+                    'is_pay_from_purse': is_purse,
                     'compulsory_pa_code': False,
                     'bill': True,
                     'pa_code': '',
@@ -3071,15 +3221,42 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
             for os in other_services:
                 rate = float(os.price or 0)
+                os_cmt = (os.comment or '').lower()
+                os_purpose = (os.purpose or '').lower()
+
+                is_purse = (
+                    'pay from your purse' in os_cmt or
+                    'pay from purse' in os_cmt or
+                    'out-of-pocket' in os_cmt or
+                    'out of pocket' in os_cmt or
+                    'non-tariff' in os_cmt or
+                    'pay from your purse' in os_purpose or
+                    'pay from purse' in os_purpose
+                )
+
+                if not is_purse and enc_consult_lower and os.purpose:
+                    os_keyword = os.purpose.split()[0].lower()
+                    if os_keyword in enc_consult_lower:
+                        for line in enc_consultation_text.splitlines():
+                            if os_keyword in line.lower():
+                                l_low = line.lower()
+                                if any(k in l_low for k in ['pay from your purse', 'pay from purse', 'out-of-pocket', 'out of pocket', 'non-tariff', 'non tariff']):
+                                    is_purse = True
+                                    break
+
+                os_payment_option = 'Cash' if is_purse else default_payment_option
+                purse_tag = ' [Pay from your purse]' if is_purse else ''
+
                 items.append({
                     'id': f"os_{os.id}",
-                    'service_item': f"Service: {os.purpose}",
+                    'service_item': f"Service: {os.purpose}{purse_tag}",
                     'uom': 'Each',
                     'quantity': 1,
                     'rate': rate,
                     'discount': 0,
                     'total': rate,
-                    'payment_option': default_payment_option,
+                    'payment_option': os_payment_option,
+                    'is_pay_from_purse': is_purse,
                     'compulsory_pa_code': False,
                     'bill': True,
                     'pa_code': '',
@@ -3249,20 +3426,23 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
         from django.utils import timezone
         today = timezone.localdate() if hasattr(timezone, 'localdate') else timezone.now().date()
-        prefix = 'CLM-' if is_hmo else 'INV-'
 
-        # Unify all bills created for the patient today into ONE invoice / claim for the day
-        existing_today = Invoice.objects.filter(
+        # Generate / retrieve persistent document numbers for today:
+        # 1. Claim Number (for HMO Claim items)
+        existing_claim_today = Invoice.objects.filter(
             patient=patient,
-            created_date__date=today
+            created_date__date=today,
+            invoice_number__startswith='CLM-'
         ).exclude(invoice_number__isnull=True).exclude(invoice_number='').order_by('created_date').first()
+        claim_number = existing_claim_today.invoice_number if existing_claim_today else f"CLM-{uuid.uuid4().hex[:8].upper()}"
 
-        if existing_today and existing_today.invoice_number:
-            invoice_number = existing_today.invoice_number
-            if not user and existing_today.staff:
-                user = existing_today.staff
-        else:
-            invoice_number = f"{prefix}{uuid.uuid4().hex[:8].upper()}"
+        # 2. Invoice Number (for Patient Out-of-pocket / Cash items)
+        existing_inv_today = Invoice.objects.filter(
+            patient=patient,
+            created_date__date=today,
+            invoice_number__startswith='INV-'
+        ).exclude(invoice_number__isnull=True).exclude(invoice_number='').order_by('created_date').first()
+        invoice_number = existing_inv_today.invoice_number if existing_inv_today else f"INV-{uuid.uuid4().hex[:8].upper()}"
 
         receipt_number = f"REC-{random.randint(10000, 99999)}" if mark_as_paid else None
         invoices_to_create = []
@@ -3285,19 +3465,28 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 orig_id = item.get('original_id')
                 label = product_name[:60]
 
+                # Determine target document number:
+                # - For HMO patients: items marked 'Claim' go to HMO Claim (CLM-...)
+                #   items marked 'Cash', 'Pay from purse', 'Transfer', 'POS', etc. go to Patient Invoice (INV-...)
+                # - For Private patients: all items go to Patient Invoice (INV-...)
+                if is_hmo and str(pay_option).strip().lower() == 'claim':
+                    target_doc_number = claim_number
+                else:
+                    target_doc_number = invoice_number
+
                 # Prevent recording duplicate invoice items if user clicks create bill multiple times
                 is_duplicate = False
                 if orig_model and orig_id:
                     is_duplicate = Invoice.objects.filter(
                         patient=patient,
-                        invoice_number=invoice_number,
+                        invoice_number=target_doc_number,
                         original_source_model=orig_model[:50],
                         original_source_id=int(orig_id)
                     ).exists()
                 else:
                     is_duplicate = Invoice.objects.filter(
                         patient=patient,
-                        invoice_number=invoice_number,
+                        invoice_number=target_doc_number,
                         product=label
                     ).exists()
 
@@ -3308,7 +3497,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
                 invoices_to_create.append(Invoice(
                     patient=patient,
-                    invoice_number=invoice_number,
+                    invoice_number=target_doc_number,
                     product=label,
                     qty=qty,
                     price=int(round(item_total)),
@@ -3333,8 +3522,6 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 elif orig_model == 'GetRegistrationFee':
                     GetRegistrationFee.objects.filter(patient=patient).update(completed=1)
                 elif orig_model in ['PatientAppointment', 'Appointment'] and orig_id:
-                    # Paying consultation fee in billing settles the bill/invoice, but does NOT complete the clinical appointment.
-                    # The patient is still waiting to see the doctor for their consultation encounter.
                     pass
 
             if invoices_to_create:
@@ -3353,46 +3540,64 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         staff=user,
                     )
 
-                # Update or create TransactionUpdate safely without MultipleObjectsReturned risk
-                try:
-                    tu = TransactionUpdate.objects.filter(patient=patient, completed=0).order_by('-id').first()
-                    if not tu:
-                        tu = TransactionUpdate(patient=patient, completed=0)
-                    tu.invoice_ids = invoice_number
-                    tu.invoice_raised = (tu.invoice_raised or 0) + int(round(total_amount))
-                    tu.total_invoiced_items = (tu.total_invoiced_items or 0) + len(invoices_to_create)
-                    if mark_as_paid:
-                        tu.receipt_given = (tu.receipt_given or 0) + 1
-                    if user:
-                        tu.staff = user
-                    tu.updated_date = timezone.now()
-                    tu.save()
-                except Exception as ex:
-                    print("Error updating TransactionUpdate:", ex)
+        # Update or create TransactionUpdate safely outside the atomic transaction block
+        if invoices_to_create:
+            try:
+                tu = TransactionUpdate.objects.filter(patient=patient, completed=0).order_by('-id').first()
+                if not tu:
+                    tu = TransactionUpdate(patient=patient, completed=0)
+
+                created_doc_numbers = list(dict.fromkeys(inv.invoice_number for inv in invoices_to_create))
+                primary_doc = created_doc_numbers[0] if created_doc_numbers else (claim_number if is_hmo else invoice_number)
+                tu.invoice_ids = str(primary_doc)[:20]
+                tu.invoice_raised = (tu.invoice_raised or 0) + int(round(total_amount))
+                tu.total_invoiced_items = (tu.total_invoiced_items or 0) + len(invoices_to_create)
+                if mark_as_paid:
+                    tu.receipt_given = (tu.receipt_given or 0) + 1
+                if user:
+                    tu.staff = user
+                tu.updated_date = timezone.now()
+                tu.save()
+            except Exception as ex:
+                print("Error updating TransactionUpdate:", ex)
+
+        # Categorize created invoices
+        claim_invoices = [inv for inv in invoices_to_create if inv.invoice_number.startswith('CLM-')]
+        patient_invoices = [inv for inv in invoices_to_create if inv.invoice_number.startswith('INV-')]
+
+        claim_total = sum(float(inv.price) for inv in claim_invoices)
+        inv_total = sum(float(inv.price) for inv in patient_invoices)
+        has_split = (len(claim_invoices) > 0 and len(patient_invoices) > 0)
+
+        primary_number = claim_number if (is_hmo and claim_invoices) else invoice_number
+        bill_num_clean = primary_number.replace('INV-', '').replace('CLM-', '')
+        if not bill_num_clean.isdigit():
+            bill_num_clean = f"{abs(hash(primary_number)) % 9000000 + 1000000}"
+
+        now_dt = timezone.localtime()
+        formatted_dt = now_dt.strftime('%d %B %Y %I:%M%p').lower()
+
+        if has_split:
+            msg = f"Encounter Bill Created: HMO Claim #{claim_number} ({len(claim_invoices)} covered items: ₦{claim_total:,.2f}) and Patient Invoice #{invoice_number} ({len(patient_invoices)} pay-from-purse items: ₦{inv_total:,.2f}) successfully generated!"
+        elif is_hmo and claim_invoices:
+            msg = f"HMO Claim #{claim_number} ({len(claim_invoices)} covered items: ₦{claim_total:,.2f}) successfully generated."
+        else:
+            msg = f"Patient Invoice #{invoice_number} ({len(patient_invoices)} items: ₦{inv_total:,.2f}) successfully generated."
 
         staff_name = ''
         if user:
             staff_name = (getattr(user, 'fullname', None) or '').strip() or user.get_full_name() or user.username
         if not staff_name:
             staff_name = (request.data.get('staff_name') or '').strip()
-        if not staff_name and existing_today and existing_today.staff:
-            staff_name = (getattr(existing_today.staff, 'fullname', None) or '').strip() or existing_today.staff.get_full_name() or existing_today.staff.username
+        if not staff_name and existing_claim_today and existing_claim_today.staff:
+            staff_name = (getattr(existing_claim_today.staff, 'fullname', None) or '').strip() or existing_claim_today.staff.get_full_name() or existing_claim_today.staff.username
         if not staff_name:
             staff_name = 'Cashier / Billing Desk'
-
-        bill_num_clean = invoice_number.replace('INV-', '').replace('CLM-', '')
-        if not bill_num_clean.isdigit():
-            # If hexadecimal uuid, map to a readable numeric bill number
-            bill_num_clean = f"{abs(hash(invoice_number)) % 9000000 + 1000000}"
-
-        now_dt = timezone.localtime()
-        formatted_dt = now_dt.strftime('%d %B %Y %I:%M%p').lower()
-        msg = f"{'HMO Claim' if is_hmo else 'Invoice'} #{invoice_number} successfully generated for {patient.get_full_name()}."
 
         # Gather previous patient balances
         prev_balance = 0.0
         try:
-            prev_tu = TransactionUpdate.objects.filter(patient=patient).exclude(invoice_ids=invoice_number).order_by('-id').first()
+            prev_tu = TransactionUpdate.objects.filter(patient=patient).exclude(invoice_ids__icontains=primary_number).order_by('-id').first()
             if prev_tu and prev_tu.invoice_raised:
                 prev_balance = float(prev_tu.invoice_raised)
         except Exception:
@@ -3400,13 +3605,39 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
         return Response({
             'status': 'success',
-            'bill_type': 'claim' if is_hmo else 'invoice',
-            'invoice_number': invoice_number,
+            'has_split': has_split,
+            'bill_type': 'split' if has_split else ('claim' if (is_hmo and claim_invoices) else 'invoice'),
+            'claim_number': claim_number if claim_invoices else None,
+            'claim_items_count': len(claim_invoices),
+            'claim_total': claim_total,
+            'claim_items': [
+                {
+                    'service_item': inv.product,
+                    'quantity': inv.qty,
+                    'rate': inv.price / (inv.qty or 1),
+                    'total': inv.price,
+                    'payment_option': inv.payment_option,
+                } for inv in claim_invoices
+            ],
+            'invoice_number': invoice_number if patient_invoices else (claim_number if is_hmo else invoice_number),
+            'inv_items_count': len(patient_invoices),
+            'inv_total': inv_total,
+            'invoice_items': [
+                {
+                    'service_item': inv.product,
+                    'quantity': inv.qty,
+                    'rate': inv.price / (inv.qty or 1),
+                    'total': inv.price,
+                    'payment_option': inv.payment_option,
+                } for inv in patient_invoices
+            ],
+            'primary_number': primary_number,
             'bill_number': bill_num_clean,
             'receipt_number': receipt_number,
             'is_paid': mark_as_paid,
             'items_count': len(invoices_to_create),
             'total_amount': total_amount,
+            'message': msg,
             'created_datetime': formatted_dt,
             'staff_name': staff_name,
             'previous_balance': prev_balance,
