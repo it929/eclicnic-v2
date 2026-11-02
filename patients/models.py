@@ -198,6 +198,10 @@ class PatientProfile(models.Model):
         if self.dob:
             return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
         return None
+
+    @property
+    def age(self):
+        return self.get_age
     def is_admitted(self):
         return AdmissionTable.objects.filter(
             doctor_discharge_status=0,

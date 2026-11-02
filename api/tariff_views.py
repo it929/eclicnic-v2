@@ -7,7 +7,7 @@ from django.db.models import Q
 from queue_operations.models import RegFee
 from patients.models import PatientPlan, Sponsor, PatientProfile
 from IPD.models import Ward
-from radio_lab.models import RadioLabInventory
+from radio_lab.models import RadioLabInventory, LabInvestigation, LabParameter, LabInvestigationParameter
 from inventory.models import PharmacyTariff
 from myAdmins.models import OtherService2, Packages, PackagesData
 from users.models import User
@@ -87,6 +87,7 @@ class LabChargesView(APIView):
         patient_id = request.query_params.get('patient')
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
+        test_type = request.query_params.get('test_type', '').strip().lower()
         search = request.query_params.get('search', '').strip()
 
         # If explicitly requesting general out-of-pocket tariffs
@@ -141,21 +142,156 @@ class LabChargesView(APIView):
             if plan_id and str(plan_id).lower() != 'all':
                 qs = qs.filter(plan_id=plan_id)
 
+        # Filter by test type (investigations vs parameters)
+        if test_type in ('investigation', 'investigations', 'panel', 'panels'):
+            qs = qs.filter(test_type='investigation')
+        elif test_type in ('parameter', 'parameters', 'single', 'singles'):
+            qs = qs.filter(test_type='parameter')
+
         if search:
             qs = qs.filter(
                 Q(item__icontains=search) |
                 Q(item_id__icontains=search)
             )
 
+        # Pre-cache code/name to category maps and investigations with parameter mappings
+        inv_objs = list(LabInvestigation.objects.prefetch_related('parameter_mappings__parameter').all())
+        inv_map = {inv.code.strip().upper(): (inv.category or 'General', inv.name) for inv in inv_objs if inv.code}
+        inv_name_map = {inv.name.strip().lower(): (inv.category or 'General', inv.code) for inv in inv_objs if inv.name}
+        inv_by_code = {inv.code.strip().upper(): inv for inv in inv_objs if inv.code}
+        inv_by_name = {inv.name.strip().lower(): inv for inv in inv_objs if inv.name}
+
+        param_objs = list(LabParameter.objects.all())
+        param_by_id = {p.id: p for p in param_objs}
+        param_map = {p.code.strip().upper(): (p.category or 'General', p.name) for p in param_objs if p.code}
+        param_name_map = {p.name.strip().lower(): (p.category or 'General', p.code) for p in param_objs if p.name}
+
+        # Pre-cache all parameter tariffs to quickly resolve sponsor/plan specific rates
+        param_tariff_rows = list(RadioLabInventory.objects.filter(type='L', test_type='parameter').select_related('sponsor', 'plan'))
+        # Index by: (code_or_name_upper, sponsor_id, plan_id) -> float(rate)
+        plan_param_rate_map = {}
+        for ptr in param_tariff_rows:
+            p_code = (ptr.item_id or '').strip().upper()
+            p_name = ptr.item.strip().upper()
+            s_id = ptr.sponsor_id
+            pl_id = ptr.plan_id
+            r_val = float(ptr.rate)
+            if p_code:
+                plan_param_rate_map[(p_code, s_id, pl_id)] = r_val
+            if p_name:
+                plan_param_rate_map[(p_name, s_id, pl_id)] = r_val
+
         data = []
         for item in qs:
             eff_sponsor = item.sponsor or (item.plan.sponsor if item.plan else None)
             is_gen = bool(not eff_sponsor and not item.plan)
+            code_upper = (item.item_id or '').strip().upper()
+            name_lower = (item.item or '').strip().lower()
+
+            # Resolve effective test_type
+            t_type = item.test_type
+            if not t_type or t_type == '':
+                if code_upper in param_map or name_lower in param_name_map:
+                    t_type = 'parameter'
+                else:
+                    t_type = 'investigation'
+
+            # Resolve category
+            category = 'General'
+            if code_upper in inv_map:
+                category = inv_map[code_upper][0]
+            elif name_lower in inv_name_map:
+                category = inv_name_map[name_lower][0]
+            elif code_upper in param_map:
+                category = param_map[code_upper][0]
+            elif name_lower in param_name_map:
+                category = param_name_map[name_lower][0]
+
+            # Resolve investigation parameter mappings for this specific sponsor and plan
+            mapped_params = []
+            mapped_param_ids = []
+            accumulated_price = 0.0
+
+            # 1. Use sponsor/plan specific parameter_ids if saved on RadioLabInventory row
+            target_pids = []
+            if item.parameter_ids and isinstance(item.parameter_ids, list) and len(item.parameter_ids) > 0:
+                target_pids = item.parameter_ids
+            else:
+                matched_inv = inv_by_code.get(code_upper) or inv_by_name.get(name_lower)
+                if matched_inv:
+                    target_pids = [m.parameter.id for m in matched_inv.parameter_mappings.all()]
+
+            s_id = eff_sponsor.id if eff_sponsor else None
+            pl_id = item.plan_id if item.plan else None
+
+            for pid in target_pids:
+                param = param_by_id.get(pid)
+                if not param:
+                    continue
+                mapped_param_ids.append(param.id)
+
+                p_code = (param.code or '').strip().upper()
+                p_name = param.name.strip().upper()
+
+                # Find exact rate for this sponsor and plan
+                p_rate = None
+                p_source = 'base'
+                p_source_label = 'Base Rate'
+
+                if s_id and pl_id and (p_code, s_id, pl_id) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_code, s_id, pl_id)]
+                    p_source = 'plan'
+                    p_source_label = f"{item.plan.plan} Tariff"
+                elif s_id and pl_id and (p_name, s_id, pl_id) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_name, s_id, pl_id)]
+                    p_source = 'plan'
+                    p_source_label = f"{item.plan.plan} Tariff"
+                elif s_id and (p_code, s_id, None) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_code, s_id, None)]
+                    p_source = 'sponsor'
+                    p_source_label = f"{eff_sponsor.name} Tariff"
+                elif s_id and (p_name, s_id, None) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_name, s_id, None)]
+                    p_source = 'sponsor'
+                    p_source_label = f"{eff_sponsor.name} Tariff"
+                elif (p_code, None, None) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_code, None, None)]
+                    p_source = 'general'
+                    p_source_label = 'General Tariff'
+                elif (p_name, None, None) in plan_param_rate_map:
+                    p_rate = plan_param_rate_map[(p_name, None, None)]
+                    p_source = 'general'
+                    p_source_label = 'General Tariff'
+                else:
+                    p_rate = float(param.base_price or 0)
+                    p_source = 'base'
+                    p_source_label = 'Base Rate'
+
+                accumulated_price += p_rate
+                mapped_params.append({
+                    'id': param.id,
+                    'code': param.code,
+                    'name': param.name,
+                    'rate': p_rate,
+                    'tariff_rate': p_rate,
+                    'source': p_source,
+                    'source_label': p_source_label,
+                    'base_price': float(param.base_price or 0),
+                    'category': param.category or 'General',
+                })
+
             data.append({
                 'id': item.id,
                 'item': item.item,
                 'item_id': item.item_id or '',
                 'rate': float(item.rate),
+                'test_type': t_type,
+                'test_type_label': 'Investigation (Panel)' if t_type == 'investigation' else 'Parameter (Test)',
+                'category': category,
+                'mapped_parameters': mapped_params,
+                'mapped_parameter_ids': mapped_param_ids,
+                'parameter_count': len(mapped_param_ids),
+                'accumulated_price': accumulated_price,
                 'sponsor_id': eff_sponsor.id if eff_sponsor else None,
                 'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
                 'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
@@ -171,11 +307,19 @@ class LabChargesView(APIView):
         item_name = request.data.get('item', '').strip() or request.data.get('item_name', '').strip()
         item_id = request.data.get('item_id', '').strip()
         rate = request.data.get('rate', 0)
+        test_type = request.data.get('test_type', '').strip().lower()
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         plan_id = request.data.get('plan_id') or request.data.get('plan')
 
         if not item_name:
-            return Response({'detail': 'Test item name required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Test item name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Auto-detect test_type if not provided
+        if not test_type or test_type not in ('investigation', 'parameter'):
+            if LabParameter.objects.filter(Q(code__iexact=item_id) | Q(name__iexact=item_name)).exists():
+                test_type = 'parameter'
+            else:
+                test_type = 'investigation'
 
         is_general = (
             not sponsor_id or
@@ -202,24 +346,90 @@ class LabChargesView(APIView):
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
-        obj = RadioLabInventory.objects.create(
-            item=item_name,
-            item_id=item_id or f"LAB-{RadioLabInventory.objects.count()+1:03d}",
-            rate=Decimal(str(rate)),
-            type='L',
-            sponsor=sponsor,
-            plan=plan,
-            staff=staff
-        )
+        # Check if record already exists for this (item_id, sponsor, plan)
+        existing = None
+        if item_id:
+            existing = RadioLabInventory.objects.filter(
+                type='L',
+                item_id=item_id,
+                sponsor=sponsor,
+                plan=plan
+            ).first()
+        if not existing:
+            existing = RadioLabInventory.objects.filter(
+                type='L',
+                item__iexact=item_name,
+                sponsor=sponsor,
+                plan=plan
+            ).first()
+
+        if existing:
+            existing.rate = Decimal(str(rate))
+            existing.item = item_name
+            if item_id:
+                existing.item_id = item_id
+            existing.test_type = test_type
+            existing.save()
+            obj = existing
+            msg = f'Tariff price for "{obj.item}" updated successfully.'
+        else:
+            obj = RadioLabInventory.objects.create(
+                item=item_name,
+                item_id=item_id or f"LAB-{RadioLabInventory.objects.count()+1:03d}",
+                rate=Decimal(str(rate)),
+                type='L',
+                test_type=test_type,
+                sponsor=sponsor,
+                plan=plan,
+                staff=staff
+            )
+            msg = f'Tariff price for "{obj.item}" created successfully.'
+
+        # If parameter_ids provided, save on RadioLabInventory row and sync
+        if 'parameter_ids' in request.data:
+            p_ids = request.data.get('parameter_ids')
+            if isinstance(p_ids, list):
+                obj.parameter_ids = p_ids
+                obj.save(update_fields=['parameter_ids', 'updated_date'])
+                code = (obj.item_id or '').strip()
+                name = obj.item.strip()
+                inv = None
+                if code:
+                    inv = LabInvestigation.objects.filter(code__iexact=code).first()
+                if not inv and name:
+                    inv = LabInvestigation.objects.filter(name__iexact=name).first()
+                if not inv:
+                    inv = LabInvestigation.objects.create(
+                        code=code or f"INV-{obj.id:03d}",
+                        name=name,
+                        base_price=obj.rate,
+                        is_panel=True,
+                        use_accumulated_price=True
+                    )
+                LabInvestigationParameter.objects.filter(investigation=inv).delete()
+                for idx, pid in enumerate(p_ids):
+                    try:
+                        param = LabParameter.objects.get(id=pid)
+                        LabInvestigationParameter.objects.create(
+                            investigation=inv,
+                            parameter=param,
+                            order=idx + 1
+                        )
+                    except LabParameter.DoesNotExist:
+                        pass
+                inv.base_price = obj.rate
+                inv.save()
 
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
         is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
-            'detail': f'Lab charge "{obj.item}" created successfully.',
+            'detail': msg,
             'id': obj.id,
             'item': obj.item,
             'item_id': obj.item_id,
             'rate': float(obj.rate),
+            'test_type': obj.test_type,
+            'test_type_label': 'Investigation (Panel)' if obj.test_type == 'investigation' else 'Parameter (Test)',
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
             'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
             'sponsor_code': eff_sponsor.code if eff_sponsor else 'GENERAL',
@@ -228,7 +438,7 @@ class LabChargesView(APIView):
             'plan_code': obj.plan.code if obj.plan else ('GENERAL' if is_gen else ''),
             'is_general': is_gen,
             'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
-        }, status=status.HTTP_201_CREATED)
+        }, status=status.HTTP_201_CREATED if not existing else status.HTTP_200_OK)
 
     def put(self, request, pk=None):
         try:
@@ -242,10 +452,14 @@ class LabChargesView(APIView):
             obj.rate = Decimal(str(request.data['rate']))
         if 'item_id' in request.data:
             obj.item_id = request.data['item_id'].strip()
+        if 'test_type' in request.data:
+            tt = request.data['test_type'].strip().lower()
+            if tt in ('investigation', 'parameter'):
+                obj.test_type = tt
 
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         if sponsor_id is not None:
-            if sponsor_id and str(sponsor_id).lower() != 'all':
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'self', 'cash', 'none', 'null'):
                 try:
                     obj.sponsor = Sponsor.objects.get(id=sponsor_id)
                 except Sponsor.DoesNotExist:
@@ -255,7 +469,7 @@ class LabChargesView(APIView):
 
         plan_id = request.data.get('plan_id') or request.data.get('plan')
         if plan_id is not None:
-            if plan_id and str(plan_id).lower() != 'all':
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
                 try:
                     obj.plan = PatientPlan.objects.get(id=plan_id)
                     if obj.plan.sponsor and not obj.sponsor:
@@ -266,15 +480,54 @@ class LabChargesView(APIView):
                 obj.plan = None
 
         obj.save()
+
+        # If parameter_ids provided, save on RadioLabInventory row and sync
+        if 'parameter_ids' in request.data:
+            p_ids = request.data.get('parameter_ids')
+            if isinstance(p_ids, list):
+                obj.parameter_ids = p_ids
+                obj.save(update_fields=['parameter_ids', 'updated_date'])
+                code = (obj.item_id or '').strip()
+                name = obj.item.strip()
+                inv = None
+                if code:
+                    inv = LabInvestigation.objects.filter(code__iexact=code).first()
+                if not inv and name:
+                    inv = LabInvestigation.objects.filter(name__iexact=name).first()
+                if not inv:
+                    inv = LabInvestigation.objects.create(
+                        code=code or f"INV-{obj.id:03d}",
+                        name=name,
+                        base_price=obj.rate,
+                        is_panel=True,
+                        use_accumulated_price=True
+                    )
+                LabInvestigationParameter.objects.filter(investigation=inv).delete()
+                for idx, pid in enumerate(p_ids):
+                    try:
+                        param = LabParameter.objects.get(id=pid)
+                        LabInvestigationParameter.objects.create(
+                            investigation=inv,
+                            parameter=param,
+                            order=idx + 1
+                        )
+                    except LabParameter.DoesNotExist:
+                        pass
+                inv.base_price = obj.rate
+                inv.save()
+
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
+        is_gen = bool(not eff_sponsor and not obj.plan)
         return Response({
-            'detail': 'Lab charge updated successfully.',
+            'detail': f'Tariff for "{obj.item}" updated successfully.',
             'id': obj.id,
             'item': obj.item,
             'item_id': obj.item_id,
             'rate': float(obj.rate),
+            'test_type': obj.test_type,
+            'test_type_label': 'Investigation (Panel)' if obj.test_type == 'investigation' else 'Parameter (Test)',
             'sponsor_id': eff_sponsor.id if eff_sponsor else None,
-            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General',
+            'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
             'plan_id': obj.plan.id if obj.plan else None,
             'plan_name': obj.plan.plan if obj.plan else 'All Plans',
         })
@@ -287,7 +540,7 @@ class LabChargesView(APIView):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-# 1.2.1 Download Laboratory Tariff Template
+# 1.2.1 Download Laboratory Tariff Template Pre-Filled from Database
 class DownloadLabTariffTemplateView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -297,77 +550,103 @@ class DownloadLabTariffTemplateView(APIView):
 
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
+        template_type = (request.query_params.get('template_type') or request.query_params.get('type') or 'all').strip().lower()
 
-        is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+        is_general = not sponsor_id or str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none', 'null')
 
-        if is_general:
-            sponsor_code = "GENERAL"
-            plan_code = "GENERAL"
-            sponsor_name = "General / Out-of-Pocket"
-            plan_name = "General Price (Pay from your purse)"
-        else:
-            sponsor_code = "AMH"
-            plan_code = "AIICO SLIVER"
-            sponsor_name = "AIICO MULTISHIELD (AMH)"
-            plan_name = "AIICO SLIVER"
+        sponsor = None
+        plan = None
+        sponsor_code = "GENERAL"
+        plan_code = "GENERAL"
+        sponsor_name = "General / Out-of-Pocket"
+        plan_name = "General Price (Pay from your purse)"
 
-            if sponsor_id:
+        if not is_general:
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none'):
                 try:
-                    s = Sponsor.objects.get(id=sponsor_id)
-                    sponsor_code = s.code or s.name
-                    sponsor_name = s.name
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = sponsor.code or sponsor.name
+                    sponsor_name = sponsor.name
                 except Sponsor.DoesNotExist:
                     pass
 
-            if plan_id:
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
                 try:
-                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                    plan_code = p.code or p.plan
-                    plan_name = p.plan
-                    if p.sponsor:
-                        sponsor_code = p.sponsor.code or p.sponsor.name
-                        sponsor_name = p.sponsor.name
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = plan.code or plan.plan
+                    plan_name = plan.plan
+                    if not sponsor and plan.sponsor:
+                        sponsor = plan.sponsor
+                        sponsor_code = sponsor.code or sponsor.name
+                        sponsor_name = sponsor.name
                 except PatientPlan.DoesNotExist:
                     pass
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['item_name', 'test_code', 'rate', 'sponsor_code', 'plan_code', 'notes'])
+        writer.writerow(['item_name', 'test_code', 'test_type', 'category', 'tariff_rate', 'sponsor_code', 'plan_code', 'notes'])
 
-        notes_text = "General Tariff - Pay from your purse" if is_general else f"Covered under {plan_name}"
+        notes_text = "General Tariff" if is_general else f"Covered under {plan_name}"
 
-        samples = [
-            ['Full Blood Count (FBC / CBC)', 'LAB-001', '3500.00', sponsor_code, plan_code, notes_text],
-            ['Malaria Parasite (MP by Microscopy)', 'LAB-002', '1500.00', sponsor_code, plan_code, notes_text],
-            ['Widal Agglutination Test (Typhoid)', 'LAB-003', '2000.00', sponsor_code, plan_code, notes_text],
-            ['Urinalysis (10-Parameter Strip)', 'LAB-004', '1200.00', sponsor_code, plan_code, notes_text],
-            ['Fasting Blood Sugar (FBS)', 'LAB-005', '1000.00', sponsor_code, plan_code, notes_text],
-            ['Lipid Profile (Full)', 'LAB-006', '6500.00', sponsor_code, plan_code, notes_text],
-            ['Liver Function Test (LFT)', 'LAB-007', '5500.00', sponsor_code, plan_code, notes_text],
-            ['Kidney Function Test (Electrolytes, Urea, Creatinine)', 'LAB-008', '6000.00', sponsor_code, plan_code, notes_text],
-            ['Stool Microscopy, Culture & Sensitivity', 'LAB-009', '4000.00', sponsor_code, plan_code, notes_text],
-            ['Hepatitis B Surface Antigen (HBsAg Screening)', 'LAB-010', '2500.00', sponsor_code, plan_code, notes_text],
-        ]
-        for row in samples:
-            writer.writerow(row)
+        # 1. Investigations from Database
+        if template_type in ('all', 'investigations', 'panels'):
+            invs = LabInvestigation.objects.filter(is_active=True).prefetch_related('parameter_mappings__parameter').order_by('category', 'name')
+            for inv in invs:
+                existing = RadioLabInventory.objects.filter(
+                    type='L',
+                    item_id=inv.code,
+                    sponsor=sponsor,
+                    plan=plan
+                ).first()
+                rate = f"{existing.rate:.2f}" if existing else f"{inv.effective_price():.2f}"
+                writer.writerow([
+                    inv.name,
+                    inv.code,
+                    'Investigation',
+                    inv.category or 'General',
+                    rate,
+                    sponsor_code,
+                    plan_code,
+                    notes_text
+                ])
 
-        csv_content = output.getvalue()
-        response = HttpResponse(csv_content, content_type='text/csv; charset=utf-8')
-        safe_sponsor = str(sponsor_code).replace(' ', '_').replace('/', '_')
-        safe_plan = str(plan_code).replace(' ', '_').replace('/', '_')
-        filename = "lab_tariffs_template_general.csv" if is_general else f"lab_tariffs_template_{safe_sponsor}_{safe_plan}.csv"
+        # 2. Parameters from Database
+        if template_type in ('all', 'parameters', 'singles'):
+            params = LabParameter.objects.filter(is_active=True).order_by('category', 'display_order', 'name')
+            for param in params:
+                existing = RadioLabInventory.objects.filter(
+                    type='L',
+                    item_id=param.code,
+                    sponsor=sponsor,
+                    plan=plan
+                ).first()
+                rate = f"{existing.rate:.2f}" if existing else f"{param.base_price:.2f}"
+                writer.writerow([
+                    param.name,
+                    param.code,
+                    'Parameter',
+                    param.category or 'General',
+                    rate,
+                    sponsor_code,
+                    plan_code,
+                    notes_text
+                ])
+
+        filename = f"lab_tariffs_{template_type}_{sponsor_code}_{plan_code}.csv".replace(' ', '_').replace('/', '_')
+        response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
 
-# 1.2.2 Bulk Upload Laboratory Tariffs
+# 1.2.2 Bulk Upload Laboratory Tariffs (CSV / Excel)
 class BulkUploadLabTariffView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         import io, csv
-        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('default_sponsor_id')
-        default_plan_id = request.data.get('plan_id') or request.data.get('default_plan_id')
+        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('default_sponsor_id') or request.data.get('sponsor')
+        default_plan_id = request.data.get('plan_id') or request.data.get('default_plan_id') or request.data.get('plan')
+        default_target_type = str(request.data.get('target_type') or request.data.get('test_type') or '').strip().lower()
 
         is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
 
@@ -440,13 +719,16 @@ class BulkUploadLabTariffView(APIView):
         plan_by_name = {p.plan.strip().upper(): p for p in all_plans if p.plan}
         plan_by_id = {str(p.id): p for p in all_plans}
 
+        param_codes = set(c.upper() for c in LabParameter.objects.values_list('code', flat=True) if c)
+        param_names = set(p.strip().lower() for p in LabParameter.objects.values_list('name', flat=True) if p)
+        inv_codes = set(c.upper() for c in LabInvestigation.objects.values_list('code', flat=True) if c)
+        inv_names = set(p.strip().lower() for p in LabInvestigation.objects.values_list('name', flat=True) if p)
+
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
         created_count = 0
         updated_count = 0
         skipped = []
-
-        counter = RadioLabInventory.objects.count()
 
         for idx, row in enumerate(raw_rows, start=1):
             if not isinstance(row, dict):
@@ -457,9 +739,6 @@ class BulkUploadLabTariffView(APIView):
             item_name = (
                 clean_row.get('item_name')
                 or clean_row.get('test_name')
-                or clean_row.get('laboratory_test')
-                or clean_row.get('lab_test')
-                or clean_row.get('test')
                 or clean_row.get('item')
                 or clean_row.get('name')
             )
@@ -470,14 +749,13 @@ class BulkUploadLabTariffView(APIView):
             item_name = str(item_name).strip()
 
             rate_raw = (
-                clean_row.get('rate')
-                or clean_row.get('tariff_rate')
+                clean_row.get('tariff_rate')
+                or clean_row.get('rate')
                 or clean_row.get('price')
                 or clean_row.get('amount')
-                or clean_row.get('fee')
             )
             try:
-                rate_val = Decimal(str(rate_raw).replace(',', '').replace('₦', '').strip())
+                rate_val = Decimal(str(rate_raw).replace(',', '').replace('$', '').strip())
                 if rate_val < 0:
                     rate_val = Decimal('0.00')
             except Exception:
@@ -488,149 +766,122 @@ class BulkUploadLabTariffView(APIView):
                 clean_row.get('test_code')
                 or clean_row.get('item_id')
                 or clean_row.get('code')
-                or clean_row.get('lab_code')
             )
-            if not test_code or not str(test_code).strip():
-                counter += 1
-                test_code = f"LAB-{counter:03d}"
+            test_code = str(test_code).strip() if test_code else ''
+
+            # Detect test_type (Investigation/Panel vs Parameter/Single)
+            test_type_raw = str(clean_row.get('test_type') or clean_row.get('type') or '').lower()
+            if 'param' in test_type_raw or 'single' in test_type_raw:
+                t_type = 'parameter'
+            elif 'inv' in test_type_raw or 'panel' in test_type_raw:
+                t_type = 'investigation'
+            elif test_code and test_code.upper() in inv_codes:
+                t_type = 'investigation'
+            elif item_name.lower() in inv_names:
+                t_type = 'investigation'
+            elif test_code and test_code.upper() in param_codes:
+                t_type = 'parameter'
+            elif item_name.lower() in param_names:
+                t_type = 'parameter'
+            elif default_target_type in ('investigations', 'investigation', 'panels'):
+                t_type = 'investigation'
+            elif default_target_type in ('parameters', 'parameter', 'singles'):
+                t_type = 'parameter'
             else:
-                test_code = str(test_code).strip()
+                t_type = 'investigation'
+
+            # Auto-fill test_code from catalog if missing in file
+            if not test_code:
+                if t_type == 'investigation':
+                    matched_inv = LabInvestigation.objects.filter(name__iexact=item_name).first()
+                    if matched_inv and matched_inv.code:
+                        test_code = matched_inv.code
+                else:
+                    matched_param = LabParameter.objects.filter(name__iexact=item_name).first()
+                    if matched_param and matched_param.code:
+                        test_code = matched_param.code
 
             # Resolve Sponsor
-            row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name')
-            row_sponsor = None
-            row_is_general = False
+            row_sponsor_code = str(clean_row.get('sponsor_code') or clean_row.get('sponsor') or '').strip().upper()
+            row_plan_code = str(clean_row.get('plan_code') or clean_row.get('plan') or '').strip().upper()
 
-            if row_sponsor_val and str(row_sponsor_val).strip():
-                raw_s = str(row_sponsor_val).strip()
-                if raw_s.upper() in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'GENERAL TARIFF', 'NONE'):
-                    row_is_general = True
-                else:
-                    row_sponsor = (
-                        sponsor_by_code.get(raw_s.upper())
-                        or sponsor_by_name.get(raw_s.upper())
-                        or sponsor_by_id.get(raw_s)
-                    )
+            sponsor = default_sponsor
+            plan = default_plan
 
-            target_sponsor = None if (row_is_general or is_general_default) else (row_sponsor or default_sponsor)
+            if row_sponsor_code:
+                if row_sponsor_code in ('GENERAL', 'SELF', 'CASH', 'NONE', '0'):
+                    sponsor = None
+                    plan = None
+                elif row_sponsor_code in sponsor_by_code:
+                    sponsor = sponsor_by_code[row_sponsor_code]
+                elif row_sponsor_code in sponsor_by_name:
+                    sponsor = sponsor_by_name[row_sponsor_code]
+                elif row_sponsor_code in sponsor_by_id:
+                    sponsor = sponsor_by_id[row_sponsor_code]
 
-            # Resolve Plan
-            row_plan_val = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name')
-            row_plan = None
-            if not row_is_general and not is_general_default and row_plan_val and str(row_plan_val).strip():
-                raw_p = str(row_plan_val).strip()
-                if raw_p.upper() not in ('GENERAL', 'ALL', 'NONE', 'NO HMO', 'PAY FROM YOUR PURSE', 'PURSE'):
-                    row_plan = (
-                        plan_by_code.get(raw_p.upper())
-                        or plan_by_name.get(raw_p.upper())
-                        or plan_by_id.get(raw_p)
-                    )
+            if row_plan_code and sponsor is not None:
+                if row_plan_code in plan_by_code:
+                    plan = plan_by_code[row_plan_code]
+                elif row_plan_code in plan_by_name:
+                    plan = plan_by_name[row_plan_code]
+                elif row_plan_code in plan_by_id:
+                    plan = plan_by_id[row_plan_code]
 
-            target_plan = None if (row_is_general or is_general_default) else (row_plan or default_plan)
-            if target_plan and target_plan.sponsor and not target_sponsor:
-                target_sponsor = target_plan.sponsor
-
-            # Check if this row is a General Tariff (Self-Pay / Pay from your purse)
-            is_general_row = is_general_default or row_is_general or (
-                target_sponsor is None and target_plan is None and (
-                    default_sponsor_id in ('general', 'self', 'cash', 'none', '', None) or
-                    clean_row.get('sponsor_code', '').strip().upper() in ('GENERAL', 'SELF', 'CASH', '')
-                )
-            )
-
-            if not is_general_row and not target_sponsor and not target_plan:
-                skipped.append(f"Row {idx} ({item_name}): Could not identify Sponsor or Plan. Select an HMO or choose General Tariff.")
-                continue
-
-            if is_general_row:
-                # General Tariff: sponsor=None, plan=None
+            # Upsert into RadioLabInventory
+            existing = None
+            if test_code:
+                existing = RadioLabInventory.objects.filter(
+                    type='L',
+                    item_id=test_code,
+                    sponsor=sponsor,
+                    plan=plan
+                ).first()
+            if not existing:
                 existing = RadioLabInventory.objects.filter(
                     type='L',
                     item__iexact=item_name,
-                    sponsor__isnull=True,
-                    plan__isnull=True
+                    sponsor=sponsor,
+                    plan=plan
                 ).first()
 
-                if not existing and test_code:
-                    existing = RadioLabInventory.objects.filter(
-                        type='L',
-                        item_id__iexact=test_code,
-                        sponsor__isnull=True,
-                        plan__isnull=True
-                    ).first()
-
-                if existing:
-                    existing.rate = rate_val
-                    existing.item = item_name
+            if existing:
+                existing.rate = rate_val
+                existing.item = item_name
+                if test_code:
                     existing.item_id = test_code
-                    existing.sponsor = None
-                    existing.plan = None
-                    existing.staff = staff
-                    existing.save()
-                    updated_count += 1
-                else:
-                    RadioLabInventory.objects.create(
-                        item=item_name,
-                        item_id=test_code,
-                        rate=rate_val,
-                        type='L',
-                        sponsor=None,
-                        plan=None,
-                        staff=staff
-                    )
-                    created_count += 1
+                existing.test_type = t_type
+                existing.save()
+                updated_count += 1
             else:
-                # HMO Tariff: linked to specific Sponsor and/or Plan
-                existing = RadioLabInventory.objects.filter(
+                RadioLabInventory.objects.create(
+                    item=item_name,
+                    item_id=test_code or f"LAB-{RadioLabInventory.objects.count()+1:03d}",
+                    rate=rate_val,
                     type='L',
-                    item__iexact=item_name,
-                    sponsor=target_sponsor,
-                    plan=target_plan
-                ).first()
+                    test_type=t_type,
+                    sponsor=sponsor,
+                    plan=plan,
+                    staff=staff
+                )
+                created_count += 1
 
-                if not existing and test_code:
-                    existing = RadioLabInventory.objects.filter(
-                        type='L',
-                        item_id__iexact=test_code,
-                        sponsor=target_sponsor,
-                        plan=target_plan
-                    ).first()
-
-                if existing:
-                    existing.rate = rate_val
-                    existing.item = item_name
-                    existing.item_id = test_code
-                    existing.staff = staff
-                    existing.save()
-                    updated_count += 1
-                else:
-                    RadioLabInventory.objects.create(
-                        item=item_name,
-                        item_id=test_code,
-                        rate=rate_val,
-                        type='L',
-                        sponsor=target_sponsor,
-                        plan=target_plan,
-                        staff=staff
-                    )
-                    created_count += 1
-
-        msg = f"Bulk upload completed: {created_count} laboratory tariffs created, {updated_count} updated."
-        if is_general_default:
-            msg = f"Bulk upload for General Laboratory Tariffs completed: {created_count} created, {updated_count} updated."
+        total_processed = created_count + updated_count
+        sponsor_lbl = default_sponsor.name if default_sponsor else "General Patients"
+        plan_lbl = f" ({default_plan.plan})" if default_plan else ""
+        msg = f"Bulk upload completed: {total_processed} tariffs processed for {sponsor_lbl}{plan_lbl} ({created_count} created, {updated_count} updated)."
         if skipped:
-            msg += f" {len(skipped)} rows were skipped."
+            msg += f" {len(skipped)} row(s) skipped due to errors."
 
         return Response({
             'detail': msg,
             'created': created_count,
             'updated': updated_count,
-            'skipped': skipped,
-            'total_processed': created_count + updated_count + len(skipped),
-        }, status=status.HTTP_200_OK)
+            'total_processed': total_processed,
+            'skipped_count': len(skipped),
+            'skipped_reasons': skipped[:10],
+        })
 
 
-# 1.3 Radiology Charges
 class RadiologyChargesView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -1657,79 +1908,142 @@ class LoadGeneralLabPricesView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        from radio_lab.models import RadioLabInventory
-        from django.db.models import Max
-
         staff = request.user if request.user.is_authenticated else User.objects.first()
+
+        sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
+        plan_id = request.data.get('plan_id') or request.data.get('plan')
+        target_type = (request.data.get('target_type') or request.data.get('type') or 'all').strip().lower()
+        overwrite = bool(request.data.get('overwrite', False))
+
+        is_general = not sponsor_id or str(sponsor_id).lower() in ('', 'general', 'self', 'cash', 'none', 'null')
+
+        sponsor = None
+        plan = None
+
+        if not is_general:
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                except Sponsor.DoesNotExist:
+                    pass
+
+            if plan_id and str(plan_id).lower() not in ('all', 'general', 'none'):
+                try:
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    if not sponsor and plan.sponsor:
+                        sponsor = plan.sponsor
+                except PatientPlan.DoesNotExist:
+                    pass
+
         created_count = 0
         updated_count = 0
+        existing_count = 0
 
-        # Baseline clinical laboratory investigation prices for general self-pay patients
-        BASELINE_LAB_PRICES = {
-            'Full Blood Count (FBC / CBC)': ('LAB-001', Decimal('3000.00')),
-            'Malaria Parasite (MP by Microscopy)': ('LAB-002', Decimal('1500.00')),
-            'Widal Agglutination Test (Typhoid)': ('LAB-003', Decimal('2000.00')),
-            'Urinalysis (10-Parameter Strip)': ('LAB-004', Decimal('1200.00')),
-            'Fasting Blood Sugar (FBS)': ('LAB-005', Decimal('1000.00')),
-            'Lipid Profile (Full)': ('LAB-006', Decimal('6000.00')),
-            'Liver Function Test (LFT)': ('LAB-007', Decimal('5000.00')),
-            'Kidney Function Test (Electrolytes, Urea, Creatinine)': ('LAB-008', Decimal('5500.00')),
-            'Stool Microscopy, Culture & Sensitivity': ('LAB-009', Decimal('3500.00')),
-            'Hepatitis B Surface Antigen (HBsAg Screening)': ('LAB-010', Decimal('2500.00')),
-        }
-
-        # Sync all distinct laboratory tests from existing RadioLabInventory (type='L')
-        existing_items = list(RadioLabInventory.objects.filter(type='L').values_list('item', flat=True).distinct())
-        all_lab_names = set(existing_items).union(BASELINE_LAB_PRICES.keys())
-
-        for name in all_lab_names:
-            if not name:
-                continue
-            gen_tariff = RadioLabInventory.objects.filter(
-                item__iexact=name.strip(),
-                type='L',
-                sponsor__isnull=True,
-                plan__isnull=True
-            ).first()
-
-            if not gen_tariff:
-                baseline = BASELINE_LAB_PRICES.get(name.strip())
-                if baseline:
-                    code, rate = baseline
-                else:
-                    existing_t = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='L').first()
-                    code = (existing_t.item_id if existing_t else None) or f"LAB-{RadioLabInventory.objects.filter(type='L').count()+1:03d}"
-                    max_rate = RadioLabInventory.objects.filter(item__iexact=name.strip(), type='L').aggregate(Max('rate'))['rate__max']
-                    rate = max_rate or Decimal('2000.00')
-
-                RadioLabInventory.objects.create(
-                    item=name.strip(),
-                    item_id=code,
-                    rate=rate,
+        # 1. Load Investigations (Panels) from Database
+        if target_type in ('all', 'investigations', 'panels'):
+            invs = LabInvestigation.objects.filter(is_active=True).prefetch_related('parameter_mappings__parameter')
+            for inv in invs:
+                tariff = RadioLabInventory.objects.filter(
                     type='L',
-                    sponsor=None,
-                    plan=None,
-                    staff=staff
-                )
-                created_count += 1
-            else:
-                updated_count += 1
+                    item_id=inv.code,
+                    sponsor=sponsor,
+                    plan=plan
+                ).first()
+                if not tariff:
+                    tariff = RadioLabInventory.objects.filter(
+                        type='L',
+                        item__iexact=inv.name.strip(),
+                        sponsor=sponsor,
+                        plan=plan
+                    ).first()
 
-        total_general = RadioLabInventory.objects.filter(type='L', sponsor__isnull=True, plan__isnull=True).count()
+                base_price = inv.effective_price()
+                if not tariff:
+                    RadioLabInventory.objects.create(
+                        item=inv.name.strip(),
+                        item_id=inv.code.strip(),
+                        rate=base_price,
+                        type='L',
+                        test_type='investigation',
+                        sponsor=sponsor,
+                        plan=plan,
+                        staff=staff
+                    )
+                    created_count += 1
+                else:
+                    if overwrite:
+                        tariff.rate = base_price
+                        tariff.test_type = 'investigation'
+                        tariff.save()
+                        updated_count += 1
+                    else:
+                        if tariff.test_type != 'investigation':
+                            tariff.test_type = 'investigation'
+                            tariff.save()
+                        existing_count += 1
+
+        # 2. Load Parameters (Individual Tests) from Database
+        if target_type in ('all', 'parameters', 'singles'):
+            params = LabParameter.objects.filter(is_active=True)
+            for param in params:
+                tariff = RadioLabInventory.objects.filter(
+                    type='L',
+                    item_id=param.code,
+                    sponsor=sponsor,
+                    plan=plan
+                ).first()
+                if not tariff:
+                    tariff = RadioLabInventory.objects.filter(
+                        type='L',
+                        item__iexact=param.name.strip(),
+                        sponsor=sponsor,
+                        plan=plan
+                    ).first()
+
+                base_price = param.base_price
+                if not tariff:
+                    RadioLabInventory.objects.create(
+                        item=param.name.strip(),
+                        item_id=param.code.strip(),
+                        rate=base_price,
+                        type='L',
+                        test_type='parameter',
+                        sponsor=sponsor,
+                        plan=plan,
+                        staff=staff
+                    )
+                    created_count += 1
+                else:
+                    if overwrite:
+                        tariff.rate = base_price
+                        tariff.test_type = 'parameter'
+                        tariff.save()
+                        updated_count += 1
+                    else:
+                        if tariff.test_type != 'parameter':
+                            tariff.test_type = 'parameter'
+                            tariff.save()
+                        existing_count += 1
+
+        target_name = (
+            "General / Out-of-Pocket"
+            if is_general
+            else f"{sponsor.name if sponsor else 'Selected Sponsor'} - {plan.plan if plan else 'All Plans'}"
+        )
         return Response({
-            'detail': f'Loaded {created_count} general laboratory tariffs ({total_general} total active general rates).',
+            'detail': f"Successfully loaded {created_count} new tariffs for {target_name} ({existing_count} already active). You can now edit the prices for this sponsor/plan.",
             'created': created_count,
             'updated': updated_count,
-            'total_general': total_general,
+            'existing': existing_count,
+            'target_name': target_name,
         })
 
 
-# 1.3.3 Load / Initialize General Radiology Prices
 class LoadGeneralRadiologyPricesView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        from radio_lab.models import RadioLabInventory
+        from radio_lab.models import RadioLabInventory, LabInvestigation, LabParameter
         from django.db.models import Max
 
         staff = request.user if request.user.is_authenticated else User.objects.first()

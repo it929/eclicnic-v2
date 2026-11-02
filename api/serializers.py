@@ -10,7 +10,13 @@ from Billings.models import Invoice, Receipt, Deposit, Refund, TransactionUpdate
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
 from OPD_pharm.models import OpdDrugs
-from radio_lab.models import RadiologyLab
+from radio_lab.models import RadiologyLab, LabResult, ScanResult
+from inventory.models import (
+    Product, PharmacyStore, StoreStock, StoreStockBatch,
+    StockRequisition, StockRequisitionItem,
+    StockTransfer, StockTransferItem, StockMovement,
+    PharmacyVendor
+)
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -775,12 +781,60 @@ class OpdDrugsSerializer(serializers.ModelSerializer):
 
 
 # Radiology & Laboratory Serializers
+class LabResultSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    file_upload_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = LabResult
+        fields = '__all__'
+
+    def get_file_upload_url(self, obj):
+        if obj.file_upload:
+            try:
+                request = self.context.get('request')
+                url = obj.file_upload.url
+                if request and url.startswith('/'):
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                return f"/media/{obj.file_upload}"
+        return None
+
+
+class ScanResultSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
+    hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    scan_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ScanResult
+        fields = '__all__'
+
+    def get_scan_url(self, obj):
+        if obj.scan:
+            try:
+                request = self.context.get('request')
+                url = obj.scan.url
+                if request and url.startswith('/'):
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                return f"/media/{obj.scan}"
+        return None
+
+
 class RadiologyLabSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
     category_name = serializers.CharField(source='category.category', read_only=True)
     plan_name = serializers.CharField(source='plan.plan', read_only=True)
     staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    lab_results = LabResultSerializer(many=True, read_only=True)
+    scan_results = ScanResultSerializer(many=True, read_only=True)
 
     class Meta:
         model = RadiologyLab
@@ -854,21 +908,96 @@ class WrittenPrescriptionSerializer(serializers.ModelSerializer):
     provider_name = serializers.CharField(source='provider.fullname', read_only=True)
     patient_name = serializers.SerializerMethodField(read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    patient_phone = serializers.CharField(source='patient.phone_number', read_only=True)
+    patient_gender = serializers.CharField(source='patient.gender', read_only=True)
+    patient_age = serializers.CharField(source='patient.age', read_only=True)
+    category_name = serializers.SerializerMethodField(read_only=True)
+    sponsor_name = serializers.SerializerMethodField(read_only=True)
     dispensed_by_name = serializers.CharField(source='dispensed_by.fullname', read_only=True)
+    is_cleared = serializers.SerializerMethodField(read_only=True)
+    is_hmo = serializers.SerializerMethodField(read_only=True)
+    clearance_type = serializers.SerializerMethodField(read_only=True)
+    clearance_status_text = serializers.SerializerMethodField(read_only=True)
+    payment_status = serializers.SerializerMethodField(read_only=True)
+    invoice_number = serializers.SerializerMethodField(read_only=True)
 
     def get_patient_name(self, obj):
         if obj.patient:
             return f"{obj.patient.surname} {obj.patient.first_name}"
         return "Unknown"
 
+    def get_category_name(self, obj):
+        if obj.patient and obj.patient.category:
+            return obj.patient.category.category
+        return "General / Self-Pay"
+
+    def get_sponsor_name(self, obj):
+        if obj.patient and obj.patient.sponsor:
+            return obj.patient.sponsor.name
+        return None
+
+    def get_is_hmo(self, obj):
+        if not obj.patient:
+            return False
+        cat_name = (obj.patient.category.category if obj.patient.category else '').lower()
+        spon_name = (obj.patient.sponsor.name if obj.patient.sponsor else '').lower()
+        is_purse = '[pay from your purse]' in (obj.comment or '').lower() or '[pay from your purse]' in (obj.instruction or '').lower()
+        if is_purse:
+            return False
+        return any(k in cat_name or k in spon_name for k in ['hmo', 'nhis', 'insurance', 'retainer'])
+
+    def get_clearance_type(self, obj):
+        return 'hmo_claim' if self.get_is_hmo(obj) else 'private_payment'
+
+    def get_is_cleared(self, obj):
+        # A prescription is cleared ONLY if it has been marked dispensed,
+        # or if an associated Invoice in Billings is settled/approved (completed=1).
+        # Note: status='billed' indicates an invoice was generated, NOT that it has been cleared!
+        if obj.status == 'dispensed':
+            return True
+        from Billings.models import Invoice
+        return Invoice.objects.filter(
+            original_source_model='WrittenPrescriptions',
+            original_source_id=obj.id,
+            completed=1
+        ).exists()
+
+    def get_payment_status(self, obj):
+        if obj.status == 'dispensed':
+            return 'Dispensed'
+        from Billings.models import Invoice
+        inv = Invoice.objects.filter(
+            original_source_model='WrittenPrescriptions',
+            original_source_id=obj.id
+        ).order_by('-id').first()
+        is_hmo = self.get_is_hmo(obj)
+        if inv and inv.completed == 1:
+            return 'HMO Claim Approved' if is_hmo else 'Payment Cleared by Billing'
+        if inv:
+            return 'Awaiting HMO Claim Approval' if is_hmo else 'Pending Cashier Payment'
+        return 'Awaiting HMO Claim' if is_hmo else 'Awaiting Billing / Payment'
+
+    def get_clearance_status_text(self, obj):
+        return self.get_payment_status(obj)
+
+    def get_invoice_number(self, obj):
+        from Billings.models import Invoice
+        inv = Invoice.objects.filter(
+            original_source_model='WrittenPrescriptions',
+            original_source_id=obj.id
+        ).first()
+        return inv.invoice_number if inv else None
+
     class Meta:
         model = WrittenPrescriptions
         fields = [
-            'id', 'patient', 'patient_name', 'hospital_number', 'provider', 'provider_name',
+            'id', 'patient', 'patient_name', 'hospital_number', 'patient_phone', 'patient_gender', 'patient_age',
+            'category_name', 'sponsor_name', 'provider', 'provider_name',
             'item', 'instruction', 'quantity', 'dosage_form', 'route', 'strength',
             'dose_qty', 'dose_unit', 'frequency', 'duration', 'duration_unit',
             'dispense_unit', 'dispense_quantity', 'dispense_detail', 'comment',
-            'start_date', 'status', 'dispensed_at', 'dispensed_by', 'dispensed_by_name',
+            'start_date', 'status', 'is_hmo', 'clearance_type', 'is_cleared', 'payment_status', 'clearance_status_text', 'invoice_number',
+            'dispensed_at', 'dispensed_by', 'dispensed_by_name',
             'created_date'
         ]
         read_only_fields = ['provider', 'created_date', 'dispensed_at', 'dispensed_by']
@@ -891,5 +1020,216 @@ class ConsultationDraftSerializer(serializers.ModelSerializer):
             'appointment', 'draft_data', 'created_at', 'updated_at'
         ]
         read_only_fields = ['doctor', 'created_at', 'updated_at']
+
+
+# =========================================================================
+# Multi-Location Pharmacy & Store Inventory Serializers
+# =========================================================================
+
+class PharmacyStoreSerializer(serializers.ModelSerializer):
+    in_charge_name = serializers.CharField(source='in_charge.fullname', read_only=True)
+    total_items = serializers.SerializerMethodField(read_only=True)
+    low_stock_count = serializers.SerializerMethodField(read_only=True)
+    total_stock_value = serializers.SerializerMethodField(read_only=True)
+
+    def get_total_items(self, obj):
+        return obj.stocks.filter(stock__gt=0).count()
+
+    def get_low_stock_count(self, obj):
+        from django.db.models import F
+        return obj.stocks.filter(stock__lte=F('low_stock_threshold')).count()
+
+    def get_total_stock_value(self, obj):
+        from django.db.models import F, Sum, ExpressionWrapper, DecimalField
+        val = obj.stocks.aggregate(
+            total=Sum(ExpressionWrapper(F('stock') * F('product__price'), output_field=DecimalField()))
+        )['total']
+        return float(val or 0)
+
+    class Meta:
+        model = PharmacyStore
+        fields = [
+            'id', 'name', 'code', 'store_type', 'description', 'location',
+            'in_charge', 'in_charge_name', 'is_active', 'is_central',
+            'total_items', 'low_stock_count', 'total_stock_value',
+            'created_date', 'updated_date'
+        ]
+
+
+class StoreStockBatchSerializer(serializers.ModelSerializer):
+    days_until_expiry = serializers.IntegerField(read_only=True)
+    expiry_status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = StoreStockBatch
+        fields = [
+            'id', 'store_stock', 'store', 'product',
+            'batch_number', 'expiry_date', 'quantity',
+            'supplier', 'received_date',
+            'days_until_expiry', 'expiry_status',
+            'created_date', 'updated_date'
+        ]
+
+
+class StoreStockSerializer(serializers.ModelSerializer):
+    store_name = serializers.CharField(source='store.name', read_only=True)
+    store_code = serializers.CharField(source='store.code', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    product_sku = serializers.CharField(source='product.product_id', read_only=True)
+    price = serializers.DecimalField(source='product.price', max_digits=15, decimal_places=2, read_only=True)
+    minimum_UoM = serializers.CharField(source='product.minimum_UoM', read_only=True)
+    is_low_stock = serializers.BooleanField(read_only=True)
+    days_until_earliest_expiry = serializers.IntegerField(read_only=True)
+    expiry_status = serializers.CharField(read_only=True)
+    batches = StoreStockBatchSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = StoreStock
+        fields = [
+            'id', 'store', 'store_name', 'store_code',
+            'product', 'product_name', 'product_sku', 'price', 'minimum_UoM',
+            'stock', 'low_stock_threshold', 'batch_number', 'expiry_date',
+            'is_low_stock', 'days_until_earliest_expiry', 'expiry_status',
+            'batches', 'created_date', 'updated_date'
+        ]
+
+
+class StockTransferItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    product_sku = serializers.CharField(source='product.product_id', read_only=True)
+    minimum_UoM = serializers.CharField(source='product.minimum_UoM', read_only=True)
+    price = serializers.DecimalField(source='product.price', max_digits=15, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = StockTransferItem
+        fields = [
+            'id', 'transfer', 'product', 'product_name', 'product_sku',
+            'minimum_UoM', 'price', 'quantity_sent', 'quantity_received',
+            'batch_number', 'expiry_date', 'notes'
+        ]
+        read_only_fields = ['transfer']
+
+
+class StockTransferSerializer(serializers.ModelSerializer):
+    source_store_name = serializers.CharField(source='source_store.name', read_only=True)
+    destination_store_name = serializers.CharField(source='destination_store.name', read_only=True)
+    dispatched_by_name = serializers.CharField(source='dispatched_by.fullname', read_only=True)
+    received_by_name = serializers.CharField(source='received_by.fullname', read_only=True)
+    items = StockTransferItemSerializer(many=True, read_only=True)
+    total_quantity = serializers.SerializerMethodField(read_only=True)
+    item_count = serializers.SerializerMethodField(read_only=True)
+
+    def get_total_quantity(self, obj):
+        from django.db.models import Sum
+        return obj.items.aggregate(total=Sum('quantity_sent'))['total'] or 0
+
+    def get_item_count(self, obj):
+        return obj.items.count()
+
+    class Meta:
+        model = StockTransfer
+        fields = [
+            'id', 'transfer_number', 'source_store', 'source_store_name',
+            'destination_store', 'destination_store_name', 'requisition',
+            'status', 'notes', 'items', 'total_quantity', 'item_count',
+            'dispatched_by', 'dispatched_by_name', 'dispatched_at',
+            'received_by', 'received_by_name', 'received_at',
+            'created_date', 'updated_date'
+        ]
+        read_only_fields = ['transfer_number', 'dispatched_by', 'dispatched_at', 'received_by', 'received_at', 'created_date']
+
+
+class StockRequisitionItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    product_sku = serializers.CharField(source='product.product_id', read_only=True)
+    minimum_UoM = serializers.CharField(source='product.minimum_UoM', read_only=True)
+
+    class Meta:
+        model = StockRequisitionItem
+        fields = [
+            'id', 'requisition', 'product', 'product_name', 'product_sku',
+            'minimum_UoM', 'quantity_requested', 'quantity_approved', 'notes'
+        ]
+        read_only_fields = ['requisition']
+
+
+class StockRequisitionSerializer(serializers.ModelSerializer):
+    requesting_store_name = serializers.CharField(source='requesting_store.name', read_only=True)
+    fulfilling_store_name = serializers.CharField(source='fulfilling_store.name', read_only=True)
+    requested_by_name = serializers.CharField(source='requested_by.fullname', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.fullname', read_only=True)
+    items = StockRequisitionItemSerializer(many=True, read_only=True)
+    item_count = serializers.SerializerMethodField(read_only=True)
+    transfer_id = serializers.SerializerMethodField(read_only=True)
+    transfer_number = serializers.SerializerMethodField(read_only=True)
+
+    def get_item_count(self, obj):
+        return obj.items.count()
+
+    def get_transfer_id(self, obj):
+        first_transfer = obj.transfers.first()
+        return first_transfer.id if first_transfer else None
+
+    def get_transfer_number(self, obj):
+        first_transfer = obj.transfers.first()
+        return first_transfer.transfer_number if first_transfer else None
+
+    class Meta:
+        model = StockRequisition
+        fields = [
+            'id', 'requisition_number', 'requesting_store', 'requesting_store_name',
+            'fulfilling_store', 'fulfilling_store_name', 'status', 'priority',
+            'notes', 'items', 'item_count', 'transfer_id', 'transfer_number',
+            'requested_by', 'requested_by_name',
+            'approved_by', 'approved_by_name',
+            'created_date', 'updated_date'
+        ]
+        read_only_fields = ['requisition_number', 'requested_by', 'approved_by', 'created_date']
+
+
+class StockMovementSerializer(serializers.ModelSerializer):
+    store_name = serializers.CharField(source='store.name', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    product_sku = serializers.CharField(source='product.product_id', read_only=True)
+    performed_by_name = serializers.CharField(source='performed_by.fullname', read_only=True)
+    transfer_route = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockMovement
+        fields = [
+            'id', 'store', 'store_name', 'product', 'product_name', 'product_sku',
+            'movement_type', 'quantity', 'balance_after', 'reference_number',
+            'notes', 'performed_by', 'performed_by_name', 'created_date',
+            'transfer_route'
+        ]
+
+    def get_transfer_route(self, obj):
+        notes = obj.notes or ''
+        if obj.movement_type == 'TRANSFER_OUT':
+            dest = notes.replace('Dispatched to ', '').strip() if 'Dispatched to ' in notes else ''
+            return {
+                'type': 'OUT',
+                'from_store': obj.store.name if obj.store else 'Source',
+                'to_store': dest or 'Destination',
+            }
+        elif obj.movement_type == 'TRANSFER_IN':
+            src = notes.replace('Received from ', '').strip() if 'Received from ' in notes else ''
+            return {
+                'type': 'IN',
+                'from_store': src or 'Source',
+                'to_store': obj.store.name if obj.store else 'Destination',
+            }
+        return None
+
+
+class PharmacyVendorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PharmacyVendor
+        fields = [
+            'id', 'name', 'code', 'contact_person', 'phone', 'email',
+            'address', 'product_lines', 'rating', 'status', 'is_active',
+            'created_date', 'updated_date'
+        ]
+
 
 

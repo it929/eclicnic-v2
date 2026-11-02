@@ -2111,18 +2111,15 @@ def get_case_note(request, patient_id):
     radiology_scan = RadiologyLab.objects.filter(
         patient=patient, 
         item_type='R',
-        completed=1,
         created_date__gte=one_day_ago
     )
     laboratory_lab = RadiologyLab.objects.filter(
         patient=patient, 
-        completed=1,
         item_type='L',
         created_date__gte=one_day_ago
     )
     other_services = OtherService.objects.filter(
         patient=patient,
-        completed=1,
         created_date__gte=one_day_ago
     )
 
@@ -2184,12 +2181,12 @@ def get_filtered_case_note(request, patient_id):
         #  BASE QUERYSETS - GET EVERYTHING FOR THIS PATIENT FIRST
         vital_signs_qs = DoctorWaitingList.objects.filter(patient=patient).order_by('created_date')
         encounters_qs = PatientEncounter.objects.filter(patient=patient).order_by('created_at')
-        investigations_qs = RadiologyLab.objects.filter(patient=patient,completed=1).order_by('created_date')
+        investigations_qs = RadiologyLab.objects.filter(patient=patient).order_by('created_date')
         other_details_qs = PatientOtherDetails.objects.filter(patient=patient).order_by('created_at')
         followups_qs = PatientFollowUp.objects.filter(patient=patient).order_by('created_at')
         referrals_qs = PatientReferral.objects.filter(patient=patient).order_by('created_at')
         appointments_qs = PatientAppointment.objects.filter(patient=patient).order_by('created_date')
-        other_services_qs = OtherService.objects.filter(patient=patient,completed=1).order_by('created_date')
+        other_services_qs = OtherService.objects.filter(patient=patient).order_by('created_date')
         written_prescriptions_qs = WrittenPrescriptions.objects.filter(patient=patient).order_by('created_date')
 
         #  FETCH DRUGS FROM ALL STORES
@@ -2370,15 +2367,133 @@ def get_filtered_case_note(request, patient_id):
                     'written_prescriptions': [],
                 }
             
+            test_results = None
+            scan_url = None
+            try:
+                if test.item_type == 'L':
+                    lr = LabResult.objects.filter(patient=patient, investigation__iexact=test.item).order_by('-created_date').first()
+                    if lr and lr.results:
+                        test_results = lr.results
+                elif test.item_type == 'R':
+                    sr = ScanResult.objects.filter(patient=patient, investigation__iexact=test.item).order_by('-created_date').first()
+                    if sr:
+                        if sr.results:
+                            test_results = sr.results
+                        if sr.scan:
+                            scan_url = sr.scan.url
+            except Exception:
+                pass
+
+            doc_name = ''
+            if test.staff:
+                doc_name = getattr(test.staff, 'fullname', None) or test.staff.get_full_name() or test.staff.username or ''
+                if doc_name and not doc_name.startswith('Dr.'):
+                    doc_name = f"Dr. {doc_name}"
+
             grouped_data[date_str]['investigations'].append({
+                'id': test.id,
                 'item': test.item or 'Unknown',
+                'item_name': test.item or 'Unknown',
+                'test_name': test.item or 'Unknown',
                 'item_type': test.item_type or '',
+                'type_display': 'Laboratory' if test.item_type == 'L' else 'Radiology' if test.item_type == 'R' else 'Investigation',
                 'samples': test.samples or '',
                 'emergency': test.emergency or '',
                 'comment': test.comment or '',
-                'provider': f"Dr. {test.staff.fullname}" if test.staff else 'Unknown',
+                'completed': test.completed,
+                'status': 'Completed' if test.completed == 1 else 'Pending',
+                'results': test_results,
+                'scan_url': scan_url,
+                'provider': doc_name or 'Attending Doctor',
                 'created_date': test.created_date.strftime('%Y-%m-%d %H:%M'),
             })
+
+        # Ensure any lab or radiology orders documented in doctor consultation notes are also captured in investigations
+        import re
+        for encounter in patient_encounters:
+            date_str = get_date_str(encounter.created_at)
+            comments = encounter.comments_on_diagnosis or ''
+            if not comments:
+                continue
+
+            existing_items = set()
+            if date_str in grouped_data and 'investigations' in grouped_data[date_str]:
+                for inv in grouped_data[date_str]['investigations']:
+                    existing_items.add((inv.get('item') or '').strip().lower())
+
+            doc_name = ''
+            if encounter.provider:
+                doc_name = getattr(encounter.provider, 'fullname', None) or encounter.provider.get_full_name() or encounter.provider.username or ''
+                if doc_name and not doc_name.startswith('Dr.'):
+                    doc_name = f"Dr. {doc_name}"
+
+            # 1. Parse LABORATORY ORDERS from consultation text
+            lab_match = re.search(r'LABORATORY ORDERS:\s*([\s\S]*?)(?=(?:\n\s*[A-Z &]+:|\Z))', comments)
+            if lab_match:
+                for line in lab_match.group(1).splitlines():
+                    m = re.match(r'^\s*\d+\.\s*(.+?)(?:\s*\([A-Z0-9-]+\))?(?:\s*\[.*?\])?\s*$', line)
+                    if m:
+                        test_name = m.group(1).strip()
+                        if test_name and test_name.lower() not in existing_items:
+                            existing_items.add(test_name.lower())
+                            if date_str not in grouped_data:
+                                grouped_data[date_str] = {
+                                    'vital_signs': [], 'patient_encounters': [], 'administered_drugs': [],
+                                    'investigations': [], 'other_details': [], 'followups': [],
+                                    'referrals': [], 'appointments': [], 'other_services': [],
+                                    'written_prescriptions': [],
+                                }
+                            grouped_data[date_str]['investigations'].append({
+                                'id': None,
+                                'item': test_name,
+                                'item_name': test_name,
+                                'test_name': test_name,
+                                'item_type': 'L',
+                                'type_display': 'Laboratory',
+                                'samples': '',
+                                'emergency': '',
+                                'comment': 'Prescribed in doctor consultation notes',
+                                'completed': 0,
+                                'status': 'Pending',
+                                'results': None,
+                                'scan_url': None,
+                                'provider': doc_name or 'Attending Doctor',
+                                'created_date': encounter.created_at.strftime('%Y-%m-%d %H:%M'),
+                            })
+
+            # 2. Parse RADIOLOGY & IMAGING ORDERS from consultation text
+            rad_match = re.search(r'RADIOLOGY & IMAGING ORDERS:\s*([\s\S]*?)(?=(?:\n\s*[A-Z &]+:|\Z))', comments)
+            if rad_match:
+                for line in rad_match.group(1).splitlines():
+                    m = re.match(r'^\s*\d+\.\s*(.+?)(?:\s*\([A-Z0-9-]+\))?(?:\s*\[.*?\])?\s*$', line)
+                    if m:
+                        scan_name = m.group(1).strip()
+                        if scan_name and scan_name.lower() not in existing_items:
+                            existing_items.add(scan_name.lower())
+                            if date_str not in grouped_data:
+                                grouped_data[date_str] = {
+                                    'vital_signs': [], 'patient_encounters': [], 'administered_drugs': [],
+                                    'investigations': [], 'other_details': [], 'followups': [],
+                                    'referrals': [], 'appointments': [], 'other_services': [],
+                                    'written_prescriptions': [],
+                                }
+                            grouped_data[date_str]['investigations'].append({
+                                'id': None,
+                                'item': scan_name,
+                                'item_name': scan_name,
+                                'test_name': scan_name,
+                                'item_type': 'R',
+                                'type_display': 'Radiology',
+                                'samples': '',
+                                'emergency': '',
+                                'comment': 'Prescribed in doctor consultation notes',
+                                'completed': 0,
+                                'status': 'Pending',
+                                'results': None,
+                                'scan_url': None,
+                                'provider': doc_name or 'Attending Doctor',
+                                'created_date': encounter.created_at.strftime('%Y-%m-%d %H:%M'),
+                            })
         
         # Process other details
         for detail in other_details:
@@ -2488,6 +2603,7 @@ def get_filtered_case_note(request, patient_id):
             })
 
         # Process written prescriptions
+        seen_rx_items_by_date = {}
         for prescription in written_prescriptions:
             if not prescription.created_date:
                 continue
@@ -2499,12 +2615,27 @@ def get_filtered_case_note(request, patient_id):
                     'referrals': [], 'appointments': [], 'other_services': [],
                     'written_prescriptions': [],
                 }
-            
+
+            # Deduplicate multiple identical prescription records on the same day
+            item_norm = (prescription.item or '').strip().lower()
+            if date_str not in seen_rx_items_by_date:
+                seen_rx_items_by_date[date_str] = set()
+            if item_norm and item_norm in seen_rx_items_by_date[date_str]:
+                continue
+            if item_norm:
+                seen_rx_items_by_date[date_str].add(item_norm)
+
+            doc_display = ''
+            if prescription.provider:
+                doc_display = getattr(prescription.provider, 'fullname', None) or prescription.provider.get_full_name() or prescription.provider.username or ''
+                if doc_display and not doc_display.startswith('Dr.'):
+                    doc_display = f"Dr. {doc_display}"
+
             grouped_data[date_str]['written_prescriptions'].append({
                 'item': prescription.item or 'Unknown',
                 'quantity': prescription.quantity or 0,
                 'instruction': prescription.instruction or '',
-                'provider': f"Dr. {prescription.provider.fullname}" if prescription.provider else 'Unknown',
+                'provider': doc_display or 'Attending Doctor',
                 'created_date': prescription.created_date.strftime('%Y-%m-%d %H:%M'),
             })
         
