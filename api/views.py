@@ -21,8 +21,14 @@ from queue_operations.models import (
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import ANCRegistration
-from OPD_pharm.models import OpdDrugs
-from radio_lab.models import RadiologyLab
+from OPD_pharm.models import OpdDrugs, OpdDrugsUpdate
+from radio_lab.models import RadiologyLab, LabResult, ScanResult
+from inventory.models import (
+    Product, PharmacyStore, StoreStock, StoreStockBatch,
+    StockRequisition, StockRequisitionItem,
+    StockTransfer, StockTransferItem, StockMovement,
+    PharmacyVendor, Transaction, AdministerDrugs
+)
 
 from .serializers import (
     UserSerializer,
@@ -48,11 +54,21 @@ from .serializers import (
     ANCRegistrationSerializer,
     OpdDrugsSerializer,
     RadiologyLabSerializer,
+    LabResultSerializer,
+    ScanResultSerializer,
     PatientAppointmentSerializer,
     PatientDiagnosisSerializer,
     PresentingComplaintSerializer,
     WrittenPrescriptionSerializer,
     ConsultationDraftSerializer,
+    PharmacyStoreSerializer,
+    StoreStockSerializer,
+    StockTransferSerializer,
+    StockTransferItemSerializer,
+    StockRequisitionSerializer,
+    StockRequisitionItemSerializer,
+    StockMovementSerializer,
+    PharmacyVendorSerializer,
 )
 
 
@@ -260,13 +276,20 @@ class DepartmentListView(APIView):
     def get(self, request):
         departments = Category.objects.all().order_by('department')
         dept_list = []
+        all_mod_codes = [m.code for m in SystemModule.objects.all()]
         for d in departments:
             staff_count = User.objects.filter(department=d).count()
+            mods = d.modules if d.modules is not None else []
+            # Admin & CMD departments must have all modules assigned by default
+            if d.department and d.department.lower() in ['admin', 'cmd'] and len(mods) < len(all_mod_codes):
+                mods = all_mod_codes
+                d.modules = mods
+                d.save()
             dept_list.append({
                 'id': d.id,
                 'department': d.department,
                 'staff_count': staff_count,
-                'modules': d.modules if d.modules is not None else [],
+                'modules': mods,
             })
         return Response(dept_list)
 
@@ -453,6 +476,124 @@ class PatientViewSet(viewsets.ModelViewSet):
             qs = qs.filter(created_date__date__lte=date_to)
 
         return qs
+
+    @action(detail=False, methods=['get'], url_path='import-template')
+    def import_template(self, request):
+        import pandas as pd
+        import io
+        from django.http import HttpResponse
+
+        sample_data = {
+            'surname': ['Doe', 'Smith'],
+            'first_name': ['John', 'Jane'],
+            'other_name': ['Robert', 'Mary'],
+            'dob': ['1990-05-15', '1985-11-20'],
+            'gender': ['Male', 'Female'],
+            'patient_type': ['Private', 'HMO'],
+            'phone_number': ['08012345678', '08087654321'],
+            'email_address': ['john.doe@example.com', 'jane.smith@example.com'],
+            'address': ['123 Hospital Road, Ikeja', '45 Victoria Island, Lagos'],
+            'category': ['Private', 'HMO'],
+            'plan': ['Standard', 'Gold Plan'],
+            'hospital_number': ['ISL-2026-001', 'ISL-2026-002']
+        }
+        df = pd.DataFrame(sample_data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Patients')
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="patients_import_template.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='import-excel')
+    def import_excel(self, request):
+        uploaded_file = request.FILES.get('file') or request.FILES.get('excel_file')
+        if not uploaded_file:
+            return Response({'detail': 'No file uploaded. Please upload a .xlsx or .xls file.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import pandas as pd
+            import io
+            df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+            df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+
+            unique_cats = set(df['category'].dropna().astype(str).str.strip().unique()) if 'category' in df.columns else set()
+            unique_plans = set(df['plan'].dropna().astype(str).str.strip().unique()) if 'plan' in df.columns else set()
+
+            cat_map = {}
+            for cat_name in unique_cats:
+                cat_obj, _ = PatientCategory.objects.get_or_create(category=cat_name)
+                cat_map[cat_name] = cat_obj
+
+            plan_map = {}
+            for plan_name in unique_plans:
+                first_row = df[df['plan'].astype(str).str.strip() == plan_name].iloc[0]
+                cat_obj = cat_map.get(str(first_row.get('category', '')).strip()) if 'category' in df.columns else None
+                plan_obj, _ = PatientPlan.objects.get_or_create(plan=plan_name, defaults={'category': cat_obj})
+                plan_map[plan_name] = plan_obj
+
+            patients_to_create = []
+            errors = []
+
+            for index, row in df.iterrows():
+                try:
+                    surname = str(row.get('surname', '')).strip() if pd.notna(row.get('surname')) else ''
+                    first_name = str(row.get('first_name', '')).strip() if pd.notna(row.get('first_name')) else ''
+                    if not surname or not first_name:
+                        continue
+
+                    dob = row.get('dob')
+                    if pd.notna(dob):
+                        if isinstance(dob, pd.Timestamp):
+                            dob = dob.date()
+                        else:
+                            from dateutil import parser
+                            try:
+                                dob = parser.parse(str(dob)).date()
+                            except Exception:
+                                dob = None
+                    else:
+                        dob = None
+
+                    email = str(row.get('email_address', '')).strip() if pd.notna(row.get('email_address')) else None
+                    if email and PatientProfile.objects.filter(email_address=email).exists():
+                        errors.append(f"Row {index+2}: Email {email} already exists")
+                        continue
+
+                    patients_to_create.append(PatientProfile(
+                        surname=surname,
+                        first_name=first_name,
+                        other_name=str(row.get('other_name', '')).strip() if pd.notna(row.get('other_name')) else None,
+                        dob=dob,
+                        gender=str(row.get('gender', '')).strip() if pd.notna(row.get('gender')) else 'Other',
+                        patient_type=str(row.get('patient_type', '')).strip() if pd.notna(row.get('patient_type')) else 'General',
+                        phone_number=str(row.get('phone_number', '')).strip() if pd.notna(row.get('phone_number')) else '',
+                        address=str(row.get('address', '')).strip() if pd.notna(row.get('address')) else None,
+                        category=cat_map.get(str(row.get('category', '')).strip()) if pd.notna(row.get('category')) else None,
+                        plan=plan_map.get(str(row.get('plan', '')).strip()) if pd.notna(row.get('plan')) else None,
+                        email_address=email,
+                        hospital_number=str(row.get('hospital_number', '')).strip() if pd.notna(row.get('hospital_number')) else None,
+                        created_by=request.user if request.user and request.user.is_authenticated else None,
+                        active=1
+                    ))
+                except Exception as e:
+                    errors.append(f"Row {index+2}: {str(e)}")
+
+            if patients_to_create:
+                PatientProfile.objects.bulk_create(patients_to_create, batch_size=500, ignore_conflicts=True)
+
+            return Response({
+                'message': f"Successfully imported {len(patients_to_create)} patients.",
+                'imported_count': len(patients_to_create),
+                'errors': errors[:10]
+            })
+        except Exception as e:
+            return Response({'detail': f"File processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get'], url_path='directory-stats')
     def directory_stats(self, request):
@@ -2714,8 +2855,32 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 frequency = p.get('frequency') or 'Twice daily (bd)'
                 duration = str(p.get('duration') or '5')
                 duration_unit = p.get('duration_unit') or 'Day(s)'
-                dispense_unit = p.get('dispense_unit') or ('Bottles' if dosage_form in ['Syrup', 'Suspension'] else 'Pieces')
+                dispense_unit = p.get('dispense_unit')
+                if not dispense_unit or dispense_unit in ['Pieces', 'pieces']:
+                    if dosage_form in ['Syrup', 'Suspension']:
+                        dispense_unit = 'Bottles'
+                    elif dosage_form == 'Injection' or 'inj' in drug_name.lower():
+                        dispense_unit = 'Ampoules' if ('amp' in dose_unit.lower() or 'amp' in drug_name.lower()) else 'Vials'
+                    elif dosage_form == 'Inhaler':
+                        dispense_unit = 'Inhalers'
+                    elif dosage_form == 'Ointment':
+                        dispense_unit = 'Tubes'
+                    elif dosage_form == 'Suppository':
+                        dispense_unit = 'Suppositories'
+                    elif dosage_form == 'Sachet':
+                        dispense_unit = 'Sachets'
+                    elif dosage_form == 'Capsule':
+                        dispense_unit = 'Capsules'
+                    elif dosage_form == 'Caplet':
+                        dispense_unit = 'Caplets'
+                    else:
+                        dispense_unit = 'Tablets'
+
                 dispense_detail = p.get('dispense_detail') or ''
+                if (dosage_form == 'Injection' or 'inj' in drug_name.lower()) and 'tablets' in dispense_detail.lower():
+                    dispense_detail = f"{disp_qty} {dispense_unit}"
+                elif dispense_detail:
+                    dispense_detail = dispense_detail.replace('(Pieces)', '').replace('(pieces)', '').strip()
                 comment = p.get('comment') or p.get('notes') or ''
                 start_date = p.get('start_date') or timezone.now().date()
                 instruction = p.get('instruction') or f"{dose_qty} {dose_unit} {frequency} for {duration} {duration_unit}"
@@ -2726,9 +2891,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     elif '[Pay from your purse]' not in comment:
                         comment = f"[Pay from your purse] {comment}".strip()
 
-                # Avoid duplicate insertion if exact prescription already pending today
+                # Avoid duplicate insertion if exact prescription already exists today
                 existing_rx = WrittenPrescriptions.objects.filter(
-                    patient=patient, item=drug_name[:200], status='pending',
+                    patient=patient, item=drug_name[:200],
                     created_date__date=timezone.now().date()
                 ).first()
                 if not existing_rx:
@@ -2761,7 +2926,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     continue
                 rate = l.get('tariff_rate')
                 if rate is None or rate == '':
-                    t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
+                    p_sponsor = getattr(patient, 'sponsor', None)
+                    p_plan = getattr(patient, 'plan', None)
+                    t = None
+                    if p_sponsor and p_plan:
+                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor, plan=p_plan).first()
+                    if not t and p_plan:
+                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', plan=p_plan).first()
+                    if not t and p_sponsor:
+                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor).first()
+                    if not t:
+                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
                     rate = t.rate if t else 0
                 try:
                     unit_price = float(rate)
@@ -3054,16 +3229,18 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if search_query not in combined_text:
                     continue
 
-            # Find appointments for target_date or latest appointments
+            # Find appointments for target_date or latest appointments (latest/current schedule first)
             if target_date:
-                appts = list(PatientAppointment.objects.filter(patient=pat, arrival_date=target_date, completed__in=[0, 1]).order_by('arrival_time', 'id'))
+                appts = list(PatientAppointment.objects.filter(patient=pat, arrival_date=target_date, completed__in=[0, 1]).order_by('-arrival_date', '-arrival_time', '-id'))
                 if not appts:
-                    appts = list(PatientAppointment.objects.filter(patient=pat, arrival_date=target_date).order_by('arrival_time', 'id'))
+                    appts = list(PatientAppointment.objects.filter(patient=pat, arrival_date=target_date).order_by('-arrival_date', '-arrival_time', '-id'))
                 latest_dw = DoctorWaitingList.objects.filter(patient=pat, created_date__date=target_date).order_by('-created_date').first()
                 latest_nw = NurseWaitingList.objects.filter(patient=pat, created_date__date=target_date).order_by('-created_date').first()
                 latest_enc = PatientEncounter.objects.filter(patient=pat, created_at__date=target_date).order_by('-created_at').first()
             else:
-                appts = list(PatientAppointment.objects.filter(patient=pat, completed__in=[0, 1]).order_by('-arrival_date', 'arrival_time', 'id')[:5])
+                appts = list(PatientAppointment.objects.filter(patient=pat, completed__in=[0, 1]).order_by('-arrival_date', '-arrival_time', '-id')[:5])
+                if not appts:
+                    appts = list(PatientAppointment.objects.filter(patient=pat).order_by('-arrival_date', '-arrival_time', '-id')[:5])
                 latest_dw = DoctorWaitingList.objects.filter(patient=pat).order_by('-created_date').first()
                 latest_nw = NurseWaitingList.objects.filter(patient=pat).order_by('-created_date').first()
                 latest_enc = PatientEncounter.objects.filter(patient=pat).order_by('-created_at').first()
@@ -3124,6 +3301,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             visit_date_raw = target_date or (appt.arrival_date if appt and appt.arrival_date else None) or (latest_dw.created_date.date() if latest_dw and latest_dw.created_date else None) or (latest_nw.created_date.date() if latest_nw and latest_nw.created_date else None) or (pat.created_date.date() if pat.created_date else today)
             visit_date_str = visit_date_raw.strftime('%d/%m/%Y')
             visit_time_str = appt.arrival_time.strftime('%I:%M%p') if (appt and appt.arrival_time) else (latest_dw.created_date.strftime('%I:%M%p') if (latest_dw and latest_dw.created_date) else '09:00AM')
+            raw_time_str = appt.arrival_time.strftime('%H:%M:%S') if (appt and appt.arrival_time) else (latest_dw.created_date.strftime('%H:%M:%S') if (latest_dw and latest_dw.created_date) else '09:00:00')
+            raw_date_str = visit_date_raw.strftime('%Y-%m-%d')
             visit_datetime_str = f"{visit_time_str} {visit_date_raw.strftime('%d %b %Y')}"
             visit_type = (appt.visit_type if appt and appt.visit_type else '') or purposes_list[0]['visit_type'] or 'Follow-up'
 
@@ -3253,8 +3432,26 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
                 rate = float(t.rate) if (t and t.rate) else 0.0
                 qty = rx.dispense_quantity or rx.quantity or 1
-                uom = rx.dispense_unit or ('Bottles' if rx.dosage_form in ['Syrup', 'Suspension'] else 'Each')
-                disp_desc = f" ({rx.dispense_detail})" if rx.dispense_detail else ''
+                uom = rx.dispense_unit
+                if not uom or uom in ['Pieces', 'pieces', 'Each']:
+                    if rx.dosage_form in ['Syrup', 'Suspension']:
+                        uom = 'Bottles'
+                    elif rx.dosage_form == 'Injection' or 'inj' in (rx.item or '').lower():
+                        uom = 'Ampoules' if ('amp' in (rx.dose_unit or '').lower() or 'amp' in (rx.item or '').lower()) else 'Vials'
+                    elif rx.dosage_form == 'Capsule':
+                        uom = 'Capsules'
+                    elif rx.dosage_form == 'Tablet':
+                        uom = 'Tablets'
+                    else:
+                        uom = rx.dispense_unit or 'Each'
+
+                if rx.dispense_detail:
+                    clean_disp = rx.dispense_detail.replace('(Pieces)', '').replace('(pieces)', '').strip()
+                    if (rx.dosage_form == 'Injection' or 'inj' in (rx.item or '').lower()) and 'tablets' in clean_disp.lower():
+                        clean_disp = f"{qty} {uom}"
+                    disp_desc = f" ({clean_disp})" if clean_disp else ''
+                else:
+                    disp_desc = ''
 
                 rx_cmt = (rx.comment or '').lower()
                 rx_inst = (rx.instruction or '').lower()
@@ -3482,9 +3679,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 'gender': getattr(pat, 'gender', '') or 'N/A',
                 'age': pat.get_age if hasattr(pat, 'get_age') and pat.get_age is not None else '',
                 'address': pat.address or 'N/A',
+                'appointment_id': getattr(appt, 'id', None),
                 'session_number': getattr(appt, 'id', None) or f"{pat.id}{today.strftime('%d%m')}",
                 'visit_date': visit_date_str,
                 'visit_time': visit_time_str,
+                'raw_date': raw_date_str,
+                'raw_time': raw_time_str,
+                'arrival_date': raw_date_str,
+                'arrival_time': raw_time_str,
                 'visit_datetime': visit_datetime_str,
                 'purpose': purpose,
                 'purposes': all_purposes_arr,
@@ -3509,6 +3711,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 'total_paid_today': total_paid_today,
                 'has_pending_items': has_pending_items,
             })
+
+        # Ensure current schedule is always at the top (latest arrival_date, latest arrival_time, newest appointment/patient ID)
+        def get_schedule_sort_key(item):
+            d = str(item.get('raw_date') or item.get('arrival_date') or '')
+            t = str(item.get('raw_time') or item.get('arrival_time') or '')
+            appt_id = int(item.get('appointment_id') or 0)
+            pat_id = int(item.get('patient_id') or 0)
+            return (d, t, appt_id, pat_id)
+
+        results.sort(key=get_schedule_sort_key, reverse=True)
 
         return Response(results, status=status.HTTP_200_OK)
 
@@ -3666,7 +3878,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if orig_model == 'WrittenPrescriptions' and orig_id:
                     WrittenPrescriptions.objects.filter(id=orig_id).update(status='billed')
                 elif orig_model == 'RadiologyLab' and orig_id:
-                    RadiologyLab.objects.filter(id=orig_id).update(billing_waiting_status=0, completed=1)
+                    RadiologyLab.objects.filter(id=orig_id).update(billing_waiting_status=0, completed=0)
                 elif orig_model == 'OtherService' and orig_id:
                     OtherService.objects.filter(id=orig_id).update(completed=1)
                 elif orig_model == 'NurseWaitingList' and orig_id:
@@ -3901,6 +4113,64 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             'message': f"Official Receipt #{receipt_number} successfully issued for Invoice #{inv_num} (₦{final_amount:,.2f})!"
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['post'], url_path='approve-hmo-claim')
+    def approve_hmo_claim(self, request):
+        """
+        Approves an HMO claim (or batch of claim items under invoice_number),
+        marking them as completed=1 so that OPD pharmacy and clinical departments
+        can clear and dispense medications or services to the patient.
+        """
+        from django.db import transaction
+        from Billings.models import TransactionUpdate, Invoice
+
+        invoice_numbers = request.data.get('invoice_numbers')
+        invoice_number = request.data.get('invoice_number') or request.data.get('claim_number')
+        invoice_id = request.data.get('invoice_id')
+
+        if not invoice_numbers and invoice_number:
+            invoice_numbers = [invoice_number]
+
+        if not invoice_numbers and not invoice_id:
+            return Response({'error': 'claim_number, invoice_number or invoice_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            if invoice_numbers:
+                invoices = list(Invoice.objects.select_related('patient', 'category').filter(invoice_number__in=invoice_numbers))
+            else:
+                invoices = list(Invoice.objects.select_related('patient', 'category').filter(id=invoice_id))
+
+            if not invoices:
+                return Response({'error': 'HMO Claim not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            patient = invoices[0].patient
+            inv_num = invoices[0].invoice_number or f"CLM-{invoices[0].id}"
+
+            # Mark all matching claim invoices as approved (completed=1)
+            if invoice_numbers:
+                Invoice.objects.filter(invoice_number__in=invoice_numbers).update(completed=1)
+            else:
+                Invoice.objects.filter(id=invoice_id).update(completed=1)
+
+            if patient:
+                try:
+                    tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
+                    tu.completed = 1
+                    tu.updated_date = timezone.now()
+                    tu.save()
+                except Exception:
+                    pass
+
+        return Response({
+            'status': 'success',
+            'invoice_number': inv_num,
+            'claim_number': inv_num,
+            'patient_name': f"{patient.surname} {patient.first_name}" if patient else 'Patient',
+            'hospital_number': patient.hospital_number if patient else '',
+            'sponsor': patient.sponsor.name if (patient and patient.sponsor) else 'HMO / Sponsor',
+            'items_approved': len(invoices),
+            'message': f"HMO Claim #{inv_num} ({len(invoices)} items) successfully approved! Prescriptions and services are now cleared for dispensing."
+        }, status=status.HTTP_200_OK)
+
 
 class ReceiptViewSet(viewsets.ModelViewSet):
     queryset = Receipt.objects.all().select_related('patient', 'category', 'staff').order_by('-created_date')
@@ -4047,7 +4317,7 @@ class PharmacyDrugViewSet(viewsets.ModelViewSet):
 class RadioLabViewSet(viewsets.ModelViewSet):
     queryset = RadiologyLab.objects.all().select_related('patient', 'category', 'plan', 'staff').order_by('-created_date')
     serializer_class = RadiologyLabSerializer
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     permission_classes = [permissions.AllowAny]
     filter_backends = [filters.SearchFilter]
     search_fields = ['item', 'patient__surname', 'patient__first_name', 'patient__hospital_number']
@@ -4055,8 +4325,29 @@ class RadioLabViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         completed = self.request.query_params.get('completed', None)
-        if completed is not None:
+        if completed is not None and completed != '':
             qs = qs.filter(completed=completed)
+
+        item_type = self.request.query_params.get('item_type', '').strip()
+        if item_type:
+            if item_type.lower() in ['lab', 'la', 'l']:
+                qs = qs.filter(item_type__in=['L', 'LA', 'Lab'])
+            elif item_type.lower() in ['radio', 'ra', 'r']:
+                qs = qs.filter(item_type__in=['R', 'RA', 'Radio'])
+            else:
+                qs = qs.filter(item_type__iexact=item_type)
+
+        date_param = self.request.query_params.get('date', '').strip() or None
+        start_date = self.request.query_params.get('start_date', '').strip() or None
+        end_date = self.request.query_params.get('end_date', '').strip() or None
+
+        if date_param:
+            qs = qs.filter(created_date__date=date_param)
+        else:
+            if start_date:
+                qs = qs.filter(created_date__date__gte=start_date)
+            if end_date:
+                qs = qs.filter(created_date__date__lte=end_date)
         return qs
 
     def perform_create(self, serializer):
@@ -4065,6 +4356,81 @@ class RadioLabViewSet(viewsets.ModelViewSet):
         category = serializer.validated_data.get('category') or (patient.category if patient else None)
         plan = serializer.validated_data.get('plan') or (patient.plan if patient else None)
         serializer.save(staff=user, category=category, plan=plan)
+
+    @action(detail=True, methods=['post'], url_path='upload-result')
+    def upload_result(self, request, pk=None):
+        """
+        Upload lab result or radiology scan result linked directly to this order ID.
+        Marks order as completed and updates waiting status.
+        """
+        order = self.get_object()
+        user = request.user if request.user.is_authenticated else None
+        results_text = request.data.get('results', '')
+        file_obj = request.FILES.get('file') or request.FILES.get('scan') or request.FILES.get('file_upload')
+
+        is_radio = order.item_type in ['R', 'RA', 'Radio']
+
+        if is_radio:
+            result_instance = ScanResult.objects.create(
+                order=order,
+                investigation=order.item,
+                results=results_text,
+                scan=file_obj,
+                patient=order.patient,
+                staff=user,
+                waiting_status=1
+            )
+            serializer = ScanResultSerializer(result_instance, context={'request': request})
+        else:
+            result_instance = LabResult.objects.create(
+                order=order,
+                investigation=order.item,
+                results=results_text,
+                file_upload=file_obj,
+                patient=order.patient,
+                staff=user,
+                waiting_status=1
+            )
+            serializer = LabResultSerializer(result_instance, context={'request': request})
+
+        order.completed = 1
+        order.radiolab_waiting_status = 1
+        order.save(update_fields=['completed', 'radiolab_waiting_status'])
+
+        return Response({
+            'message': 'Result recorded successfully',
+            'order_id': order.id,
+            'result': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class LabResultViewSet(viewsets.ModelViewSet):
+    queryset = LabResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
+    serializer_class = LabResultSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        res = serializer.save(staff=user, waiting_status=1)
+        if res.order:
+            res.order.completed = 1
+            res.order.radiolab_waiting_status = 1
+            res.order.save(update_fields=['completed', 'radiolab_waiting_status'])
+
+
+class ScanResultViewSet(viewsets.ModelViewSet):
+    queryset = ScanResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
+    serializer_class = ScanResultSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        res = serializer.save(staff=user, waiting_status=1)
+        if res.order:
+            res.order.completed = 1
+            res.order.radiolab_waiting_status = 1
+            res.order.save(update_fields=['completed', 'radiolab_waiting_status'])
+
 
 
 # Inventory ViewSets
@@ -4120,9 +4486,31 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         if patient_id:
             qs = qs.filter(patient_id=patient_id)
 
+        # Date filtering (today, specific date, or date range)
+        date_param = self.request.query_params.get('date', '').strip() or None
+        start_date = self.request.query_params.get('start_date', '').strip() or None
+        end_date = self.request.query_params.get('end_date', '').strip() or None
+
+        if date_param:
+            qs = qs.filter(created_date__date=date_param)
+        else:
+            if start_date:
+                qs = qs.filter(created_date__date__gte=start_date)
+            if end_date:
+                qs = qs.filter(created_date__date__lte=end_date)
+
         status_param = self.request.query_params.get('status', None)
-        if status_param:
+        if status_param and status_param.lower() != 'all':
             qs = qs.filter(status__iexact=status_param)
+
+        # Filter by payment clearance: 'cleared', 'paid', 'unpaid', 'pending'
+        payment_param = self.request.query_params.get('payment', None)
+        if payment_param:
+            p_val = payment_param.lower()
+            if p_val in ['cleared', 'paid', 'billed']:
+                qs = qs.filter(status__in=['billed', 'dispensed'])
+            elif p_val in ['unpaid', 'pending']:
+                qs = qs.filter(status='pending')
 
         search = self.request.query_params.get('search', '').strip()
         if search:
@@ -4176,9 +4564,33 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             frequency = p.get('frequency') or 'Twice daily (bd)'
             duration = str(p.get('duration') or '5')
             duration_unit = p.get('duration_unit') or 'Day(s)'
-            dispense_unit = p.get('dispense_unit') or ('Bottles' if dosage_form in ['Syrup', 'Suspension'] else 'Pieces')
+            dispense_unit = p.get('dispense_unit')
+            if not dispense_unit or dispense_unit in ['Pieces', 'pieces']:
+                if dosage_form in ['Syrup', 'Suspension']:
+                    dispense_unit = 'Bottles'
+                elif dosage_form == 'Injection' or 'inj' in item_name.lower():
+                    dispense_unit = 'Ampoules' if ('amp' in dose_unit.lower() or 'amp' in item_name.lower()) else 'Vials'
+                elif dosage_form == 'Inhaler':
+                    dispense_unit = 'Inhalers'
+                elif dosage_form == 'Ointment':
+                    dispense_unit = 'Tubes'
+                elif dosage_form == 'Suppository':
+                    dispense_unit = 'Suppositories'
+                elif dosage_form == 'Sachet':
+                    dispense_unit = 'Sachets'
+                elif dosage_form == 'Capsule':
+                    dispense_unit = 'Capsules'
+                elif dosage_form == 'Caplet':
+                    dispense_unit = 'Caplets'
+                else:
+                    dispense_unit = 'Tablets'
+
             dispense_quantity = int(p.get('dispense_quantity') or p.get('quantity') or 0)
             dispense_detail = p.get('dispense_detail') or ''
+            if (dosage_form == 'Injection' or 'inj' in item_name.lower()) and 'tablets' in dispense_detail.lower():
+                dispense_detail = f"{dispense_quantity} {dispense_unit}"
+            elif dispense_detail:
+                dispense_detail = dispense_detail.replace('(Pieces)', '').replace('(pieces)', '').strip()
             comment = p.get('comment') or p.get('notes') or ''
             start_date = p.get('start_date') or timezone.now().date()
             instruction = p.get('instruction') or f"{dose_qty} {dose_unit} ({dosage_form}) via {route}, {frequency} for {duration} {duration_unit}"
@@ -4223,11 +4635,99 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
     def dispense(self, request, pk=None):
         """
         Dispense a prescription to patient, marking it dispensed and reducing stock.
+        STRICT REQUIREMENT: Before medication can be dispensed, it MUST be cleared by billing:
+        - For Private/Self-Pay: Must be cleared by cashier with payment receipt (Invoice completed=1).
+        - For HMO/Insurance: Must be an approved claim (Invoice completed=1).
+        - Pay-from-purse items: Require private cashier payment clearance even for HMO patients.
         """
+        from Billings.models import Invoice
+
         prescription = self.get_object()
         if prescription.status == 'dispensed':
             return Response({'detail': 'Medication has already been dispensed.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        patient = prescription.patient
+        cat_name = (patient.category.category if patient and patient.category else '').lower()
+        spon_name = (patient.sponsor.name if patient and patient.sponsor else '').lower()
+        is_pay_from_purse = '[pay from your purse]' in (prescription.comment or '').lower() or '[pay from your purse]' in (prescription.instruction or '').lower()
+        is_hmo = (not is_pay_from_purse) and any(k in cat_name or k in spon_name for k in ['hmo', 'nhis', 'insurance', 'retainer'])
+
+        # Check billing clearance in Invoice table
+        invoice = Invoice.objects.filter(
+            original_source_model='WrittenPrescriptions',
+            original_source_id=prescription.id
+        ).order_by('-id').first()
+
+        is_cleared = bool(invoice and invoice.completed == 1)
+
+        if not is_cleared:
+            if is_hmo:
+                if invoice:
+                    return Response({
+                        'detail': f"Dispense Blocked: HMO Claim #{invoice.invoice_number} for {prescription.item} has not been approved by Billing yet. Approval is required before medication can be dispensed."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({
+                        'detail': f"Dispense Blocked: {prescription.item} has not been billed under an HMO claim yet. The Billing / HMO desk must process and approve the claim first."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                if invoice:
+                    return Response({
+                        'detail': f"Dispense Blocked: Payment for {prescription.item} (Invoice #{invoice.invoice_number}) has NOT been cleared at Cashier / Billing yet. Receipt payment clearance is required before dispensing."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({
+                        'detail': f"Dispense Blocked: {prescription.item} has not been billed yet. Patient must be billed and clear payment at Cashier before dispensing."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+        qty_to_deduct = prescription.dispense_quantity or prescription.quantity or 1
+        stock_deducted = 0
+        remaining_stock = None
+        store_name = 'OPD Pharmacy'
+
+        # Resolve active dispensing pharmacy branch
+        store_id = request.data.get('store_id') or request.query_params.get('store_id')
+        target_store = None
+        if store_id:
+            try:
+                target_store = PharmacyStore.objects.filter(id=int(store_id)).first()
+            except (ValueError, TypeError):
+                pass
+        if not target_store:
+            target_store = PharmacyStore.objects.filter(store_type='opd_pharmacy', is_active=True).first() or \
+                           PharmacyStore.objects.filter(is_active=True).first()
+
+        if target_store:
+            store_name = target_store.name
+
+        # 1. Match Product in Hospital Catalog
+        product = Product.objects.filter(product_name__iexact=prescription.item).first()
+        if not product and prescription.item:
+            first_word = prescription.item.split()[0]
+            product = Product.objects.filter(product_name__icontains=first_word).first()
+
+        # 2. Strict Stock Validation: Must have sufficient stock in branch to dispense
+        available_stock = 0
+        store_stock = None
+        if target_store and product:
+            store_stock = StoreStock.objects.filter(store=target_store, product=product).first()
+            if store_stock:
+                available_stock = store_stock.stock
+
+        matching_drug = None
+        if available_stock <= 0:
+            matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
+            if not matching_drug and prescription.item:
+                matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
+            if matching_drug:
+                available_stock = max(available_stock, matching_drug.stock)
+
+        if available_stock < qty_to_deduct:
+            return Response({
+                'detail': f"Dispense Blocked: Insufficient shelf stock for {prescription.item} at {store_name}. Available stock is {available_stock} (needs {qty_to_deduct}). The pharmacy must restock or request a stock requisition before dispensing this medication."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Mark as dispensed once stock is verified
         user = request.user if request.user.is_authenticated else None
         prescription.status = 'dispensed'
         prescription.dispensed_at = timezone.now()
@@ -4235,26 +4735,85 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             prescription.dispensed_by = user
         prescription.save()
 
-        # Safely deduct from OpdDrugs inventory if matching product exists
-        stock_deducted = 0
-        matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
-        if not matching_drug:
-            # Try partial match
-            matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
+        # 4. Deduct from StoreStock (Branch Shelf Inventory)
+        if target_store and product:
+            store_stock, _ = StoreStock.objects.get_or_create(store=target_store, product=product, defaults={'stock': 0})
+            if store_stock:
+                orig_stock = store_stock.stock
+                store_stock.stock = max(0, orig_stock - qty_to_deduct)
+                store_stock.save(update_fields=['stock', 'updated_date'])
+                stock_deducted = qty_to_deduct
+                remaining_stock = store_stock.stock
 
-        if matching_drug and prescription.dispense_quantity > 0:
-            qty_to_deduct = prescription.dispense_quantity
+                # Decrement FEFO batches if any exist
+                needed = qty_to_deduct
+                for batch in store_stock.batches.filter(quantity__gt=0).order_by('expiry_date'):
+                    if needed <= 0:
+                        break
+                    take = min(batch.quantity, needed)
+                    batch.quantity -= take
+                    batch.save(update_fields=['quantity'])
+                    needed -= take
+
+        # 3. Capture in Central Inventory Transaction Ledger
+        if product:
+            pat_str = f"Patient: {patient.surname} {patient.first_name} (#{patient.hospital_number})" if patient else "Prescription Dispense"
+            dest_label = f"{pat_str} via {store_name}"[:30]
+            try:
+                Transaction.objects.create(
+                    product=product,
+                    quantity=qty_to_deduct,
+                    price=product.price,
+                    transaction_type='DISPENSE',
+                    destination=dest_label,
+                    staff=user
+                )
+            except Exception as e:
+                logger.warning(f"Error logging Transaction: {e}")
+
+        # 4. Fallback / Sync OpdDrugs and OpdDrugsUpdate
+        matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
+        if not matching_drug and prescription.item:
+            matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
+        if matching_drug:
             matching_drug.stock = max(0, matching_drug.stock - qty_to_deduct)
             matching_drug.save(update_fields=['stock', 'status'])
-            stock_deducted = qty_to_deduct
+            if remaining_stock is None:
+                remaining_stock = matching_drug.stock
+                stock_deducted = qty_to_deduct
+            try:
+                OpdDrugsUpdate.objects.create(
+                    product=matching_drug,
+                    quantity=qty_to_deduct,
+                    price=matching_drug.price,
+                    transaction_type='DISPENSE',
+                    destination=f"Patient: {patient.hospital_number}" if patient else "OPD Dispense",
+                    staff=user
+                )
+            except Exception as e:
+                logger.warning(f"Error logging OpdDrugsUpdate: {e}")
+
+        # 5. Capture in AdministerDrugs for patient clinical chart & case notes
+        try:
+            AdministerDrugs.objects.create(
+                item=prescription.item,
+                quantity=qty_to_deduct,
+                rate=product.price if product else (matching_drug.price if matching_drug else 0),
+                total=((product.price if product else (matching_drug.price if matching_drug else 0)) * qty_to_deduct),
+                patient=patient,
+                staff=user
+            )
+        except Exception as e:
+            logger.warning(f"Error recording AdministerDrugs: {e}")
 
         serializer = self.get_serializer(prescription)
         return Response({
             'success': True,
             'prescription': serializer.data,
             'stock_deducted': stock_deducted,
-            'remaining_stock': matching_drug.stock if matching_drug else None,
-            'drug_name': matching_drug.product_name if matching_drug else None,
+            'remaining_stock': remaining_stock,
+            'store_name': store_name,
+            'drug_name': product.product_name if product else (matching_drug.product_name if matching_drug else prescription.item),
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='queue')
@@ -4267,4 +4826,1047 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         ).order_by('-created_date')
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='patient-queue')
+    def patient_queue(self, request):
+        """
+        Get prescription queue grouped by patient for today or a filtered date,
+        showing their prescription items, payment clearance, and dispensing status.
+        Distinguishes between Private payment clearance and HMO claim approval.
+        """
+        from collections import defaultdict
+        from Billings.models import Invoice
+
+        target_date_str = request.query_params.get('date', '').strip() or None
+        start_date = request.query_params.get('start_date', '').strip() or None
+        end_date = request.query_params.get('end_date', '').strip() or None
+        search = request.query_params.get('search', '').strip()
+        clearance_filter = request.query_params.get('clearance_filter', '').strip().lower()
+        if not clearance_filter and request.query_params.get('cleared_only', '').lower() in ['1', 'true', 'yes']:
+            clearance_filter = 'cleared'
+
+        qs = WrittenPrescriptions.objects.select_related('patient', 'patient__category', 'patient__sponsor', 'provider', 'dispensed_by')
+
+        if target_date_str:
+            qs = qs.filter(created_date__date=target_date_str)
+        elif start_date or end_date:
+            if start_date:
+                qs = qs.filter(created_date__date__gte=start_date)
+            if end_date:
+                qs = qs.filter(created_date__date__lte=end_date)
+        else:
+            # Default to today if no date params given
+            qs = qs.filter(created_date__date=timezone.now().date())
+
+        if search:
+            qs = qs.filter(
+                Q(patient__surname__icontains=search) |
+                Q(patient__first_name__icontains=search) |
+                Q(patient__hospital_number__icontains=search) |
+                Q(item__icontains=search)
+            )
+
+        qs = qs.order_by('-created_date')
+
+        # Group prescriptions by patient
+        patient_groups = defaultdict(list)
+        for rx in qs:
+            patient_groups[rx.patient_id].append(rx)
+
+        # Batch lookup for invoice completion
+        all_rx_ids = [rx.id for rx in qs]
+        cleared_rx_ids = set(
+            Invoice.objects.filter(
+                original_source_model='WrittenPrescriptions',
+                original_source_id__in=all_rx_ids,
+                completed=1
+            ).values_list('original_source_id', flat=True)
+        )
+        invoices_map = {
+            inv.original_source_id: inv
+            for inv in Invoice.objects.filter(
+                original_source_model='WrittenPrescriptions',
+                original_source_id__in=all_rx_ids
+            ).order_by('id')
+        }
+
+        # Resolve active dispensing pharmacy branch for real-time shelf stock lookup
+        store_id = request.query_params.get('store_id')
+        target_store = None
+        if store_id:
+            try:
+                target_store = PharmacyStore.objects.filter(id=int(store_id)).first()
+            except (ValueError, TypeError):
+                pass
+        if not target_store:
+            target_store = PharmacyStore.objects.filter(store_type='opd_pharmacy', is_active=True).first() or \
+                           PharmacyStore.objects.filter(is_active=True).first()
+
+        store_name = target_store.name if target_store else 'OPD Pharmacy'
+
+        # Pre-fetch StoreStock for target_store to avoid N+1 queries
+        all_store_stocks = []
+        if target_store:
+            all_store_stocks = list(StoreStock.objects.filter(store=target_store).select_related('product'))
+        all_opd_drugs = list(OpdDrugs.objects.all())
+
+        def get_pharmacy_stock_for_item(item_name):
+            if not item_name:
+                return 0
+            clean_item = item_name.strip().lower()
+            # 1. Exact match on Product.product_name
+            for ss in all_store_stocks:
+                if ss.product and ss.product.product_name.strip().lower() == clean_item:
+                    return ss.stock
+            # 2. Token match (e.g. "Ibuprofen" in "Ibuprofen 400mg Tablet")
+            first_token = clean_item.split()[0] if clean_item.split() else ''
+            if first_token:
+                for ss in all_store_stocks:
+                    if ss.product:
+                        p_clean = ss.product.product_name.strip().lower()
+                        if first_token in p_clean or p_clean in clean_item:
+                            return ss.stock
+            # 3. Fallback to OpdDrugs
+            for od in all_opd_drugs:
+                if od.product_name and od.product_name.strip().lower() == clean_item:
+                    return od.stock
+            if first_token:
+                for od in all_opd_drugs:
+                    if od.product_name:
+                        o_clean = od.product_name.strip().lower()
+                        if first_token in o_clean or o_clean in clean_item:
+                            return od.stock
+            return 0
+
+        patient_list = []
+        for patient_id, rx_items in patient_groups.items():
+            pat = rx_items[0].patient
+            if not pat:
+                continue
+
+            pat_cat_name = (pat.category.category if pat.category else '').lower()
+            pat_spon_name = (pat.sponsor.name if pat.sponsor else '').lower()
+            pat_is_hmo = any(k in pat_cat_name or k in pat_spon_name for k in ['hmo', 'nhis', 'insurance', 'retainer'])
+
+            # Serialize items
+            serialized_items = []
+            has_cleared_item = False
+            pending_dispense_count = 0
+            dispensed_count = 0
+            pending_hmo_approval_count = 0
+            pending_cashier_payment_count = 0
+
+            for rx in rx_items:
+                is_pay_from_purse = '[pay from your purse]' in (rx.comment or '').lower() or '[pay from your purse]' in (rx.instruction or '').lower()
+                rx_is_hmo = (not is_pay_from_purse) and pat_is_hmo
+                inv = invoices_map.get(rx.id)
+
+                # Item is cleared ONLY if dispensed or completed=1 in Invoice (billing approved / paid)
+                is_cleared = (rx.status == 'dispensed') or (rx.id in cleared_rx_ids)
+                if is_cleared:
+                    has_cleared_item = True
+
+                if rx.status == 'dispensed':
+                    dispensed_count += 1
+                    payment_status = 'Dispensed'
+                    clearance_status_text = 'Dispensed'
+                    clearance_badge_type = 'success'
+                else:
+                    pending_dispense_count += 1
+                    if is_cleared:
+                        if rx_is_hmo:
+                            payment_status = 'HMO Claim Approved'
+                            clearance_status_text = 'HMO Claim Approved'
+                            clearance_badge_type = 'emerald'
+                        else:
+                            payment_status = 'Paid / Cleared'
+                            clearance_status_text = 'Payment Cleared by Billing'
+                            clearance_badge_type = 'success'
+                    else:
+                        if rx_is_hmo:
+                            pending_hmo_approval_count += 1
+                            if inv:
+                                payment_status = 'Awaiting HMO Claim Approval'
+                                clearance_status_text = 'Awaiting HMO Approval'
+                            else:
+                                payment_status = 'Awaiting HMO Claim Billing'
+                                clearance_status_text = 'Awaiting HMO Billing'
+                            clearance_badge_type = 'warning'
+                        else:
+                            pending_cashier_payment_count += 1
+                            if inv:
+                                payment_status = 'Pending Cashier Payment'
+                                clearance_status_text = 'Pending Cashier Payment'
+                            else:
+                                payment_status = 'Awaiting Cashier Billing'
+                                clearance_status_text = 'Awaiting Cashier Billing'
+                            clearance_badge_type = 'danger'
+
+                req_qty = rx.dispense_quantity or rx.quantity or 1
+                available_stock = get_pharmacy_stock_for_item(rx.item)
+                has_sufficient_stock = (available_stock >= req_qty)
+
+                serialized_items.append({
+                    'id': rx.id,
+                    'item': rx.item,
+                    'instruction': rx.instruction,
+                    'quantity': rx.quantity,
+                    'dosage_form': rx.dosage_form,
+                    'route': rx.route,
+                    'strength': rx.strength,
+                    'dose_qty': rx.dose_qty,
+                    'dose_unit': rx.dose_unit,
+                    'frequency': rx.frequency,
+                    'duration': rx.duration,
+                    'duration_unit': rx.duration_unit,
+                    'dispense_unit': rx.dispense_unit,
+                    'dispense_quantity': rx.dispense_quantity,
+                    'dispense_detail': rx.dispense_detail,
+                    'comment': rx.comment,
+                    'status': rx.status,
+                    'is_hmo': rx_is_hmo,
+                    'clearance_type': 'hmo_claim' if rx_is_hmo else 'private_payment',
+                    'is_pay_from_purse': is_pay_from_purse,
+                    'invoice_number': inv.invoice_number if inv else None,
+                    'invoice_completed': inv.completed if inv else None,
+                    'is_cleared': is_cleared,
+                    'payment_status': payment_status,
+                    'clearance_status_text': clearance_status_text,
+                    'clearance_badge_type': clearance_badge_type,
+                    'pharmacy_stock': available_stock,
+                    'has_sufficient_stock': has_sufficient_stock,
+                    'pharmacy_store_name': store_name,
+                    'pharmacy_store_id': target_store.id if target_store else None,
+                    'provider_name': rx.provider.fullname if rx.provider else 'Doctor',
+                    'dispensed_at': rx.dispensed_at.isoformat() if rx.dispensed_at else None,
+                    'dispensed_by_name': rx.dispensed_by.fullname if rx.dispensed_by else None,
+                    'created_date': rx.created_date.isoformat() if rx.created_date else None,
+                })
+
+            # Handle clearance filtering
+            if clearance_filter in ['cleared', 'cleared_only']:
+                if not has_cleared_item:
+                    continue
+            elif clearance_filter == 'awaiting_payment':
+                if pending_cashier_payment_count == 0:
+                    continue
+            elif clearance_filter == 'awaiting_hmo':
+                if pending_hmo_approval_count == 0:
+                    continue
+
+            all_cleared = all(item['is_cleared'] for item in serialized_items)
+            any_cleared = any(item['is_cleared'] for item in serialized_items)
+
+            # Informative clearance summary label
+            if pending_dispense_count == 0 and dispensed_count > 0:
+                payment_clearance = 'Completed & Dispensed'
+            elif all_cleared:
+                payment_clearance = 'HMO Claim Approved' if pat_is_hmo else 'Payment Cleared'
+            elif any_cleared:
+                payment_clearance = 'Partially Cleared'
+            else:
+                payment_clearance = 'Awaiting HMO Claim Approval' if pat_is_hmo else 'Awaiting Cashier Payment'
+
+            all_in_stock = all(
+                item['has_sufficient_stock']
+                for item in serialized_items
+                if item['status'] != 'dispensed'
+            )
+
+            patient_list.append({
+                'patient_id': pat.id,
+                'patient_name': f"{pat.surname} {pat.first_name}",
+                'hospital_number': pat.hospital_number or '-',
+                'phone_number': pat.phone_number or '',
+                'gender': pat.gender or '',
+                'age': getattr(pat, 'get_age', None) or getattr(pat, 'age', '') or '',
+                'category': pat.category.category if pat.category else 'General / Self-Pay',
+                'sponsor': pat.sponsor.name if pat.sponsor else None,
+                'is_hmo': pat_is_hmo,
+                'total_prescriptions': len(serialized_items),
+                'pending_dispense_count': pending_dispense_count,
+                'dispensed_count': dispensed_count,
+                'pending_hmo_approval_count': pending_hmo_approval_count,
+                'pending_cashier_payment_count': pending_cashier_payment_count,
+                'is_fully_cleared': all_cleared,
+                'is_partially_cleared': any_cleared and not all_cleared,
+                'all_items_in_stock': all_in_stock,
+                'pharmacy_store_name': store_name,
+                'pharmacy_store_id': target_store.id if target_store else None,
+                'payment_clearance': payment_clearance,
+                'prescriptions': serialized_items,
+                'latest_prescription_time': rx_items[0].created_date.isoformat() if rx_items else None,
+            })
+
+        return Response({
+            'total_patients': len(patient_list),
+            'date': target_date_str or str(timezone.now().date()),
+            'active_store': {
+                'id': target_store.id if target_store else None,
+                'name': store_name,
+            },
+            'patients': patient_list
+        }, status=status.HTTP_200_OK)
+
+
+# =========================================================================
+# Multi-Location Pharmacy & Store Inventory ViewSets
+# =========================================================================
+
+class PharmacyStoreViewSet(viewsets.ModelViewSet):
+    """
+    Manage physical or logical pharmacies and store locations.
+    Allows hospital admin to dynamically create and configure pharmacies/stores.
+    """
+    queryset = PharmacyStore.objects.all().select_related('in_charge').order_by('-is_central', 'name')
+    serializer_class = PharmacyStoreSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        store_type = self.request.query_params.get('store_type', None)
+        if store_type:
+            qs = qs.filter(store_type=store_type)
+        active_only = self.request.query_params.get('active_only', None)
+        if active_only in ['1', 'true', 'yes']:
+            qs = qs.filter(is_active=True)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        serializer.save()
+
+    @action(detail=True, methods=['get'], url_path='stock')
+    def get_store_stock(self, request, pk=None):
+        """
+        List all inventory stock records held by this specific pharmacy or store.
+        """
+        store = self.get_object()
+        qs = StoreStock.objects.filter(store=store).select_related('product', 'store').prefetch_related('batches')
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(product__product_name__icontains=search) |
+                Q(product__product_id__icontains=search)
+            )
+        low_stock_only = request.query_params.get('low_stock', None)
+        if low_stock_only in ['1', 'true', 'yes']:
+            from django.db.models import F
+            qs = qs.filter(stock__lte=F('low_stock_threshold'))
+        serializer = StoreStockSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='overview')
+    def overview(self, request):
+        """
+        High level multi-store summary showing all pharmacies, their item counts, and valuation.
+        """
+        stores = PharmacyStore.objects.filter(is_active=True).prefetch_related('stocks__product')
+        result = []
+        for s in stores:
+            serializer = self.get_serializer(s)
+            result.append(serializer.data)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class StoreStockViewSet(viewsets.ModelViewSet):
+    """
+    Per-store inventory ledger tracking on-hand stock and low-stock alerts.
+    """
+    queryset = StoreStock.objects.all().select_related('store', 'product').prefetch_related('batches').order_by('store', 'product__product_name')
+    serializer_class = StoreStockSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        store_id = self.request.query_params.get('store', None)
+        if store_id:
+            qs = qs.filter(store_id=store_id)
+        product_id = self.request.query_params.get('product', None)
+        if product_id:
+            qs = qs.filter(product_id=product_id)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(product__product_name__icontains=search) |
+                Q(product__product_id__icontains=search) |
+                Q(store__name__icontains=search) |
+                Q(batches__batch_number__icontains=search)
+            ).distinct()
+        low_stock_only = self.request.query_params.get('low_stock', None)
+        if low_stock_only in ['1', 'true', 'yes']:
+            from django.db.models import F
+            qs = qs.filter(stock__lte=F('low_stock_threshold'))
+        expiring_soon = self.request.query_params.get('expiring_soon', None)
+        if expiring_soon in ['1', 'true', 'yes']:
+            from datetime import date, timedelta
+            threshold = date.today() + timedelta(days=60)
+            qs = qs.filter(expiry_date__isnull=False, expiry_date__lte=threshold)
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='adjust')
+    def adjust_stock(self, request):
+        """
+        Manual stock-taking adjustment with audit trail.
+        """
+        store_id = request.data.get('store_id')
+        product_id = request.data.get('product_id')
+        new_stock = request.data.get('new_stock')
+        reason = request.data.get('reason', 'Physical count adjustment')
+
+        if store_id is None or product_id is None or new_stock is None:
+            return Response({'error': 'store_id, product_id, and new_stock are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        store = PharmacyStore.objects.filter(id=store_id).first()
+        product = Product.objects.filter(id=product_id).first()
+        if not store or not product:
+            return Response({'error': 'Store or Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        store_stock, _ = StoreStock.objects.get_or_create(store=store, product=product, defaults={'stock': 0})
+        old_stock = store_stock.stock
+        store_stock.stock = max(0, int(new_stock))
+        store_stock.save()
+
+        user = request.user if request.user.is_authenticated else None
+        delta = store_stock.stock - old_stock
+        StockMovement.objects.create(
+            store=store,
+            product=product,
+            movement_type='ADJUSTMENT',
+            quantity=delta,
+            balance_after=store_stock.stock,
+            reference_number=f"ADJ-{timezone.now().strftime('%Y%m%d%H%M')}",
+            notes=reason,
+            performed_by=user
+        )
+
+        return Response({
+            'success': True,
+            'store_stock': StoreStockSerializer(store_stock).data,
+            'delta': delta,
+            'new_stock': store_stock.stock
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='receive-vendor-stock')
+    def receive_vendor_stock(self, request):
+        """
+        Receive purchased medications from a vendor / pharmaceutical supplier directly into
+        Central Medical Store (or specified store) and update real-time stock balances
+        along with complete PURCHASE_GRN audit trail entries.
+        """
+        import uuid
+        from django.db import transaction
+
+        store_id = request.data.get('store_id') or request.data.get('store')
+        vendor_id = request.data.get('vendor_id') or request.data.get('vendor')
+        vendor_name_custom = request.data.get('vendor_name', '').strip()
+        invoice_number = request.data.get('invoice_number', '').strip()
+        notes = request.data.get('notes', '').strip()
+        items_data = request.data.get('items', [])
+
+        # Default to Central Medical Store if store_id not explicitly given
+        if not store_id:
+            store = PharmacyStore.objects.filter(is_central=True).first()
+        else:
+            store = PharmacyStore.objects.filter(id=store_id).first()
+
+        if not store:
+            return Response({'error': 'Target store / Central Medical Store not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not items_data:
+            return Response({'error': 'At least one medication item must be received'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Lookup vendor name if vendor_id passed
+        vendor_name = vendor_name_custom
+        if vendor_id:
+            vendor = PharmacyVendor.objects.filter(id=vendor_id).first()
+            if vendor:
+                vendor_name = vendor.name
+
+        if not vendor_name:
+            vendor_name = 'External Supplier / Vendor'
+
+        grn_ref = invoice_number or f"GRN-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
+        user = request.user if request.user.is_authenticated else None
+
+        received_results = []
+
+        try:
+            with transaction.atomic():
+                for itm in items_data:
+                    prod_id = itm.get('product_id') or itm.get('product')
+                    qty = int(itm.get('quantity') or itm.get('quantity_received') or 0)
+                    if not prod_id or qty <= 0:
+                        continue
+
+                    product = Product.objects.filter(id=prod_id).first()
+                    if not product:
+                        continue
+
+                    batch_num = (itm.get('batch_number') or '').strip()
+                    expiry = itm.get('expiry_date') or None
+
+                    store_stock, _ = StoreStock.objects.get_or_create(
+                        store=store,
+                        product=product,
+                        defaults={'stock': 0}
+                    )
+                    store_stock.stock += qty
+
+                    # Record individual batch lot in StoreStockBatch (FEFO Tracking)
+                    if batch_num:
+                        batch_obj, _ = StoreStockBatch.objects.get_or_create(
+                            store=store,
+                            product=product,
+                            batch_number=batch_num,
+                            defaults={
+                                'store_stock': store_stock,
+                                'expiry_date': expiry,
+                                'quantity': 0,
+                                'supplier': vendor_name
+                            }
+                        )
+                        batch_obj.quantity += qty
+                        if expiry:
+                            batch_obj.expiry_date = expiry
+                        batch_obj.store_stock = store_stock
+                        if vendor_name and not batch_obj.supplier:
+                            batch_obj.supplier = vendor_name
+                        batch_obj.save()
+
+                    # Set primary store_stock batch & expiry to earliest active batch (FEFO protocol)
+                    earliest_batch = store_stock.batches.filter(quantity__gt=0, expiry_date__isnull=False).order_by('expiry_date').first()
+                    if earliest_batch:
+                        store_stock.batch_number = earliest_batch.batch_number
+                        store_stock.expiry_date = earliest_batch.expiry_date
+                    elif batch_num:
+                        store_stock.batch_number = batch_num
+                        if expiry:
+                            store_stock.expiry_date = expiry
+
+                    store_stock.save()
+
+                    # Increment global Product.stock if store is central
+                    if store.is_central:
+                        product.stock = (product.stock or 0) + qty
+                        product.save(update_fields=['stock'])
+
+                    # Audit trail: PURCHASE_GRN
+                    audit_notes = f"Received from {vendor_name}"
+                    if notes:
+                        audit_notes += f" - {notes}"
+
+                    StockMovement.objects.create(
+                        store=store,
+                        product=product,
+                        movement_type='PURCHASE_GRN',
+                        quantity=qty,
+                        balance_after=store_stock.stock,
+                        reference_number=grn_ref,
+                        notes=audit_notes,
+                        performed_by=user
+                    )
+
+                    received_results.append({
+                        'product_id': product.id,
+                        'product_name': product.product_name,
+                        'quantity_received': qty,
+                        'new_stock': store_stock.stock
+                    })
+
+                if not received_results:
+                    return Response({'error': 'No valid items with positive quantities were provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+                return Response({
+                    'success': True,
+                    'message': f"Successfully received and stocked {len(received_results)} item(s) into {store.name}!",
+                    'grn_reference': grn_ref,
+                    'store_name': store.name,
+                    'vendor_name': vendor_name,
+                    'items_count': len(received_results),
+                    'results': received_results
+                }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': f"Failed to receive vendor stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class StockTransferViewSet(viewsets.ModelViewSet):
+    """
+    Manage stock distributions from Central Store to Pharmacy branches.
+    Handles dispatch, in-transit status, and receipt confirmation.
+    """
+    queryset = StockTransfer.objects.all().select_related(
+        'source_store', 'destination_store', 'dispatched_by', 'received_by'
+    ).prefetch_related('items__product').order_by('-created_date')
+    serializer_class = StockTransferSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        source_id = self.request.query_params.get('source', None)
+        if source_id:
+            qs = qs.filter(source_store_id=source_id)
+        destination_id = self.request.query_params.get('destination', None)
+        if destination_id:
+            qs = qs.filter(destination_store_id=destination_id)
+        status_param = self.request.query_params.get('status', None)
+        if status_param and status_param != 'all':
+            qs = qs.filter(status=status_param)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(transfer_number__icontains=search) |
+                Q(source_store__name__icontains=search) |
+                Q(destination_store__name__icontains=search)
+            )
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        """
+        Create a distribution transfer with multiple drug line items.
+        Automatically checks source store stock and sets in_transit.
+        """
+        import uuid
+        from django.db import transaction
+
+        source_id = request.data.get('source_store') or request.data.get('source_store_id')
+        dest_id = request.data.get('destination_store') or request.data.get('destination_store_id')
+        notes = request.data.get('notes', '')
+        items_data = request.data.get('items', [])
+
+        if not source_id or not dest_id:
+            return Response({'error': 'Source store and Destination pharmacy are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if str(source_id) == str(dest_id):
+            return Response({'error': 'Source and Destination cannot be the same store'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not items_data:
+            return Response({'error': 'At least one drug item must be selected for transfer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        source_store = PharmacyStore.objects.filter(id=source_id).first()
+        dest_store = PharmacyStore.objects.filter(id=dest_id).first()
+        if not source_store or not dest_store:
+            return Response({'error': 'Invalid source or destination store'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user if request.user.is_authenticated else None
+        transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
+
+        try:
+            with transaction.atomic():
+                transfer = StockTransfer.objects.create(
+                    transfer_number=transfer_number,
+                    source_store=source_store,
+                    destination_store=dest_store,
+                    status='in_transit',
+                    notes=notes,
+                    dispatched_by=user,
+                    dispatched_at=timezone.now()
+                )
+
+                for itm in items_data:
+                    prod_id = itm.get('product') or itm.get('product_id')
+                    qty_sent = int(itm.get('quantity_sent') or itm.get('quantity') or 0)
+                    if not prod_id or qty_sent <= 0:
+                        continue
+
+                    prod = Product.objects.filter(id=prod_id).first()
+                    if not prod:
+                        continue
+
+                    # Validate source stock
+                    src_stock, _ = StoreStock.objects.get_or_create(
+                        store=source_store, product=prod, defaults={'stock': prod.stock or 0}
+                    )
+                    if src_stock.stock < qty_sent:
+                        raise ValueError(f"Insufficient stock for {prod.product_name} in {source_store.name}. Available: {src_stock.stock}, Requested: {qty_sent}")
+
+                    # Deduct from source store
+                    src_stock.stock -= qty_sent
+                    src_stock.save()
+
+                    # Deduct from global Product.stock if source is central store
+                    if source_store.is_central:
+                        prod.stock = max(0, (prod.stock or 0) - qty_sent)
+                        prod.save(update_fields=['stock'])
+
+                    # Audit trail: TRANSFER_OUT
+                    StockMovement.objects.create(
+                        store=source_store,
+                        product=prod,
+                        movement_type='TRANSFER_OUT',
+                        quantity=-qty_sent,
+                        balance_after=src_stock.stock,
+                        reference_number=transfer.transfer_number,
+                        notes=f"Dispatched to {dest_store.name}",
+                        performed_by=user
+                    )
+
+                    StockTransferItem.objects.create(
+                        transfer=transfer,
+                        product=prod,
+                        quantity_sent=qty_sent,
+                        quantity_received=0,
+                        batch_number=itm.get('batch_number') or src_stock.batch_number or '',
+                        expiry_date=itm.get('expiry_date') or src_stock.expiry_date,
+                        notes=itm.get('notes', '')
+                    )
+
+                serializer = self.get_serializer(transfer)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f"Failed to create transfer: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='receive')
+    def receive_stock(self, request, pk=None):
+        """
+        Receiving pharmacy clicks 'Confirm Receipt' to accept physical goods into its inventory.
+        Atomically increments destination pharmacy stock and logs audit trail.
+        """
+        from django.db import transaction
+
+        transfer = self.get_object()
+        if transfer.status == 'received':
+            return Response({'error': 'This transfer has already been received.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        received_items_data = request.data.get('items', [])
+        received_map = {int(i.get('item_id')): int(i.get('quantity_received', 0)) for i in received_items_data if 'item_id' in i}
+
+        try:
+            with transaction.atomic():
+                for item in transfer.items.all():
+                    qty_to_receive = received_map.get(item.id, item.quantity_sent)
+                    item.quantity_received = max(0, qty_to_receive)
+                    item.save(update_fields=['quantity_received'])
+
+                    # Increment destination pharmacy stock
+                    dest_stock, _ = StoreStock.objects.get_or_create(
+                        store=transfer.destination_store,
+                        product=item.product,
+                        defaults={'stock': 0, 'low_stock_threshold': 10}
+                    )
+                    dest_stock.stock += item.quantity_received
+                    if item.batch_number:
+                        dest_stock.batch_number = item.batch_number
+                    if item.expiry_date:
+                        dest_stock.expiry_date = item.expiry_date
+                    dest_stock.save()
+
+                    # Audit trail: TRANSFER_IN
+                    StockMovement.objects.create(
+                        store=transfer.destination_store,
+                        product=item.product,
+                        movement_type='TRANSFER_IN',
+                        quantity=item.quantity_received,
+                        balance_after=dest_stock.stock,
+                        reference_number=transfer.transfer_number,
+                        notes=f"Received from {transfer.source_store.name}",
+                        performed_by=user
+                    )
+
+                transfer.status = 'received'
+                transfer.received_by = user
+                transfer.received_at = timezone.now()
+                transfer.save(update_fields=['status', 'received_by', 'received_at'])
+
+                # If tied to a requisition, mark it completed
+                if transfer.requisition:
+                    transfer.requisition.status = 'completed'
+                    transfer.requisition.save(update_fields=['status'])
+
+                serializer = self.get_serializer(transfer)
+                return Response({
+                    'success': True,
+                    'message': f"Stock successfully received into {transfer.destination_store.name}!",
+                    'transfer': serializer.data
+                }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({'error': f"Failed to receive stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class StockRequisitionViewSet(viewsets.ModelViewSet):
+    """
+    Pharmacy Stock Requisition ViewSet.
+    Allows branch pharmacies to request medications from Central Medical Store.
+    """
+    queryset = StockRequisition.objects.all().select_related(
+        'requesting_store', 'fulfilling_store', 'requested_by', 'approved_by'
+    ).prefetch_related('items__product').order_by('-created_date')
+    serializer_class = StockRequisitionSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        requesting_id = self.request.query_params.get('requesting_store', None)
+        if requesting_id:
+            qs = qs.filter(requesting_store_id=requesting_id)
+        fulfilling_id = self.request.query_params.get('fulfilling_store', None)
+        if fulfilling_id:
+            qs = qs.filter(fulfilling_store_id=fulfilling_id)
+        store_id = self.request.query_params.get('store', None)
+        if store_id:
+            qs = qs.filter(Q(requesting_store_id=store_id) | Q(fulfilling_store_id=store_id))
+        status_param = self.request.query_params.get('status', None)
+        if status_param and status_param != 'all':
+            qs = qs.filter(status=status_param)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new drug requisition from a branch pharmacy to central store or other pharmacy.
+        """
+        import uuid
+        from django.db import transaction
+
+        req_store_id = request.data.get('requesting_store') or request.data.get('requesting_store_id')
+        ful_store_id = request.data.get('fulfilling_store') or request.data.get('fulfilling_store_id')
+
+        if not req_store_id:
+            return Response({'error': 'Requesting pharmacy is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Default fulfilling store to primary Central Store if not specified
+        if not ful_store_id:
+            central = PharmacyStore.objects.filter(is_central=True).first()
+            if central:
+                ful_store_id = central.id
+            else:
+                return Response({'error': 'No Central Store found to fulfill requisition'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if str(req_store_id) == str(ful_store_id):
+            return Response({'error': 'Requesting pharmacy and fulfilling location cannot be the same.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        requesting_store = PharmacyStore.objects.filter(id=req_store_id).first()
+        fulfilling_store = PharmacyStore.objects.filter(id=ful_store_id).first()
+        items_data = request.data.get('items', [])
+
+        if not items_data:
+            return Response({'error': 'At least one medication must be requested'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        req_number = f"REQ-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
+
+        try:
+            with transaction.atomic():
+                requisition = StockRequisition.objects.create(
+                    requisition_number=req_number,
+                    requesting_store=requesting_store,
+                    fulfilling_store=fulfilling_store,
+                    priority=request.data.get('priority', 'normal'),
+                    notes=request.data.get('notes', ''),
+                    status='pending',
+                    requested_by=user
+                )
+
+                for itm in items_data:
+                    prod_id = itm.get('product') or itm.get('product_id')
+                    qty = int(itm.get('quantity_requested') or itm.get('quantity') or 0)
+                    if not prod_id or qty <= 0:
+                        continue
+                    prod = Product.objects.filter(id=prod_id).first()
+                    if not prod:
+                        continue
+
+                    StockRequisitionItem.objects.create(
+                        requisition=requisition,
+                        product=prod,
+                        quantity_requested=qty,
+                        quantity_approved=qty,
+                        notes=itm.get('notes', '')
+                    )
+
+                serializer = self.get_serializer(requisition)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': f"Failed to create requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='fulfill')
+    def fulfill_requisition(self, request, pk=None):
+        """
+        Store manager approves and fulfills the requisition, generating an outgoing StockTransfer.
+        """
+        import uuid
+        from django.db import transaction
+
+        req = self.get_object()
+        if req.status in ['dispatched', 'completed']:
+            return Response({'error': 'This requisition has already been dispatched or completed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
+
+        try:
+            with transaction.atomic():
+                approval_notes = request.data.get('notes', '').strip()
+                transfer_notes = f"Fulfillment for Requisition #{req.requisition_number}"
+                if approval_notes:
+                    transfer_notes += f" - Note: {approval_notes}"
+
+                transfer = StockTransfer.objects.create(
+                    transfer_number=transfer_number,
+                    source_store=req.fulfilling_store,
+                    destination_store=req.requesting_store,
+                    requisition=req,
+                    status='in_transit',
+                    notes=transfer_notes,
+                    dispatched_by=user,
+                    dispatched_at=timezone.now()
+                )
+
+                # Map any customized approved quantities from request payload: items: [{ id: 1, quantity_approved: 5, notes: '' }]
+                custom_items = request.data.get('items', [])
+                approved_map = {}
+                item_notes_map = {}
+                for itm_data in custom_items:
+                    item_id = itm_data.get('id')
+                    if item_id is not None:
+                        try:
+                            approved_map[str(item_id)] = max(0, int(itm_data.get('quantity_approved', 0)))
+                        except (ValueError, TypeError):
+                            approved_map[str(item_id)] = 0
+                        if 'notes' in itm_data:
+                            item_notes_map[str(item_id)] = itm_data.get('notes', '')
+
+                dispatched_count = 0
+                for itm in req.items.all():
+                    if str(itm.id) in approved_map:
+                        qty_to_send = approved_map[str(itm.id)]
+                        itm.quantity_approved = qty_to_send
+                        if str(itm.id) in item_notes_map:
+                            itm.notes = item_notes_map[str(itm.id)]
+                        itm.save(update_fields=['quantity_approved', 'notes'])
+                    else:
+                        qty_to_send = itm.quantity_approved if itm.quantity_approved > 0 else itm.quantity_requested
+                        itm.quantity_approved = qty_to_send
+                        itm.save(update_fields=['quantity_approved'])
+
+                    # Skip items that were approved for 0 units (rejected or unavailable)
+                    if qty_to_send <= 0:
+                        continue
+
+                    src_stock, _ = StoreStock.objects.get_or_create(
+                        store=req.fulfilling_store,
+                        product=itm.product,
+                        defaults={'stock': itm.product.stock or 0}
+                    )
+                    if src_stock.stock < qty_to_send:
+                        raise ValueError(f"Insufficient stock for {itm.product.product_name} in {req.fulfilling_store.name}. Available: {src_stock.stock}, Approved: {qty_to_send}")
+
+                    src_stock.stock -= qty_to_send
+                    src_stock.save()
+
+                    if req.fulfilling_store.is_central:
+                        itm.product.stock = max(0, (itm.product.stock or 0) - qty_to_send)
+                        itm.product.save(update_fields=['stock'])
+
+                    StockMovement.objects.create(
+                        store=req.fulfilling_store,
+                        product=itm.product,
+                        movement_type='TRANSFER_OUT',
+                        quantity=-qty_to_send,
+                        balance_after=src_stock.stock,
+                        reference_number=transfer.transfer_number,
+                        notes=f"Requisition fulfillment to {req.requesting_store.name}",
+                        performed_by=user
+                    )
+
+                    StockTransferItem.objects.create(
+                        transfer=transfer,
+                        product=itm.product,
+                        quantity_sent=qty_to_send,
+                        quantity_received=0,
+                        notes=itm.notes
+                    )
+                    dispatched_count += 1
+
+                req.status = 'dispatched'
+                req.approved_by = user
+                if approval_notes:
+                    req.notes = f"{req.notes}\n[Approval Note]: {approval_notes}" if req.notes else f"[Approval Note]: {approval_notes}"
+                req.save(update_fields=['status', 'approved_by', 'notes'])
+
+                return Response({
+                    'success': True,
+                    'message': f"Requisition #{req.requisition_number} approved and dispatched to {req.requesting_store.name}!",
+                    'transfer_number': transfer.transfer_number
+                }, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f"Failed to fulfill requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only Stock Movement audit trail ledger.
+    """
+    queryset = StockMovement.objects.all().select_related('store', 'product', 'performed_by').order_by('-created_date')
+    serializer_class = StockMovementSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        store_id = self.request.query_params.get('store', None)
+        if store_id:
+            qs = qs.filter(store_id=store_id)
+        product_id = self.request.query_params.get('product', None)
+        if product_id:
+            qs = qs.filter(product_id=product_id)
+        movement_type = self.request.query_params.get('type', None)
+        if movement_type:
+            qs = qs.filter(movement_type=movement_type)
+        return qs
+
+
+class PharmacyVendorViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for Pharmaceutical Vendors, Manufacturers & Suppliers.
+    """
+    queryset = PharmacyVendor.objects.all().order_by('name')
+    serializer_class = PharmacyVendorSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Seed default vendors if table is empty
+        if not qs.exists():
+            default_vendors = [
+                {'name': 'Chi Pharmaceuticals Ltd', 'code': 'VND-CHI', 'contact_person': 'Alhaji Sanusi Chi', 'phone': '+234 803 111 2233', 'email': 'orders@chipharm.com', 'address': '14 Wharf Road, Apapa, Lagos', 'product_lines': 'Antibiotics, IV Infusions, Ceftriaxone', 'rating': '5.0', 'status': 'Active'},
+                {'name': 'May & Baker Nigeria Plc', 'code': 'VND-MNB', 'contact_person': 'Mrs. Funke Adeyemi', 'phone': '+234 802 333 4455', 'email': 'sales@may-baker.com', 'address': '3/5 Sapara Street, Ikeja, Lagos', 'product_lines': 'Analgesics, Paracetamol, Anti-Malarials', 'rating': '4.8', 'status': 'Active'},
+                {'name': 'Fidson Healthcare Plc', 'code': 'VND-FID', 'contact_person': 'Dr. Emeka Okafor', 'phone': '+234 809 777 8899', 'email': 'supply@fidson.com', 'address': 'Km 38 Lagos-Abeokuta Expressway, Sango-Ota', 'product_lines': 'Gastrointestinal, Antacids, Cough Syrups', 'rating': '4.9', 'status': 'Active'},
+                {'name': 'Emzor Pharmaceutical Industries', 'code': 'VND-EMZ', 'contact_person': 'Mr. Chidi Okon', 'phone': '+234 802 000 1122', 'email': 'orders@emzorpharma.com', 'address': 'Ajao Estate, Isolo, Lagos', 'product_lines': 'Multivitamins, Pediatric Syrups, Pain Relief', 'rating': '4.9', 'status': 'Active'},
+            ]
+            for v_data in default_vendors:
+                PharmacyVendor.objects.create(**v_data)
+            qs = PharmacyVendor.objects.all().order_by('name')
+
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(code__icontains=search) |
+                Q(product_lines__icontains=search) |
+                Q(contact_person__icontains=search)
+            )
+        status_param = self.request.query_params.get('status', None)
+        if status_param and status_param.lower() != 'all':
+            qs = qs.filter(status__iexact=status_param)
+        return qs
+
 

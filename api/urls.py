@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import task_manager_views as tm_views
 from . import tariff_views
 from . import rbac_views
+from . import lab_views
 from .views import (
     LoginView,
     CurrentUserView,
@@ -31,11 +32,19 @@ from .views import (
     ANCRegistrationViewSet,
     PharmacyDrugViewSet,
     RadioLabViewSet,
+    LabResultViewSet,
+    ScanResultViewSet,
     InventoryProductViewSet,
     InventoryTransactionViewSet,
     InventoryProductRequestViewSet,
     WrittenPrescriptionViewSet,
     FamilyFolderViewSet,
+    PharmacyStoreViewSet,
+    StoreStockViewSet,
+    StockTransferViewSet,
+    StockRequisitionViewSet,
+    StockMovementViewSet,
+    PharmacyVendorViewSet,
     UserProfileView,
     UserAvatarUploadView,
     ChangePasswordView,
@@ -75,9 +84,20 @@ router.register(r'anc', ANCRegistrationViewSet, basename='anc-registration')
 # Pharmacy & Prescriptions
 router.register(r'pharmacy/drugs', PharmacyDrugViewSet, basename='pharmacy-drug')
 router.register(r'prescriptions', WrittenPrescriptionViewSet, basename='prescription')
+router.register(r'pharmacy/stores', PharmacyStoreViewSet, basename='pharmacy-store')
+router.register(r'pharmacy/store-stocks', StoreStockViewSet, basename='pharmacy-store-stock')
+router.register(r'pharmacy/transfers', StockTransferViewSet, basename='pharmacy-stock-transfer')
+router.register(r'pharmacy/requisitions', StockRequisitionViewSet, basename='pharmacy-stock-requisition')
+router.register(r'pharmacy/movements', StockMovementViewSet, basename='pharmacy-stock-movement')
+router.register(r'pharmacy/vendors', PharmacyVendorViewSet, basename='pharmacy-vendor')
 
 # Radio & Lab
 router.register(r'radio-lab', RadioLabViewSet, basename='radio-lab')
+router.register(r'lab-parameters', lab_views.LabParameterViewSet, basename='lab-parameter')
+router.register(r'lab-investigations', lab_views.LabInvestigationViewSet, basename='lab-investigation')
+router.register(r'lab-order-results', lab_views.LabOrderResultItemViewSet, basename='lab-order-result')
+router.register(r'lab-results', LabResultViewSet, basename='lab-result')
+router.register(r'scan-results', ScanResultViewSet, basename='scan-result')
 
 # Inventory
 router.register(r'inventory/products', InventoryProductViewSet, basename='inventory-product')
@@ -150,6 +170,10 @@ urlpatterns = [
     path('rbac/assign-user-role/', rbac_views.UserRoleAssignmentView.as_view(), name='api-rbac-assign-user-role'),
     path('rbac/user-permissions/', rbac_views.UserPermissionsView.as_view(), name='api-rbac-user-permissions'),
     path('rbac/seed/', rbac_views.SeedRbacView.as_view(), name='api-rbac-seed'),
+
+    # Lab Investigations & Parameters
+    path('lab-tests/search/', lab_views.LabTestSearchView.as_view(), name='api-lab-test-search'),
+    path('lab-orders/<int:order_id>/template/', lab_views.LabOrderTemplateView.as_view(), name='api-lab-order-template'),
 
     # Routers
     path('', include(router.urls)),

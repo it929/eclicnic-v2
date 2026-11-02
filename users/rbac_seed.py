@@ -144,11 +144,12 @@ DEFAULT_MODULES = [
         'order': 9,
         'description': 'Hospital stock catalog, vendor management, internal pharmacy transfers & store requisitions',
         'submodules': [
-            {'code': 'invCatalog', 'name': 'Stock & Products Catalog', 'icon': 'fa-box-open', 'tab_key': 'inventory', 'sub_tab': 'view', 'route': '/inventory/catalog', 'order': 1},
-            {'code': 'invTransfers', 'name': 'Internal Stock Transfers', 'icon': 'fa-exchange-alt', 'tab_key': 'inventory', 'sub_tab': 'transfer', 'route': '/inventory/transfers', 'order': 2},
-            {'code': 'invRequests', 'name': 'Store Product Requisitions', 'icon': 'fa-dolly', 'tab_key': 'inventory', 'sub_tab': 'request', 'route': '/inventory/requests', 'order': 3},
-            {'code': 'invVendors', 'name': 'Vendors & Suppliers', 'icon': 'fa-truck', 'tab_key': 'inventory', 'sub_tab': 'vendor', 'route': '/inventory/vendors', 'order': 4},
-            {'code': 'invLog', 'name': 'Inventory Audit Logs', 'icon': 'fa-clipboard-check', 'tab_key': 'inventory', 'sub_tab': 'log', 'route': '/inventory/logs', 'order': 5},
+            {'code': 'invPharmacy', 'name': 'Pharmacy Dispensing (OPD)', 'icon': 'fa-prescription-bottle-alt', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd', 'order': 1},
+            {'code': 'invCatalog', 'name': 'Stock & Products Catalog', 'icon': 'fa-box-open', 'tab_key': 'inventory', 'sub_tab': 'view', 'route': '/inventory/catalog', 'order': 2},
+            {'code': 'invTransfers', 'name': 'Internal Stock Transfers', 'icon': 'fa-exchange-alt', 'tab_key': 'inventory', 'sub_tab': 'transfer', 'route': '/inventory/transfers', 'order': 3},
+            {'code': 'invRequests', 'name': 'Store Product Requisitions', 'icon': 'fa-dolly', 'tab_key': 'inventory', 'sub_tab': 'request', 'route': '/inventory/requests', 'order': 4},
+            {'code': 'invVendors', 'name': 'Vendors & Suppliers', 'icon': 'fa-truck', 'tab_key': 'inventory', 'sub_tab': 'vendor', 'route': '/inventory/vendors', 'order': 5},
+            {'code': 'invLog', 'name': 'Inventory Audit Logs', 'icon': 'fa-clipboard-check', 'tab_key': 'inventory', 'sub_tab': 'log', 'route': '/inventory/logs', 'order': 6},
         ]
     },
     {
@@ -174,9 +175,10 @@ DEFAULT_MODULES = [
         'order': 11,
         'description': 'Outpatient prescription dispensing, drug price catalog & cashier medication clearance',
         'submodules': [
-            {'code': 'opdPresc', 'name': 'Outpatient Prescriptions', 'icon': 'fa-capsules', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd/prescriptions', 'order': 1},
-            {'code': 'opdDispense', 'name': 'Medication Dispensing Queue', 'icon': 'fa-tablets', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd/dispense', 'order': 2},
-            {'code': 'opdCatalog', 'name': 'Drug Price Catalog', 'icon': 'fa-list-ol', 'tab_key': 'pharmacy', 'route': '/pharmacy/catalog', 'order': 3},
+            {'code': 'opdLanding', 'name': 'Pharmacy Dispensing (OPD)', 'icon': 'fa-prescription-bottle-alt', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd', 'order': 1},
+            {'code': 'opdPresc', 'name': 'Outpatient Prescriptions', 'icon': 'fa-capsules', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd/prescriptions', 'order': 2},
+            {'code': 'opdDispense', 'name': 'Medication Dispensing Queue', 'icon': 'fa-tablets', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd/dispense', 'order': 3},
+            {'code': 'opdCatalog', 'name': 'Drug Price Catalog', 'icon': 'fa-list-ol', 'tab_key': 'pharmacy', 'route': '/pharmacy/catalog', 'order': 4},
         ]
     },
     {

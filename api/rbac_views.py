@@ -14,6 +14,20 @@ class RoleListView(APIView):
         roles = Role.objects.all().order_by('name')
         data = []
         for r in roles:
+            # By default, Admin & CMD must always have all modules and submodules
+            if r.name.lower() in ['admin', 'cmd']:
+                if not r.is_system:
+                    r.is_system = True
+                    r.save()
+                admin_perms = RolePermission.objects.filter(role=r)
+                if admin_perms.count() < 18:
+                    for mod in SystemModule.objects.all():
+                        p, _ = RolePermission.objects.get_or_create(role=r, module=mod)
+                        all_subs = mod.submodules.all()
+                        if all_subs.exists():
+                            p.submodules.set(all_subs)
+                        p.save()
+
             user_count = User.objects.filter(role=r).count()
             if user_count == 0 and r.category:
                 user_count = User.objects.filter(department=r.category).count()
