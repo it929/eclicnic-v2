@@ -835,6 +835,37 @@ class RadiologyLabSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source='staff.fullname', read_only=True)
     lab_results = LabResultSerializer(many=True, read_only=True)
     scan_results = ScanResultSerializer(many=True, read_only=True)
+    total_parameters = serializers.SerializerMethodField(read_only=True)
+    recorded_parameters = serializers.SerializerMethodField(read_only=True)
+    is_partial = serializers.SerializerMethodField(read_only=True)
+    last_entered_by = serializers.SerializerMethodField(read_only=True)
+
+    def get_total_parameters(self, obj):
+        results = getattr(obj, '_prefetched_results', None)
+        if results is None:
+            results = list(obj.parameter_results.all())
+            obj._prefetched_results = results
+        return len(results)
+
+    def get_recorded_parameters(self, obj):
+        results = getattr(obj, '_prefetched_results', None)
+        if results is None:
+            results = list(obj.parameter_results.all())
+            obj._prefetched_results = results
+        return len([p for p in results if p.result_value and str(p.result_value).strip()])
+
+    def get_is_partial(self, obj):
+        if getattr(obj, 'completed', 0) == 1:
+            return False
+        return self.get_recorded_parameters(obj) > 0
+
+    def get_last_entered_by(self, obj):
+        results = getattr(obj, '_prefetched_results', None)
+        if results is None:
+            results = list(obj.parameter_results.all())
+            obj._prefetched_results = results
+        with_names = [p for p in results if p.entered_by_name]
+        return with_names[-1].entered_by_name if with_names else ''
 
     class Meta:
         model = RadiologyLab

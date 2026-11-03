@@ -3127,7 +3127,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             unbilled_patient_ids.update(rx_pids)
 
             lab_pids = RadiologyLab.objects.filter(
-                completed=0, created_date__date=target_date
+                billing_waiting_status=1, created_date__date=target_date
             ).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(lab_pids)
 
@@ -3165,7 +3165,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             rx_pids = WrittenPrescriptions.objects.filter(status='pending').values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(rx_pids)
 
-            lab_pids = RadiologyLab.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
+            lab_pids = RadiologyLab.objects.filter(billing_waiting_status=1).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(lab_pids)
 
             srv_pids = OtherService.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
@@ -3428,7 +3428,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             enc_consultation_text = (latest_enc.comments_on_diagnosis or '') if latest_enc else ''
             enc_consult_lower = enc_consultation_text.lower()
 
+            already_invoiced_rx_ids = set(
+                Invoice.objects.filter(
+                    patient=pat,
+                    original_source_model='WrittenPrescriptions'
+                ).exclude(original_source_id__isnull=True).values_list('original_source_id', flat=True)
+            )
+
             for rx in rx_items:
+                if rx.id in already_invoiced_rx_ids or rx.status == 'billed':
+                    continue
                 t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
                 rate = float(t.rate) if (t and t.rate) else 0.0
                 qty = rx.dispense_quantity or rx.quantity or 1
@@ -3505,12 +3514,25 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             # -------------------------------------------------------------
             # D. Investigations (Laboratory Tests & Radiology Scans)
             # -------------------------------------------------------------
+            already_invoiced_rl_ids = set(
+                Invoice.objects.filter(
+                    patient=pat,
+                    original_source_model='RadiologyLab'
+                ).exclude(original_source_id__isnull=True).values_list('original_source_id', flat=True)
+            )
+
             if target_date:
-                rad_lab_items = RadiologyLab.objects.filter(patient=pat, completed=0, created_date__date=target_date).order_by('created_date')
+                rad_lab_items = RadiologyLab.objects.filter(patient=pat, created_date__date=target_date).order_by('created_date')
             else:
-                rad_lab_items = RadiologyLab.objects.filter(patient=pat, completed=0).order_by('created_date')
+                rad_lab_items = RadiologyLab.objects.filter(patient=pat).order_by('created_date')
 
             for rl in rad_lab_items:
+                # Skip if already billed / invoiced or already cleared from cashier
+                if rl.id in already_invoiced_rl_ids or rl.billing_waiting_status == 0:
+                    continue
+                if Invoice.objects.filter(patient=pat, created_date__date=rl.created_date.date(), product__icontains=rl.item[:30]).exists():
+                    continue
+
                 rate = float(rl.rate or 0)
                 is_lab = (rl.item_type == 'L')
                 label_prefix = "Lab: " if is_lab else "Scan: "
@@ -3568,7 +3590,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             else:
                 other_services = OtherService.objects.filter(patient=pat, completed=0).order_by('created_date')
 
+            already_invoiced_os_ids = set(
+                Invoice.objects.filter(
+                    patient=pat,
+                    original_source_model='OtherService'
+                ).exclude(original_source_id__isnull=True).values_list('original_source_id', flat=True)
+            )
+
             for os in other_services:
+                if os.id in already_invoiced_os_ids or os.completed == 1:
+                    continue
                 rate = float(os.price or 0)
                 os_cmt = (os.comment or '').lower()
                 os_purpose = (os.purpose or '').lower()

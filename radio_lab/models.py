@@ -306,6 +306,11 @@ class LabOrderResultItem(models.Model):
     reference_range_display = models.CharField(max_length=200, blank=True)
     flag = models.CharField(max_length=20, blank=True, choices=FLAG_CHOICES)
     display_order = models.PositiveIntegerField(default=0)
+    entered_by = models.ForeignKey(
+        'users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='entered_lab_parameters'
+    )
+    entered_by_name = models.CharField(max_length=200, blank=True, default='')
+    entered_at = models.DateTimeField(null=True, blank=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -313,3 +318,43 @@ class LabOrderResultItem(models.Model):
 
     def __str__(self):
         return f'{self.order} – {self.parameter_name}: {self.result_value}'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RADIOLOGY & SCAN MASTER CATALOG SYSTEM
+# ─────────────────────────────────────────────────────────────────────────────
+
+class RadiologyProcedure(models.Model):
+    """
+    Master catalog of Radiology & Diagnostic Imaging scans
+    (e.g. Ultrasound, X-Ray, CT Scan, MRI, Echocardiography, Mammography, ECG).
+    Acts as the single source of truth for imaging procedures, base pricing, and tariff generation.
+    """
+    CATEGORY_CHOICES = [
+        ('Ultrasound', 'Ultrasound / Sonography'),
+        ('X-Ray', 'X-Ray / Plain Radiography'),
+        ('CT Scan', 'Computed Tomography (CT Scan)'),
+        ('MRI', 'Magnetic Resonance Imaging (MRI)'),
+        ('Echocardiography', 'Echocardiography (ECHO)'),
+        ('ECG', 'Electrocardiogram (ECG / EKG)'),
+        ('Mammography', 'Mammography'),
+        ('Special Procedures', 'Special Fluoroscopy / Contrast Studies'),
+        ('General Imaging', 'General Imaging Procedure'),
+    ]
+
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=200)
+    category = models.CharField(max_length=100, choices=CATEGORY_CHOICES, default='Ultrasound')
+    body_part = models.CharField(max_length=100, blank=True)
+    base_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    preparation_instructions = models.TextField(blank=True)
+    estimated_duration_minutes = models.PositiveIntegerField(default=15)
+    is_active = models.BooleanField(default=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+
+    def __str__(self):
+        return f'{self.name} ({self.code})'
