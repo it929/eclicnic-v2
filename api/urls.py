@@ -95,6 +95,7 @@ router.register(r'pharmacy/vendors', PharmacyVendorViewSet, basename='pharmacy-v
 router.register(r'radio-lab', RadioLabViewSet, basename='radio-lab')
 router.register(r'lab-parameters', lab_views.LabParameterViewSet, basename='lab-parameter')
 router.register(r'lab-investigations', lab_views.LabInvestigationViewSet, basename='lab-investigation')
+router.register(r'radiology-procedures', lab_views.RadiologyProcedureViewSet, basename='radiology-procedure')
 router.register(r'lab-order-results', lab_views.LabOrderResultItemViewSet, basename='lab-order-result')
 router.register(r'lab-results', LabResultViewSet, basename='lab-result')
 router.register(r'scan-results', ScanResultViewSet, basename='scan-result')

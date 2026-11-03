@@ -7,7 +7,7 @@ from django.db.models import Q
 from queue_operations.models import RegFee
 from patients.models import PatientPlan, Sponsor, PatientProfile
 from IPD.models import Ward
-from radio_lab.models import RadioLabInventory, LabInvestigation, LabParameter, LabInvestigationParameter
+from radio_lab.models import RadioLabInventory, RadiologyProcedure, LabInvestigation, LabParameter, LabInvestigationParameter
 from inventory.models import PharmacyTariff
 from myAdmins.models import OtherService2, Packages, PackagesData
 from users.models import User
@@ -1109,16 +1109,25 @@ class RadiologyChargesView(APIView):
 
 # 1.3.1 Download Radiology Tariff Template
 class DownloadRadiologyTariffTemplateView(APIView):
+    """
+    Downloads a comprehensive CSV tariff template containing ALL active Radiology & Scan
+    procedures currently registered in our database.
+    If a specific sponsor and plan are requested, existing rates are prefilled; otherwise base prices apply.
+    """
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
         from django.http import HttpResponse
         import io, csv
+        from radio_lab.models import RadiologyProcedure, RadioLabInventory
 
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
 
         is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+
+        resolved_sponsor = None
+        resolved_plan = None
 
         if is_general:
             sponsor_code = "GENERAL"
@@ -1133,20 +1142,21 @@ class DownloadRadiologyTariffTemplateView(APIView):
 
             if sponsor_id and str(sponsor_id).lower() not in ('all', 'none'):
                 try:
-                    s = Sponsor.objects.get(id=sponsor_id)
-                    sponsor_code = s.code or s.name
-                    sponsor_name = s.name
+                    resolved_sponsor = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = resolved_sponsor.code or resolved_sponsor.name
+                    sponsor_name = resolved_sponsor.name
                 except Sponsor.DoesNotExist:
                     pass
 
             if plan_id and str(plan_id).lower() not in ('all', 'none'):
                 try:
-                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                    plan_code = p.code or p.plan
-                    plan_name = p.plan
-                    if p.sponsor:
-                        sponsor_code = p.sponsor.code or p.sponsor.name
-                        sponsor_name = p.sponsor.name
+                    resolved_plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = resolved_plan.code or resolved_plan.plan
+                    plan_name = resolved_plan.plan
+                    if resolved_plan.sponsor and not resolved_sponsor:
+                        resolved_sponsor = resolved_plan.sponsor
+                        sponsor_code = resolved_sponsor.code or resolved_sponsor.name
+                        sponsor_name = resolved_sponsor.name
                 except PatientPlan.DoesNotExist:
                     pass
 
@@ -1156,20 +1166,50 @@ class DownloadRadiologyTariffTemplateView(APIView):
 
         notes_text = "General Tariff - Pay from your purse" if is_general else f"Covered under {plan_name}"
 
-        samples = [
-            ['Chest X-Ray (PA View)', 'RAD-001', '5000.00', sponsor_code, plan_code, notes_text],
-            ['Abdominal Ultrasound Scan', 'RAD-002', '6000.00', sponsor_code, plan_code, notes_text],
-            ['Pelvic Ultrasound Scan', 'RAD-003', '5500.00', sponsor_code, plan_code, notes_text],
-            ['Obstetric Ultrasound (Pregnancy Scan)', 'RAD-004', '4500.00', sponsor_code, plan_code, notes_text],
-            ['Lumbosacral Spine X-Ray (AP & Lateral)', 'RAD-005', '7500.00', sponsor_code, plan_code, notes_text],
-            ['Brain CT Scan (Non-Contrast)', 'RAD-006', '35000.00', sponsor_code, plan_code, notes_text],
-            ['Echocardiography (ECHO)', 'RAD-007', '20000.00', sponsor_code, plan_code, notes_text],
-            ['Electrocardiogram (ECG / EKG)', 'RAD-008', '4000.00', sponsor_code, plan_code, notes_text],
-            ['Mammography (Bilateral)', 'RAD-009', '15000.00', sponsor_code, plan_code, notes_text],
-            ['Knee Joint X-Ray (AP & Lateral)', 'RAD-010', '6000.00', sponsor_code, plan_code, notes_text],
-        ]
-        for row in samples:
-            writer.writerow(row)
+        # Fetch existing tariffs for this sponsor/plan to pre-populate current prices if already configured
+        existing_tariffs = {}
+        if is_general:
+            for t in RadioLabInventory.objects.filter(type='R', sponsor__isnull=True, plan__isnull=True):
+                existing_tariffs[t.item.strip().lower()] = float(t.rate)
+                if t.item_id:
+                    existing_tariffs[t.item_id.strip().upper()] = float(t.rate)
+        elif resolved_sponsor or resolved_plan:
+            qs_t = RadioLabInventory.objects.filter(type='R')
+            if resolved_plan:
+                qs_t = qs_t.filter(plan=resolved_plan)
+            elif resolved_sponsor:
+                qs_t = qs_t.filter(Q(sponsor=resolved_sponsor) | Q(plan__sponsor=resolved_sponsor))
+            for t in qs_t:
+                existing_tariffs[t.item.strip().lower()] = float(t.rate)
+                if t.item_id:
+                    existing_tariffs[t.item_id.strip().upper()] = float(t.rate)
+
+        # Retrieve ALL radiology scan procedures in database
+        procedures = list(RadiologyProcedure.objects.filter(is_active=True).order_by('category', 'code', 'name'))
+
+        # Fallback to distinct RadioLabInventory items if catalog table has no records
+        if not procedures:
+            distinct_inv = list(RadioLabInventory.objects.filter(type='R').values('item', 'item_id').distinct())
+            for idx, inv in enumerate(distinct_inv, 1):
+                p_code = inv.get('item_id') or f"RAD-{idx:03d}"
+                p_name = (inv.get('item') or '').strip()
+                if not p_name:
+                    continue
+                r_val = existing_tariffs.get(p_code.upper())
+                if r_val is None:
+                    r_val = existing_tariffs.get(p_name.lower(), 5000.0)
+                writer.writerow([p_name, p_code, f"{r_val:.2f}", sponsor_code, plan_code, notes_text])
+        else:
+            for proc in procedures:
+                # Pre-populate existing rate for sponsor/plan, else use procedure base price
+                r_val = existing_tariffs.get(proc.code.strip().upper())
+                if r_val is None:
+                    r_val = existing_tariffs.get(proc.name.strip().lower())
+                if r_val is None:
+                    r_val = float(proc.base_price or 0.0)
+
+                cat_note = f"[{proc.category}] {notes_text}"
+                writer.writerow([proc.name, proc.code, f"{r_val:.2f}", sponsor_code, plan_code, cat_note])
 
         csv_content = output.getvalue()
         response = HttpResponse(csv_content, content_type='text/csv; charset=utf-8')
@@ -1424,6 +1464,16 @@ class BulkUploadRadiologyTariffView(APIView):
                         plan=target_plan,
                         staff=staff
                     )
+                    # Also ensure scan procedure exists in master database catalog
+                    from radio_lab.models import RadiologyProcedure
+                    if not RadiologyProcedure.objects.filter(Q(code__iexact=proc_code) | Q(name__iexact=item_name)).exists():
+                        RadiologyProcedure.objects.create(
+                            code=proc_code,
+                            name=item_name,
+                            base_price=rate_val,
+                            is_active=True
+                        )
+
                     created_count += 1
 
         msg = f"Bulk upload completed: {created_count} radiology tariffs created, {updated_count} updated."
@@ -2043,7 +2093,7 @@ class LoadGeneralRadiologyPricesView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        from radio_lab.models import RadioLabInventory, LabInvestigation, LabParameter
+        from radio_lab.models import RadioLabInventory, RadiologyProcedure, LabInvestigation, LabParameter
         from django.db.models import Max
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
@@ -2100,6 +2150,27 @@ class LoadGeneralRadiologyPricesView(APIView):
                 created_count += 1
             else:
                 updated_count += 1
+
+        
+        # Ensure all registered RadiologyProcedure records have baseline general prices
+        for proc in RadiologyProcedure.objects.filter(is_active=True):
+            gen = RadioLabInventory.objects.filter(
+                type='R',
+                sponsor__isnull=True,
+                plan__isnull=True
+            ).filter(Q(item_id=proc.code) | Q(item__iexact=proc.name)).first()
+
+            if not gen:
+                RadioLabInventory.objects.create(
+                    item=proc.name,
+                    item_id=proc.code,
+                    rate=proc.base_price or Decimal('5000.00'),
+                    type='R',
+                    sponsor=None,
+                    plan=None,
+                    staff=staff
+                )
+                created_count += 1
 
         total_general = RadioLabInventory.objects.filter(type='R', sponsor__isnull=True, plan__isnull=True).count()
         return Response({
