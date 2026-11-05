@@ -9,7 +9,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 
-from users.models import User, Category
+from users.models import User, Category, SystemModule
 from patients.models import (
     PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor,
     FamilyFolder, FamilyMember, format_family_number

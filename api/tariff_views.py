@@ -2857,6 +2857,110 @@ class BulkUploadMedicationTariffView(APIView):
 # ==========================================================
 
 # 3.1 Packages
+class PackageServiceCatalogView(APIView):
+    """
+    Returns available database services across all hospital departments 
+    (Laboratory, Radiology, Clinical Procedures, Wards, Pharmacy) with their standard baseline rates
+    for bundling into care packages.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # 1. Laboratory tests
+        lab_items = list(RadioLabInventory.objects.filter(type='L', sponsor__isnull=True, plan__isnull=True).values('id', 'item', 'item_id', 'rate').order_by('item'))
+        labs = []
+        seen_lab = set()
+        for l in lab_items:
+            name = (l['item'] or '').strip()
+            if name and name.lower() not in seen_lab:
+                seen_lab.add(name.lower())
+                labs.append({
+                    'id': l['id'],
+                    'name': name,
+                    'code': l['item_id'] or '',
+                    'rate': float(l['rate'] or 0),
+                    'type': 'LB',
+                    'category': 'Laboratory Test',
+                })
+
+        # 2. Radiology scans
+        rad_items = list(RadioLabInventory.objects.filter(type='R', sponsor__isnull=True, plan__isnull=True).values('id', 'item', 'item_id', 'rate').order_by('item'))
+        rads = []
+        seen_rad = set()
+        for r in rad_items:
+            name = (r['item'] or '').strip()
+            if name and name.lower() not in seen_rad:
+                seen_rad.add(name.lower())
+                rads.append({
+                    'id': r['id'],
+                    'name': name,
+                    'code': r['item_id'] or '',
+                    'rate': float(r['rate'] or 0),
+                    'type': 'RD',
+                    'category': 'Radiology & Imaging',
+                })
+
+        # 3. Clinical services & procedures
+        srv_items = list(OtherService2.objects.filter(plan__isnull=True).values('id', 'service', 'service_id', 'rate').order_by('service'))
+        srvs = []
+        seen_srv = set()
+        for s in srv_items:
+            name = (s['service'] or '').strip()
+            if name and name.lower() not in seen_srv:
+                seen_srv.add(name.lower())
+                srvs.append({
+                    'id': s['id'],
+                    'name': name,
+                    'code': s['service_id'] or '',
+                    'rate': float(s['rate'] or 0),
+                    'type': 'SR',
+                    'category': 'Clinical Procedure / Service',
+                })
+
+        # 4. Wards & Admissions
+        ward_items = list(Ward.objects.values('id', 'ward_name', 'price').order_by('ward_name'))
+        wards = []
+        for w in ward_items:
+            name = (w['ward_name'] or '').strip()
+            if name:
+                wards.append({
+                    'id': w['id'],
+                    'name': f"{name} (Daily Bed Rate)",
+                    'code': f"WARD-{w['id']}",
+                    'rate': float(w['price'] or 0),
+                    'type': 'WD',
+                    'category': 'Ward Accommodation',
+                })
+
+        # 5. Pharmacy medications & consumables
+        pharm_items = list(PharmacyTariff.objects.filter(sponsor__isnull=True, plan__isnull=True).values('id', 'product_name', 'product_id', 'rate').order_by('product_name')[:100])
+        pharm = []
+        seen_pharm = set()
+        for p in pharm_items:
+            name = (p['product_name'] or '').strip()
+            if name and name.lower() not in seen_pharm:
+                seen_pharm.add(name.lower())
+                pharm.append({
+                    'id': p['id'],
+                    'name': name,
+                    'code': p['product_id'] or '',
+                    'rate': float(p['rate'] or 0),
+                    'type': 'PH',
+                    'category': 'Pharmacy & Medication',
+                })
+
+        return Response({
+            'total_services': len(labs) + len(rads) + len(srvs) + len(wards) + len(pharm),
+            'categories': {
+                'lab_tests': labs,
+                'radiology_scans': rads,
+                'clinical_services': srvs,
+                'wards': wards,
+                'pharmacy': pharm,
+            }
+        })
+
+
 class PackagesView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -2864,26 +2968,83 @@ class PackagesView(APIView):
         packages = Packages.objects.all().select_related('staff').order_by('-created_date')
         data = []
         for p in packages:
+            items_qs = list(PackagesData.objects.filter(package=p).order_by('id'))
+            items_list = [{
+                'id': it.id,
+                'item': it.item,
+                'type': it.type,
+                'rate': float(it.rate),
+            } for it in items_qs]
+            total_rate = sum([it['rate'] for it in items_list])
+            
+            # Count by type
+            type_counts = {}
+            for it in items_list:
+                t = it['type']
+                type_counts[t] = type_counts.get(t, 0) + 1
+
             data.append({
                 'id': p.id,
                 'name': p.name,
                 'staff_name': p.staff.fullname if p.staff else 'Admin',
                 'created_date': p.created_date.isoformat() if p.created_date else None,
-                'items_count': PackagesData.objects.filter(package=p).count()
+                'items_count': len(items_list),
+                'total_rate': total_rate,
+                'type_counts': type_counts,
+                'items': items_list
             })
         return Response({'total': len(data), 'packages': data})
 
     def post(self, request):
         name = request.data.get('name', '').strip()
         if not name:
-            return Response({'detail': 'Package name required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Package name is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if Packages.objects.filter(name__iexact=name).exists():
+        existing = Packages.objects.filter(name__iexact=name).first()
+        if existing and not request.data.get('overwrite'):
             return Response({'detail': f'Package "{name}" already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        staff = request.user if request.user.is_authenticated else User.objects.first()
-        pkg = Packages.objects.create(name=name, staff=staff)
-        return Response({'detail': f'Package "{pkg.name}" created.', 'id': pkg.id, 'name': pkg.name})
+        staff = request.user if getattr(request, 'user', None) and request.user.is_authenticated else User.objects.first()
+        pkg = existing or Packages.objects.create(name=name, staff=staff)
+        if existing:
+            pkg.staff = staff
+            pkg.save()
+
+        items = request.data.get('items', [])
+        saved_items = []
+        if isinstance(items, list):
+            if request.data.get('replace_items', True) and existing:
+                PackagesData.objects.filter(package=pkg).delete()
+            for it in items:
+                it_name = it.get('item') or it.get('name')
+                if not it_name or not str(it_name).strip():
+                    continue
+                it_type = it.get('type') or 'SR'
+                try:
+                    it_rate = Decimal(str(it.get('rate') or 0))
+                except Exception:
+                    it_rate = Decimal('0.00')
+                created_item = PackagesData.objects.create(
+                    package=pkg,
+                    item=str(it_name).strip(),
+                    type=str(it_type).strip()[:10],
+                    rate=it_rate,
+                    staff=staff
+                )
+                saved_items.append({
+                    'id': created_item.id,
+                    'item': created_item.item,
+                    'type': created_item.type,
+                    'rate': float(created_item.rate),
+                })
+
+        return Response({
+            'detail': f'Package "{pkg.name}" {"updated" if existing else "created"} successfully with {len(saved_items)} bundled service(s).',
+            'id': pkg.id,
+            'name': pkg.name,
+            'items_count': len(saved_items),
+            'items': saved_items,
+        }, status=status.HTTP_201_CREATED if not existing else status.HTTP_200_OK)
 
     def put(self, request, pk=None):
         try:
@@ -2892,12 +3053,45 @@ class PackagesView(APIView):
             return Response({'detail': 'Package not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         name = request.data.get('name', '').strip()
-        if not name:
-            return Response({'detail': 'Package name required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if name:
+            pkg.name = name
+            pkg.save()
 
-        pkg.name = name
-        pkg.save()
-        return Response({'detail': 'Package updated.', 'id': pkg.id, 'name': pkg.name})
+        items = request.data.get('items')
+        saved_items = []
+        if items is not None and isinstance(items, list):
+            staff = request.user if getattr(request, 'user', None) and request.user.is_authenticated else User.objects.first()
+            PackagesData.objects.filter(package=pkg).delete()
+            for it in items:
+                it_name = it.get('item') or it.get('name')
+                if not it_name or not str(it_name).strip():
+                    continue
+                it_type = it.get('type') or 'SR'
+                try:
+                    it_rate = Decimal(str(it.get('rate') or 0))
+                except Exception:
+                    it_rate = Decimal('0.00')
+                created_item = PackagesData.objects.create(
+                    package=pkg,
+                    item=str(it_name).strip(),
+                    type=str(it_type).strip()[:10],
+                    rate=it_rate,
+                    staff=staff
+                )
+                saved_items.append({
+                    'id': created_item.id,
+                    'item': created_item.item,
+                    'type': created_item.type,
+                    'rate': float(created_item.rate),
+                })
+
+        return Response({
+            'detail': f'Package "{pkg.name}" updated successfully.',
+            'id': pkg.id,
+            'name': pkg.name,
+            'items_count': len(saved_items) if items is not None else PackagesData.objects.filter(package=pkg).count(),
+            'items': saved_items,
+        })
 
     def delete(self, request, pk=None):
         Packages.objects.filter(id=pk).delete()
