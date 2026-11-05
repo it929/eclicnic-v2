@@ -1938,121 +1938,59 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='bulk-import')
     def bulk_import(self, request):
-        """
-        Bulk import clinical diagnoses via uploaded file (.xlsx, .xls, .csv)
-        or via raw JSON payload: {"items": [{"description": "...", "category": "...", "icd10_code": "..."}]}
-        """
-        records_to_process = []
         uploaded_file = request.FILES.get('file')
-
-        if uploaded_file:
-            filename = uploaded_file.name.lower()
-            try:
-                if filename.endswith('.csv'):
-                    import io, csv
-                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
-                    reader = csv.DictReader(io.StringIO(decoded_file))
-                    for row in reader:
-                        clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
-                        description = (
-                            clean_row.get('description')
-                            or clean_row.get('name')
-                            or clean_row.get('diagnosis')
-                            or clean_row.get('disease')
-                        )
-                        if description and str(description).strip():
-                            category = clean_row.get('category') or clean_row.get('type') or 'General'
-                            icd10_code = clean_row.get('icd10_code') or clean_row.get('icd_code') or clean_row.get('code') or ''
-                            records_to_process.append({
-                                'description': str(description).strip(),
-                                'category': str(category).strip() or 'General',
-                                'icd10_code': str(icd10_code).strip(),
-                            })
-                elif filename.endswith(('.xlsx', '.xls')):
-                    import pandas as pd
-                    import io
-                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
-                    df.columns = [str(c).strip().lower() for c in df.columns]
-                    for _, row in df.iterrows():
-                        description = (
-                            row.get('description')
-                            or row.get('name')
-                            or row.get('diagnosis')
-                            or row.get('disease')
-                        )
-                        if pd.notna(description) and str(description).strip():
-                            category = row.get('category') if pd.notna(row.get('category')) else 'General'
-                            icd10_code = row.get('icd10_code') if pd.notna(row.get('icd10_code')) else (row.get('code') if pd.notna(row.get('code')) else '')
-                            icd11_code = row.get('icd11_code') if pd.notna(row.get('icd11_code')) else (row.get('icd11') if pd.notna(row.get('icd11')) else '')
-                            records_to_process.append({
-                                'description': str(description).strip(),
-                                'category': str(category).strip() or 'General',
-                                'icd10_code': str(icd10_code).strip(),
-                                'icd11_code': str(icd11_code).strip(),
-                            })
-                else:
-                    return Response(
-                        {'detail': 'Unsupported file format. Please upload an Excel (.xlsx, .xls) or CSV file.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            except Exception as e:
-                return Response(
-                    {'detail': f'Error parsing file: {str(e)}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        elif 'items' in request.data:
-            items = request.data.get('items', [])
-            for it in items:
-                if isinstance(it, dict) and (it.get('description') or it.get('name')):
-                    records_to_process.append({
-                        'description': str(it.get('description') or it.get('name')).strip(),
-                        'category': str(it.get('category') or 'General').strip(),
-                        'icd10_code': str(it.get('icd10_code') or '').strip(),
-                        'icd11_code': str(it.get('icd11_code') or '').strip(),
-                    })
-
-        if not records_to_process:
-            return Response(
-                {'detail': 'No valid diagnosis records found. Ensure column "description" or "diagnosis" exists in the file.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not uploaded_file:
+            return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        filename = uploaded_file.name.lower()
+        records_to_process = []
+        try:
+            if filename.endswith('.csv'):
+                import io, csv
+                decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                reader = csv.DictReader(io.StringIO(decoded_file))
+                for row in reader:
+                    clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
+                    desc = clean_row.get('description') or clean_row.get('name') or clean_row.get('diagnosis')
+                    if desc and str(desc).strip():
+                        records_to_process.append({
+                            'description': str(desc).strip(),
+                            'category': str(clean_row.get('category') or 'General').strip(),
+                            'icd10_code': str(clean_row.get('icd10_code') or clean_row.get('icd10') or '').strip(),
+                            'icd11_code': str(clean_row.get('icd11_code') or clean_row.get('icd11') or '').strip(),
+                        })
+            elif filename.endswith(('.xlsx', '.xls')):
+                import pandas as pd, io
+                df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                df.columns = [str(c).strip().lower() for c in df.columns]
+                for _, row in df.iterrows():
+                    desc = row.get('description') or row.get('name') or row.get('diagnosis')
+                    if pd.notna(desc) and str(desc).strip():
+                        records_to_process.append({
+                            'description': str(desc).strip(),
+                            'category': str(row.get('category') or 'General').strip(),
+                            'icd10_code': str(row.get('icd10_code') if pd.notna(row.get('icd10_code')) else (row.get('icd10') if pd.notna(row.get('icd10')) else '')).strip(),
+                            'icd11_code': str(row.get('icd11_code') if pd.notna(row.get('icd11_code')) else (row.get('icd11') if pd.notna(row.get('icd11')) else '')).strip(),
+                        })
+            else:
+                return Response({'detail': 'Unsupported file format.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'detail': f'Error reading file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
         created_count = 0
-        updated_count = 0
         for item in records_to_process:
-            desc_text = item['description']
-            cat_text = item['category']
-            code_text = item['icd10_code']
-            code11_text = item.get('icd11_code', '')
-
-            existing = PatientDiagnosis.objects.filter(description__iexact=desc_text).first()
-            if existing:
-                existing.category = cat_text or existing.category
-                if code_text:
-                    existing.icd10_code = code_text
-                if code11_text:
-                    existing.icd11_code = code11_text
-                existing.is_active = True
-                existing.save()
-                updated_count += 1
-            else:
-                PatientDiagnosis.objects.create(
-                    description=desc_text,
-                    category=cat_text or 'General',
-                    icd10_code=code_text,
-                    icd11_code=code11_text,
-                    is_active=True
-                )
+            _, created = PatientDiagnosis.objects.get_or_create(
+                description=item['description'],
+                defaults={
+                    'category': item['category'],
+                    'icd10_code': item['icd10_code'],
+                    'icd11_code': item['icd11_code'],
+                    'is_active': True,
+                }
+            )
+            if created:
                 created_count += 1
-
-        total = created_count + updated_count
-        return Response({
-            'success': True,
-            'message': f'Successfully processed {total} diagnoses: {created_count} added, {updated_count} updated.',
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'total_count': total,
-        })
+        return Response({'success': True, 'message': f'Successfully imported {created_count} diagnoses.', 'created_count': created_count})
 
     @action(detail=False, methods=['get'], url_path='download-template')
     def download_template(self, request):
@@ -2250,64 +2188,242 @@ class PresentingComplaintViewSet(viewsets.ModelViewSet):
 
 
 class VisitPurposeViewSet(viewsets.ModelViewSet):
-    queryset = VisitPurpose.objects.all().order_by('purpose')
+    queryset = VisitPurpose.objects.all().select_related('sponsor', 'plan', 'sponsor__category').order_by('purpose', 'sponsor__name', 'plan__plan')
     serializer_class = VisitPurposeSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['purpose']
-    ordering_fields = ['purpose', 'price', 'specialist_id']
+    search_fields = ['purpose', 'sponsor__name', 'sponsor__code', 'plan__plan', 'plan__code']
+    ordering_fields = ['purpose', 'price', 'specialist_id', 'created_date']
+
+    def get_queryset(self):
+        qs = VisitPurpose.objects.all().select_related('sponsor', 'plan', 'sponsor__category').order_by('purpose', 'sponsor__name', 'plan__plan')
+
+        sponsor_id = self.request.query_params.get('sponsor') or self.request.query_params.get('sponsor_id')
+        plan_id = self.request.query_params.get('plan') or self.request.query_params.get('plan_id')
+        patient_id = self.request.query_params.get('patient') or self.request.query_params.get('patient_id')
+        search = self.request.query_params.get('search', '').strip()
+        fee_filter = self.request.query_params.get('fee_filter', '').strip().lower()
+
+        # If patient passed, resolve specific tariffs for that patient's sponsor & plan
+        if patient_id:
+            try:
+                patient = PatientProfile.objects.select_related('sponsor', 'plan').get(id=patient_id)
+                pat_sponsor = patient.sponsor
+                pat_plan = patient.plan
+                if pat_sponsor and pat_plan:
+                    qs = qs.filter(
+                        (Q(sponsor=pat_sponsor) & Q(plan=pat_plan)) |
+                        (Q(sponsor=pat_sponsor) & Q(plan__isnull=True)) |
+                        Q(plan=pat_plan) |
+                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
+                    )
+                elif pat_sponsor:
+                    qs = qs.filter(
+                        Q(sponsor=pat_sponsor) |
+                        (Q(sponsor__isnull=True) & Q(plan__isnull=True))
+                    )
+                else:
+                    qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+            except Exception:
+                pass
+        else:
+            if sponsor_id:
+                if str(sponsor_id).lower() in ('general', 'none', 'null', 'self', 'cash'):
+                    qs = qs.filter(sponsor__isnull=True, plan__isnull=True)
+                elif str(sponsor_id).lower() != 'all':
+                    qs = qs.filter(sponsor_id=sponsor_id)
+
+            if plan_id:
+                if str(plan_id).lower() in ('general', 'none', 'null'):
+                    qs = qs.filter(plan__isnull=True)
+                elif str(plan_id).lower() != 'all':
+                    qs = qs.filter(plan_id=plan_id)
+
+        if fee_filter == 'free':
+            qs = qs.filter(price=0)
+        elif fee_filter == 'paid':
+            qs = qs.filter(price__gt=0)
+
+        if search:
+            qs = qs.filter(
+                Q(purpose__icontains=search) |
+                Q(sponsor__name__icontains=search) |
+                Q(sponsor__code__icontains=search) |
+                Q(plan__plan__icontains=search) |
+                Q(plan__code__icontains=search)
+            )
+
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='load-general-prices')
+    def load_general_prices(self, request):
+        """
+        Replicates all general out-of-pocket clinic visit purposes into a target Sponsor and/or Plan.
+        Accepts optional adjustment_percent (e.g. -10 for 10% discount, 0 for same base price).
+        """
+        sponsor_id = request.data.get('sponsor_id')
+        plan_id = request.data.get('plan_id')
+        overwrite = request.data.get('overwrite', False)
+        adjustment_percent = float(request.data.get('adjustment_percent', 0) or 0)
+
+        if not sponsor_id:
+            return Response({'detail': 'Please select a Sponsor / HMO Company to load tariffs for.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            sponsor = Sponsor.objects.get(id=sponsor_id)
+        except Sponsor.DoesNotExist:
+            return Response({'detail': 'Selected Sponsor not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        plan = None
+        if plan_id and str(plan_id).lower() not in ('all', 'null', 'none', ''):
+            try:
+                plan = PatientPlan.objects.get(id=plan_id)
+            except PatientPlan.DoesNotExist:
+                return Response({'detail': 'Selected Coverage Plan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Base purposes are those without sponsor & plan
+        base_purposes = VisitPurpose.objects.filter(sponsor__isnull=True, plan__isnull=True)
+        if not base_purposes.exists():
+            # If no general purposes exist without sponsor, take distinct purpose names
+            base_purposes = VisitPurpose.objects.all().distinct('purpose')
+
+        multiplier = 1.0 + (adjustment_percent / 100.0)
+        created_count = 0
+        updated_count = 0
+
+        for bp in base_purposes:
+            new_price = max(0, int(round(bp.price * multiplier)))
+            existing = VisitPurpose.objects.filter(purpose__iexact=bp.purpose, sponsor=sponsor, plan=plan).first()
+            if existing:
+                if overwrite:
+                    existing.price = new_price
+                    existing.save()
+                    updated_count += 1
+            else:
+                VisitPurpose.objects.create(
+                    purpose=bp.purpose,
+                    price=new_price,
+                    specialist_id=bp.specialist_id,
+                    sponsor=sponsor,
+                    plan=plan
+                )
+                created_count += 1
+
+        plan_desc = f" ({plan.plan})" if plan else " (All Plans)"
+        return Response({
+            'success': True,
+            'message': f'Successfully synchronized consultation tariffs for {sponsor.name}{plan_desc}: {created_count} created, {updated_count} updated.',
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'total_purposes': base_purposes.count()
+        })
 
     @action(detail=False, methods=['post'], url_path='bulk-import')
     def bulk_import(self, request):
         """
-        Bulk import visit purposes via uploaded file (.xlsx, .xls, .csv)
-        or via raw JSON payload: {"items": [{"purpose": "...", "price": 1000, "specialist_id": 0}]}
+        Bulk import visit purposes & consultation tariffs from Excel (.xlsx, .xls) or CSV.
+        Supports columns: purpose, price/fee, sponsor, plan.
+        Can also take default sponsor_id and plan_id from form data if rows don't specify them.
         """
-        records_to_process = []
+        import io, csv, re
+        import pandas as pd
+
         uploaded_file = request.FILES.get('file')
+
+        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
+        default_plan_id = request.data.get('plan_id') or request.data.get('plan')
+
+        default_sponsor = None
+        if default_sponsor_id and str(default_sponsor_id).lower() not in ('all', 'general', 'null', 'none', ''):
+            default_sponsor = Sponsor.objects.filter(id=default_sponsor_id).first()
+
+        default_plan = None
+        if default_plan_id and str(default_plan_id).lower() not in ('all', 'general', 'null', 'none', ''):
+            default_plan = PatientPlan.objects.filter(id=default_plan_id).first()
+
+        records_to_process = []
+
+        def extract_row_data(row_dict):
+            norm = {}
+            for k, v in row_dict.items():
+                if k is not None:
+                    clean_k = re.sub(r'[^a-z0-9]', '', str(k).lower())
+                    norm[clean_k] = v
+
+            purpose = None
+            for key_candidate in ['purposename', 'purpose', 'purposeofvisit', 'visitpurpose', 'clinicservice', 'clinic', 'name']:
+                for k in norm:
+                    if key_candidate in k:
+                        val = norm[k]
+                        if val is not None and str(val).strip() and str(val).lower() != 'nan':
+                            purpose = str(val).strip()
+                            break
+                if purpose:
+                    break
+
+            price = 0
+            for key_candidate in ['price', 'fee', 'consultationfee', 'rate', 'amount', 'tariff', 'cost']:
+                for k in norm:
+                    if key_candidate in k:
+                        val = norm[k]
+                        if val is not None and str(val).strip() and str(val).lower() != 'nan':
+                            price = val
+                            break
+                if price:
+                    break
+
+            sponsor_val = None
+            for key_candidate in ['sponsor', 'hmocompany', 'hmo', 'provider', 'company']:
+                for k in norm:
+                    if key_candidate in k:
+                        val = norm[k]
+                        if val is not None and str(val).strip() and str(val).lower() != 'nan':
+                            sponsor_val = str(val).strip()
+                            break
+                if sponsor_val:
+                    break
+
+            plan_val = None
+            for key_candidate in ['coverageplan', 'planname', 'patientplan', 'plan', 'tier']:
+                for k in norm:
+                    if key_candidate in k:
+                        val = norm[k]
+                        if val is not None and str(val).strip() and str(val).lower() != 'nan':
+                            plan_val = str(val).strip()
+                            break
+                if plan_val:
+                    break
+
+            return purpose, price, sponsor_val, plan_val
 
         if uploaded_file:
             filename = uploaded_file.name.lower()
             try:
                 if filename.endswith('.csv'):
-                    import io, csv
                     decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
                     reader = csv.DictReader(io.StringIO(decoded_file))
                     for row in reader:
-                        clean_row = {str(k).strip().lower(): v for k, v in row.items() if k}
-                        purpose = (
-                            clean_row.get('purpose')
-                            or clean_row.get('name')
-                            or clean_row.get('purpose of visit')
-                            or clean_row.get('visit purpose')
-                        )
-                        if purpose and str(purpose).strip():
-                            price = clean_row.get('price') or clean_row.get('cost') or clean_row.get('fee') or 0
-                            specialist_id = clean_row.get('specialist_id') or clean_row.get('specialist') or 0
+                        p_name, p_price, p_spons, p_plan = extract_row_data(row)
+                        if p_name:
                             records_to_process.append({
-                                'purpose': str(purpose).strip(),
-                                'price': price,
-                                'specialist_id': specialist_id,
+                                'purpose': p_name,
+                                'price': p_price,
+                                'sponsor': p_spons,
+                                'plan': p_plan,
+                                'specialist_id': 0,
                             })
                 elif filename.endswith(('.xlsx', '.xls')):
-                    import pandas as pd
-                    import io
                     df = pd.read_excel(io.BytesIO(uploaded_file.read()))
-                    df.columns = [str(c).strip().lower() for c in df.columns]
                     for _, row in df.iterrows():
-                        purpose = (
-                            row.get('purpose')
-                            or row.get('name')
-                            or row.get('purpose of visit')
-                            or row.get('visit purpose')
-                        )
-                        if pd.notna(purpose) and str(purpose).strip():
-                            price = row.get('price') if pd.notna(row.get('price')) else (row.get('fee') if pd.notna(row.get('fee')) else 0)
-                            specialist_id = row.get('specialist_id') if pd.notna(row.get('specialist_id')) else 0
+                        row_dict = row.to_dict()
+                        p_name, p_price, p_spons, p_plan = extract_row_data(row_dict)
+                        if p_name:
                             records_to_process.append({
-                                'purpose': str(purpose).strip(),
-                                'price': price,
-                                'specialist_id': specialist_id,
+                                'purpose': p_name,
+                                'price': p_price,
+                                'sponsor': p_spons,
+                                'plan': p_plan,
+                                'specialist_id': 0,
                             })
                 else:
                     return Response(
@@ -2326,30 +2442,68 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
                     records_to_process.append({
                         'purpose': str(it.get('purpose')).strip(),
                         'price': it.get('price', 0),
+                        'sponsor': it.get('sponsor') or it.get('sponsor_id'),
+                        'plan': it.get('plan') or it.get('plan_id'),
                         'specialist_id': it.get('specialist_id', 0),
                     })
 
         if not records_to_process:
             return Response(
-                {'detail': 'No valid purpose records found in the uploaded file or payload. Please ensure the column "purpose" is provided.'},
+                {'detail': 'No valid purpose records found in the uploaded file. Please make sure the file contains a "Purpose Name" column.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        sponsors_by_name = {s.name.strip().lower(): s for s in Sponsor.objects.all()}
+        sponsors_by_code = {s.code.strip().lower(): s for s in Sponsor.objects.all() if s.code}
+        plans_by_name = {p.plan.strip().lower(): p for p in PatientPlan.objects.all() if p.plan}
+
         created_count = 0
         updated_count = 0
+
         for item in records_to_process:
             purpose_text = item['purpose']
             try:
-                price_val = int(float(str(item.get('price') or 0).replace(',', '').strip()))
+                price_val = int(float(str(item.get('price') or 0).replace(',', '').replace('₦', '').strip()))
             except (ValueError, TypeError):
                 price_val = 0
-            try:
-                specialist_val = int(float(str(item.get('specialist_id') or 0).strip()))
-            except (ValueError, TypeError):
-                specialist_val = 0
+            price_val = max(0, price_val)
+            specialist_val = 0
+
+            # Resolve sponsor
+            target_sponsor = default_sponsor
+            raw_sponsor = item.get('sponsor')
+            if raw_sponsor:
+                s_str = str(raw_sponsor).strip()
+                if s_str.isdigit():
+                    target_sponsor = Sponsor.objects.filter(id=int(s_str)).first()
+                elif s_str.lower() in ('general', 'self', 'cash', 'out-of-pocket', 'none', 'null', ''):
+                    target_sponsor = None
+                else:
+                    target_sponsor = sponsors_by_name.get(s_str.lower()) or sponsors_by_code.get(s_str.lower())
+                    if not target_sponsor:
+                        target_sponsor = Sponsor.objects.filter(name__icontains=s_str).first()
+
+            # Resolve plan
+            target_plan = default_plan
+            raw_plan = item.get('plan')
+            if raw_plan:
+                p_str = str(raw_plan).strip()
+                if p_str.isdigit():
+                    target_plan = PatientPlan.objects.filter(id=int(p_str)).first()
+                elif p_str.lower() in ('general', 'all', 'none', 'null', 'all plans', ''):
+                    target_plan = None
+                else:
+                    if target_sponsor:
+                        target_plan = PatientPlan.objects.filter(sponsor=target_sponsor, plan__iexact=p_str).first()
+                        if not target_plan:
+                            target_plan = PatientPlan.objects.filter(sponsor=target_sponsor, plan__icontains=p_str).first()
+                    if not target_plan:
+                        target_plan = plans_by_name.get(p_str.lower()) or PatientPlan.objects.filter(plan__icontains=p_str).first()
 
             obj, created = VisitPurpose.objects.update_or_create(
                 purpose=purpose_text,
+                sponsor=target_sponsor,
+                plan=target_plan,
                 defaults={
                     'price': price_val,
                     'specialist_id': specialist_val,
@@ -2360,9 +2514,13 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
             else:
                 updated_count += 1
 
+        target_label = target_sponsor.name if target_sponsor else "General Out-of-Pocket"
+        if target_sponsor and target_plan:
+            target_label += f" ({target_plan.plan} Plan)"
+
         return Response({
             'success': True,
-            'message': f'Successfully processed {len(records_to_process)} records ({created_count} created, {updated_count} updated).',
+            'message': f'Successfully processed {len(records_to_process)} consultation tariff records for {target_label} ({created_count} created, {updated_count} updated).',
             'created_count': created_count,
             'updated_count': updated_count,
             'total_processed': len(records_to_process),
@@ -2371,26 +2529,325 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='download-template')
     def download_template(self, request):
         """
-        Download CSV template for bulk importing visit purposes.
+        Download Excel (.xlsx) template for bulk importing visit purpose tariffs.
+        Pre-populates with ALL existing distinct purposes currently in the database.
+        Pre-fills Sponsor and Plan if provided in query params so user only enters prices.
         """
         from django.http import HttpResponse
-        import csv
+        import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="visit_purposes_template.csv"'
+        sponsor_id = request.query_params.get('sponsor_id') or request.query_params.get('sponsor')
+        plan_id = request.query_params.get('plan_id') or request.query_params.get('plan')
 
-        writer = csv.writer(response)
-        writer.writerow(['purpose', 'price'])
-        writer.writerow(['General Consultation', '2000'])
-        writer.writerow(['Specialist Consultation', '5000'])
-        writer.writerow(['Antenatal Clinic (ANC)', '3000'])
-        writer.writerow(['Pediatric Review', '2500'])
-        writer.writerow(['Dental Examination', '4000'])
-        writer.writerow(['Eye Clinic / Ophthalmology', '4000'])
-        writer.writerow(['Routine Health Checkup', '3500'])
+        sp = None
+        pl = None
+        sponsor_str = ""
+        plan_str = ""
 
+        if sponsor_id and str(sponsor_id).lower() not in ('all', 'general', 'null', 'none', ''):
+            sp = Sponsor.objects.filter(id=sponsor_id).first()
+            if sp:
+                sponsor_str = sp.name
+
+        if plan_id and str(plan_id).lower() not in ('all', 'general', 'null', 'none', ''):
+            pl = PatientPlan.objects.filter(id=plan_id).first()
+            if pl:
+                plan_str = pl.plan
+
+        # Fetch all distinct existing visit purposes in database
+        db_purposes = list(
+            VisitPurpose.objects.filter(purpose__isnull=False)
+            .exclude(purpose='')
+            .values_list('purpose', flat=True)
+            .distinct()
+            .order_by('purpose')
+        )
+
+        seen_lower = set()
+        distinct_purposes = []
+        for p in db_purposes:
+            p_clean = str(p).strip()
+            if p_clean and p_clean.lower() not in seen_lower:
+                seen_lower.add(p_clean.lower())
+                distinct_purposes.append(p_clean)
+
+        if not distinct_purposes:
+            distinct_purposes = [
+                'General Consultation',
+                'Specialist Consultation',
+                'Antenatal Clinic (ANC)',
+                'Pediatric Review',
+                'Dental Examination',
+                'Eye Clinic / Ophthalmology',
+                'Surgical Review',
+                'Cardiology First visit',
+                'Cardiology follow up visit',
+                'Routine Health Checkup',
+                'Post-Discharge Follow-up',
+                'Immunization / Child Welfare',
+                'Dietary & Nutrition Counseling',
+            ]
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Visit Purposes Tariffs"
+        ws.views.sheetView[0].showGridLines = True
+
+        headers = ["Purpose Name", "Sponsor", "Coverage Plan", "Price (₦)"]
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_align = Alignment(horizontal="left", vertical="center")
+        right_align = Alignment(horizontal="right", vertical="center")
+
+        thin_border = Border(
+            left=Side(style="thin", color="CBD5E1"),
+            right=Side(style="thin", color="CBD5E1"),
+            top=Side(style="thin", color="CBD5E1"),
+            bottom=Side(style="thin", color="CBD5E1")
+        )
+
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_align
+            cell.border = thin_border
+        ws.row_dimensions[1].height = 28
+
+        for row_idx, p_name in enumerate(distinct_purposes, start=2):
+            current_price = ''
+            if sp:
+                existing = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=sp, plan=pl).first()
+                if not existing and not pl:
+                    existing = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=sp, plan__isnull=True).first()
+                if existing:
+                    current_price = existing.price
+            if current_price == '':
+                gen = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor__isnull=True, plan__isnull=True).first()
+                current_price = gen.price if gen else 2000
+
+            ws.append([p_name, sponsor_str, plan_str, current_price])
+
+            c1 = ws.cell(row=row_idx, column=1)
+            c2 = ws.cell(row=row_idx, column=2)
+            c3 = ws.cell(row=row_idx, column=3)
+            c4 = ws.cell(row=row_idx, column=4)
+
+            c1.alignment = left_align
+            c2.alignment = left_align
+            c3.alignment = left_align
+            c4.alignment = right_align
+
+            c1.font = Font(name="Calibri", size=11, bold=True, color="1E293B")
+            c2.font = Font(name="Calibri", size=11, color="334155")
+            c3.font = Font(name="Calibri", size=11, color="334155")
+            c4.font = Font(name="Calibri", size=11, bold=True, color="059669")
+
+            c4.number_format = '#,##0'
+
+            for c in (c1, c2, c3, c4):
+                c.border = thin_border
+            ws.row_dimensions[row_idx].height = 22
+
+        ws.column_dimensions['A'].width = 34
+        ws.column_dimensions['B'].width = 30
+        ws.column_dimensions['C'].width = 24
+        ws.column_dimensions['D'].width = 18
+
+        # Sheet 2: Reference Guide
+        ws_guide = wb.create_sheet(title="Sponsors & Plans Guide")
+        ws_guide.views.sheetView[0].showGridLines = True
+        ws_guide.append(["HOW TO USE THIS BULK TARIFF TEMPLATE"])
+        ws_guide.cell(row=1, column=1).font = Font(name="Calibri", size=13, bold=True, color="1E3A8A")
+        ws_guide.append([])
+        ws_guide.append(["1. 'Purpose Name' contains all current visit purposes from the clinic database."])
+        ws_guide.append(["2. 'Sponsor' is pre-filled if selected, or you can enter the HMO name / code (e.g. AIICO MULTISHIELD, AXA MANSARD)."])
+        ws_guide.append(["3. 'Coverage Plan' can be left blank for all plans, or enter specific plan (e.g. SILVER, BRONZE, GOLD)."])
+        ws_guide.append(["4. 'Price (₦)' enter the consultation rate in numbers only. Then save and upload via 'Bulk Upload Tariffs'."])
+        ws_guide.append([])
+        ws_guide.append(["List of Hospital Sponsors & Active Plans:"])
+        ws_guide.cell(row=7, column=1).font = Font(name="Calibri", size=11, bold=True, color="1E3A8A")
+
+        ws_guide.append(["Sponsor Name", "Billing Code", "Available Coverage Plans"])
+        for c_idx in range(1, 4):
+            c_hdr = ws_guide.cell(row=8, column=c_idx)
+            c_hdr.fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+            c_hdr.font = Font(name="Calibri", size=10, bold=True, color="1E293B")
+            c_hdr.border = thin_border
+
+        for r_num, s_item in enumerate(Sponsor.objects.all().order_by('name')[:50], start=9):
+            p_list = list(s_item.plans.values_list('plan', flat=True))
+            ws_guide.append([s_item.name, s_item.code or '', ", ".join(p_list) if p_list else "All Plans"])
+            for c_idx in range(1, 4):
+                ws_guide.cell(row=r_num, column=c_idx).border = thin_border
+                ws_guide.cell(row=r_num, column=c_idx).font = Font(name="Calibri", size=10, color="334155")
+
+        ws_guide.column_dimensions['A'].width = 34
+        ws_guide.column_dimensions['B'].width = 16
+        ws_guide.column_dimensions['C'].width = 40
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        safe_name = (sp.code or sp.name).replace(' ', '_').replace('/', '_') if sp else 'General_Tariffs'
+        filename = f"visit_purposes_template_{safe_name}.xlsx"
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
+    @action(detail=False, methods=['get'], url_path='download-master-template')
+    def download_master_template(self, request):
+        """
+        Download Excel (.xlsx) template for bulk importing master visit purposes into database catalog.
+        Columns: Purpose of Appointment / Clinic Service, Consultation Fee (₦)
+        Pre-populated with existing database master purposes or standard clinical presets.
+        """
+        from django.http import HttpResponse
+        import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Master Visit Purposes"
+        ws.views.sheetView[0].showGridLines = True
+
+        thin_border = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1'),
+        )
+
+        # Title block
+        ws.merge_cells('A1:B1')
+        title_cell = ws.cell(row=1, column=1)
+        title_cell.value = "HOSPITAL MASTER VISIT PURPOSES CATALOG TEMPLATE"
+        title_cell.font = Font(name="Calibri", size=13, bold=True, color="065F46")
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 28
+
+        ws.merge_cells('A2:B2')
+        sub_cell = ws.cell(row=2, column=1)
+        sub_cell.value = "Enter clinic consultation purpose names and default baseline fees (Cash / Private). All rows will be saved directly into the database catalog."
+        sub_cell.font = Font(name="Calibri", size=9.5, italic=True, color="047857")
+        sub_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[2].height = 20
+
+        # Header Row
+        headers = ["Purpose of Appointment / Clinic Service", "Consultation Fee (₦)"]
+        for col_idx, h_text in enumerate(headers, start=1):
+            cell = ws.cell(row=4, column=col_idx)
+            cell.value = h_text
+            cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="059669", end_color="059669", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center" if col_idx == 2 else "left", vertical="center")
+            cell.border = thin_border
+        ws.row_dimensions[4].height = 26
+
+        sample_purposes = [
+            ("General Consultation", 2000),
+            ("Antenatal Clinic (ANC)", 3000),
+            ("Immunization", 1500),
+            ("Pediatric Review", 2500),
+            ("Cardiology First visit", 6000),
+            ("Cardiology follow up visit", 5000),
+            ("Dental Examination", 4000),
+            ("Eye Clinic / Ophthalmology", 4000),
+            ("Specialist Consultation", 5000),
+            ("Surgical Review", 5000),
+            ("Post-Discharge Follow-up", 2000),
+            ("Routine Health Checkup", 3500),
+        ]
+
+        existing_db = list(VisitPurpose.objects.filter(sponsor__isnull=True).order_by('purpose').values_list('purpose', 'price'))
+        data_to_write = existing_db if existing_db else sample_purposes
+
+        for row_idx, (p_name, p_price) in enumerate(data_to_write, start=5):
+            c1 = ws.cell(row=row_idx, column=1, value=p_name)
+            c1.font = Font(name="Calibri", size=10.5, color="1E293B")
+            c1.border = thin_border
+
+            c2 = ws.cell(row=row_idx, column=2, value=p_price)
+            c2.font = Font(name="Calibri", size=10.5, color="1E293B")
+            c2.alignment = Alignment(horizontal="right", vertical="center")
+            c2.border = thin_border
+            c2.number_format = "#,##0"
+            ws.row_dimensions[row_idx].height = 20
+
+        ws.column_dimensions['A'].width = 46
+        ws.column_dimensions['B'].width = 24
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="master_visit_purposes_template.xlsx"'
+        return response
+
+    @action(detail=False, methods=['get'], url_path='master-purposes')
+    def master_purposes(self, request):
+        """
+        Returns all distinct master visit purposes registered in the hospital database,
+        along with their default base out-of-pocket price, and summary of configured sponsor tariffs.
+        """
+        all_vps = VisitPurpose.objects.all().select_related('sponsor', 'plan')
+        purposes_map = {}
+        for vp in all_vps:
+            name = (vp.purpose or '').strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key not in purposes_map:
+                purposes_map[key] = {
+                    'purpose': name,
+                    'base_id': None,
+                    'base_price': 0,
+                    'specialist_id': 0,
+                    'tariffs_count': 0,
+                    'sponsors': [],
+                    'tariffs': [],
+                    'created_date': vp.created_date,
+                }
+            item = purposes_map[key]
+            if vp.sponsor is None:
+                item['base_id'] = vp.id
+                item['base_price'] = vp.price
+                item['specialist_id'] = vp.specialist_id
+                item['created_date'] = vp.created_date
+            else:
+                item['tariffs_count'] += 1
+                s_name = vp.sponsor.name
+                if s_name not in item['sponsors']:
+                    item['sponsors'].append(s_name)
+                item['tariffs'].append({
+                    'id': vp.id,
+                    'sponsor_id': vp.sponsor.id,
+                    'sponsor_name': vp.sponsor.name,
+                    'plan_id': vp.plan.id if vp.plan else None,
+                    'plan_name': vp.plan.plan if vp.plan else 'All Plans',
+                    'price': vp.price,
+                })
+
+        result = sorted(purposes_map.values(), key=lambda x: x['purpose'].lower())
+        return Response({
+            'count': len(result),
+            'results': result
+        }, status=status.HTTP_200_OK)
 
 class PatientAppointmentViewSet(viewsets.ModelViewSet):
     queryset = PatientAppointment.objects.all().select_related('patient', 'provider').order_by('-arrival_date', '-arrival_time', '-created_date')
@@ -3386,10 +3843,28 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         matched_invoices_count += 1
                         continue
 
-                    # Determine consultation rate for this specific purpose
-                    vp = VisitPurpose.objects.filter(purpose__iexact=p_name).first()
+                    # Determine consultation rate for this specific purpose and patient sponsor/plan
+                    pat_sponsor = getattr(pat, 'sponsor', None)
+                    pat_plan = getattr(pat, 'plan', None)
+                    vp = None
+
+                    if pat_sponsor and pat_plan:
+                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan=pat_plan).first()
+                    if not vp and pat_sponsor:
+                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan__isnull=True).first()
+                    if not vp and pat_plan:
+                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, plan=pat_plan).first()
                     if not vp:
-                        vp = VisitPurpose.objects.filter(purpose__icontains=p_name.split()[0]).first()
+                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor__isnull=True, plan__isnull=True).first()
+
+                    if not vp:
+                        p_first = p_name.split()[0]
+                        if pat_sponsor and pat_plan:
+                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan=pat_plan).first()
+                        if not vp and pat_sponsor:
+                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan__isnull=True).first()
+                        if not vp:
+                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor__isnull=True, plan__isnull=True).first()
 
                     if vp and vp.price:
                         consult_price = float(vp.price)

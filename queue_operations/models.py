@@ -83,13 +83,20 @@ class AntenatalFee(models.Model):
     
     
 class VisitPurpose(models.Model):
-    purpose = models.CharField(null=True, max_length=50)
+    purpose = models.CharField(null=True, max_length=150)
     price = models.PositiveIntegerField(default=0)
     specialist_id = models.PositiveIntegerField(default=0)
+    sponsor = models.ForeignKey('patients.Sponsor', on_delete=models.CASCADE, null=True, blank=True, related_name='visit_purposes')
+    plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='visit_purposes')
+    created_date = models.DateTimeField(auto_now_add=True, null=True)
+
+    class Meta:
+        ordering = ['purpose', 'sponsor__name', 'plan__plan']
 
     def __str__(self):
-        return f'{self.purpose} - {self.price}'
-     
+        sponsor_str = f" [{self.sponsor.name}]" if self.sponsor else " [General]"
+        plan_str = f" - {self.plan.plan}" if self.plan else ""
+        return f"{self.purpose}{sponsor_str}{plan_str} - ₦{self.price}"
 class NurseWaitingList(models.Model):
     VISIT_TYPE_CHOICES = [
         ("", "--Select Visit Type--"), 

@@ -1552,7 +1552,8 @@ class OtherServicesView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        qs = OtherService2.objects.all().select_related('plan').order_by('service')
+        qs = OtherService2.objects.all().select_related('plan', 'plan__sponsor').order_by('service')
+        sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
         patient_id = request.query_params.get('patient')
         search = request.query_params.get('search', '').strip()
@@ -1566,56 +1567,94 @@ class OtherServicesView(APIView):
                     qs = qs.filter(plan__isnull=True)
             except PatientProfile.DoesNotExist:
                 pass
-        elif plan_id and str(plan_id).lower() != 'all':
-            qs = qs.filter(Q(plan_id=plan_id) | Q(plan__isnull=True))
+        else:
+            if sponsor_id and str(sponsor_id).lower() != 'all':
+                if str(sponsor_id).lower() == 'general':
+                    qs = qs.filter(plan__isnull=True)
+                else:
+                    qs = qs.filter(plan__sponsor_id=sponsor_id)
+            if plan_id and str(plan_id).lower() != 'all':
+                if str(plan_id).lower() == 'general':
+                    qs = qs.filter(plan__isnull=True)
+                else:
+                    qs = qs.filter(plan_id=plan_id)
 
         if search:
             qs = qs.filter(Q(service__icontains=search) | Q(service_id__icontains=search))
 
         data = []
         for s in qs:
+            sponsor = s.plan.sponsor if s.plan and s.plan.sponsor else None
             data.append({
                 'id': s.id,
                 'service': s.service,
                 'service_id': s.service_id or '',
                 'rate': float(s.rate),
                 'plan_id': s.plan.id if s.plan else None,
-                'plan_name': s.plan.plan if s.plan else 'All Plans',
+                'plan_name': s.plan.plan if s.plan else 'All Plans / Self-Pay',
+                'sponsor_id': sponsor.id if sponsor else None,
+                'sponsor_name': sponsor.name if sponsor else 'General (Self-Pay)',
+                'sponsor_code': sponsor.code if sponsor and sponsor.code else '',
             })
         return Response({'total': len(data), 'services': data, 'results': data})
 
     def post(self, request):
-        service = request.data.get('service', '').strip()
-        service_id = request.data.get('service_id', '').strip()
+        service = str(request.data.get('service') or '').strip()
+        service_id = str(request.data.get('service_id') or '').strip()
         rate = request.data.get('rate', 0)
         plan_id = request.data.get('plan_id')
+        sponsor_id = request.data.get('sponsor_id')
 
         if not service:
-            return Response({'detail': 'Service name required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Service / Procedure description is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            rate_val = Decimal(str(rate)) if rate not in (None, '') else Decimal('0.00')
+        except Exception:
+            return Response({'detail': 'Please enter a valid rate amount.'}, status=status.HTTP_400_BAD_REQUEST)
 
         plan = None
-        if plan_id:
+        if plan_id and str(plan_id).lower() not in ('general', 'null', 'none', ''):
             try:
                 plan = PatientPlan.objects.get(id=plan_id)
             except PatientPlan.DoesNotExist:
                 pass
 
-        staff = request.user if request.user.is_authenticated else User.objects.first()
+        # Generate unique service_id if not provided, or check for conflict
+        if not service_id:
+            cand_count = OtherService2.objects.count() + 1
+            cand_id = f"SRV-{cand_count:03d}"
+            while OtherService2.objects.filter(service_id=cand_id, plan=plan).exists():
+                cand_count += 1
+                cand_id = f"SRV-{cand_count:03d}"
+            service_id = cand_id
+        else:
+            if OtherService2.objects.filter(service_id=service_id, plan=plan).exists():
+                return Response({'detail': f'Service code "{service_id}" already exists for this plan.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        staff = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+        if not staff:
+            staff = User.objects.first()
 
         obj = OtherService2.objects.create(
             service=service,
-            service_id=service_id or f"SRV-{OtherService2.objects.count()+1:03d}",
-            rate=Decimal(str(rate)),
+            service_id=service_id,
+            rate=rate_val,
             plan=plan,
             staff=staff
         )
+        sponsor = obj.plan.sponsor if obj.plan and obj.plan.sponsor else None
         return Response({
-            'detail': f'Service "{obj.service}" created.',
+            'detail': f'Service "{obj.service}" created successfully.',
             'id': obj.id,
             'service': obj.service,
             'service_id': obj.service_id,
             'rate': float(obj.rate),
-            'plan_name': obj.plan.plan if obj.plan else 'All Plans'
+            'plan_id': obj.plan.id if obj.plan else None,
+            'plan_name': obj.plan.plan if obj.plan else 'All Plans / Self-Pay',
+            'sponsor_id': sponsor.id if sponsor else None,
+            'sponsor_name': sponsor.name if sponsor else 'General (Self-Pay)',
+            'sponsor_code': sponsor.code if sponsor and sponsor.code else '',
         })
 
     def put(self, request, pk=None):
@@ -1624,16 +1663,353 @@ class OtherServicesView(APIView):
         except OtherService2.DoesNotExist:
             return Response({'detail': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        if 'service' in request.data: obj.service = request.data['service'].strip()
-        if 'rate' in request.data: obj.rate = Decimal(str(request.data['rate']))
-        if 'service_id' in request.data: obj.service_id = request.data['service_id'].strip()
+        if 'service' in request.data:
+            s = str(request.data['service']).strip()
+            if not s:
+                return Response({'detail': 'Service / Procedure description cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+            obj.service = s
+
+        if 'rate' in request.data:
+            r = request.data['rate']
+            try:
+                obj.rate = Decimal(str(r)) if r not in (None, '') else Decimal('0.00')
+            except Exception:
+                return Response({'detail': 'Please enter a valid rate amount.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'plan_id' in request.data:
+            p_id = request.data['plan_id']
+            if p_id and str(p_id).lower() not in ('general', 'null', 'none', ''):
+                try:
+                    obj.plan = PatientPlan.objects.get(id=p_id)
+                except PatientPlan.DoesNotExist:
+                    obj.plan = None
+            else:
+                obj.plan = None
+
+        if 'service_id' in request.data:
+            sid = str(request.data['service_id']).strip()
+            if sid and sid != obj.service_id:
+                if OtherService2.objects.filter(service_id=sid, plan=obj.plan).exclude(id=obj.id).exists():
+                    return Response({'detail': f'Service code "{sid}" already exists for this plan.'}, status=status.HTTP_400_BAD_REQUEST)
+                obj.service_id = sid
 
         obj.save()
-        return Response({'detail': 'Service updated.', 'id': obj.id, 'service': obj.service, 'rate': float(obj.rate)})
+        sponsor = obj.plan.sponsor if obj.plan and obj.plan.sponsor else None
+        return Response({
+            'detail': f'Service "{obj.service}" updated successfully.',
+            'id': obj.id,
+            'service': obj.service,
+            'service_id': obj.service_id,
+            'rate': float(obj.rate),
+            'plan_id': obj.plan.id if obj.plan else None,
+            'plan_name': obj.plan.plan if obj.plan else 'All Plans / Self-Pay',
+            'sponsor_id': sponsor.id if sponsor else None,
+            'sponsor_name': sponsor.name if sponsor else 'General (Self-Pay)',
+            'sponsor_code': sponsor.code if sponsor and sponsor.code else '',
+        })
 
     def delete(self, request, pk=None):
         OtherService2.objects.filter(id=pk).delete()
         return Response({'detail': 'Service deleted.'})
+
+
+class DownloadOtherServiceTariffTemplateView(APIView):
+    """
+    Downloads a CSV tariff template for Other Hospital Services & Procedures.
+    - If template_type='master' or sponsor is General: outputs master catalog template with sample or existing master procedures.
+    - If sponsor and plan are provided: outputs pre-filled template with ALL existing hospital services in database,
+      prefilled with existing plan rates (or baseline rates) so user only edits prices and uploads.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        import io, csv
+
+        sponsor_id = request.query_params.get('sponsor')
+        plan_id = request.query_params.get('plan')
+        template_type = request.query_params.get('template_type', '').strip().lower()
+
+        is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none') or template_type == 'master'
+
+        resolved_sponsor = None
+        resolved_plan = None
+
+        if is_general:
+            sponsor_code = "GENERAL"
+            plan_code = "GENERAL"
+            sponsor_name = "General / Out-of-Pocket"
+            plan_name = "General Tariff"
+        else:
+            sponsor_code = "AMH"
+            plan_code = "AIICO SILVER"
+            sponsor_name = "AIICO MULTISHIELD (AMH)"
+            plan_name = "AIICO SILVER"
+
+            if sponsor_id and str(sponsor_id).lower() not in ('all', '', 'none', 'null'):
+                try:
+                    resolved_sponsor = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = resolved_sponsor.code or resolved_sponsor.name
+                    sponsor_name = resolved_sponsor.name
+                except Sponsor.DoesNotExist:
+                    pass
+
+            if plan_id and str(plan_id).lower() not in ('all', '', 'none', 'null'):
+                try:
+                    resolved_plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = resolved_plan.code or resolved_plan.plan
+                    plan_name = resolved_plan.plan
+                    if resolved_plan.sponsor:
+                        sponsor_code = resolved_plan.sponsor.code or resolved_plan.sponsor.name
+                        sponsor_name = resolved_plan.sponsor.name
+                except PatientPlan.DoesNotExist:
+                    pass
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Existing distinct services from database
+        existing_services = list(OtherService2.objects.values('service', 'service_id', 'rate', 'plan_id').order_by('service'))
+        master_dict = {}
+        for s in existing_services:
+            name = (s['service'] or '').strip()
+            if name and name.lower() not in master_dict:
+                master_dict[name.lower()] = {
+                    'service': name,
+                    'service_id': s['service_id'] or '',
+                    'rate': s['rate'] or '0.00',
+                }
+
+        # If specific plan requested, get existing tariff rates for that plan
+        plan_rates = {}
+        if resolved_plan:
+            for s in existing_services:
+                if s['plan_id'] == resolved_plan.id:
+                    plan_rates[(s['service'] or '').strip().lower()] = s['rate']
+
+        if is_general and len(master_dict) == 0:
+            writer.writerow(['service_name', 'service_code', 'rate', 'notes'])
+            samples = [
+                ['Wound Dressing (Major)', 'SRV-001', '5000.00', 'Clinical Procedure'],
+                ['Wound Dressing (Minor)', 'SRV-002', '2500.00', 'Clinical Procedure'],
+                ['Intravenous (IV) Cannulation', 'SRV-003', '2000.00', 'Nursing Procedure'],
+                ['Urethral Catheterization (Male/Female)', 'SRV-004', '3500.00', 'Clinical Procedure'],
+                ['Nebulization Therapy', 'SRV-005', '3000.00', 'Respiratory Care'],
+                ['Suture Removal', 'SRV-006', '2000.00', 'Minor Procedure'],
+                ['Ear Syringing (Unilateral/Bilateral)', 'SRV-007', '4500.00', 'ENT Procedure'],
+                ['Incision and Drainage (I&D)', 'SRV-008', '12000.00', 'Surgical Procedure'],
+                ['Stomach Wash / Gastric Lavage', 'SRV-009', '8000.00', 'Emergency Procedure'],
+                ['Foreign Body Removal (Ear/Nose/Eye)', 'SRV-010', '5000.00', 'Clinical Procedure'],
+                ['Burn Dressing (Minor)', 'SRV-011', '4000.00', 'Clinical Procedure'],
+                ['Episiotomy Repair', 'SRV-012', '15000.00', 'Obstetric Procedure'],
+            ]
+            for row in samples:
+                writer.writerow(row)
+            filename = 'hospital_services_master_template.csv'
+        elif is_general:
+            writer.writerow(['service_name', 'service_code', 'rate', 'notes'])
+            for item in master_dict.values():
+                writer.writerow([item['service'], item['service_id'], item['rate'], 'General Master Procedure'])
+            filename = 'hospital_services_master_template.csv'
+        else:
+            writer.writerow(['service_name', 'service_code', 'rate', 'sponsor_code', 'plan_code', 'notes'])
+            for item in master_dict.values():
+                rate = plan_rates.get(item['service'].lower(), item['rate'])
+                writer.writerow([item['service'], item['service_id'], rate, sponsor_code, plan_code, f'Tariff for {plan_name}'])
+            filename = f"other_services_tariffs_{sponsor_code}_{plan_code}.csv"
+
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+class BulkUploadOtherServiceTariffView(APIView):
+    """
+    Bulk imports hospital services & procedure tariffs from CSV or Excel files.
+    - If sponsor and plan provided (or mapped from file), assigns negotiated tariffs to that sponsor & plan.
+    - If general / no sponsor, creates or updates master catalog services.
+    - Matches existing services by code or name to update rates, or inserts new services.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        import csv, io
+        uploaded_file = request.FILES.get('file')
+        default_sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor') or request.data.get('default_sponsor_id')
+        default_plan_id = request.data.get('plan_id') or request.data.get('plan') or request.data.get('default_plan_id')
+
+        is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+
+        default_sponsor = None
+        if not is_general_default and default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
+            try:
+                default_sponsor = Sponsor.objects.get(id=default_sponsor_id)
+            except (Sponsor.DoesNotExist, ValueError):
+                pass
+
+        default_plan = None
+        if not is_general_default and default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none', 'general'):
+            try:
+                default_plan = PatientPlan.objects.select_related('sponsor').get(id=default_plan_id)
+                if not default_sponsor and default_plan.sponsor:
+                    default_sponsor = default_plan.sponsor
+            except (PatientPlan.DoesNotExist, ValueError):
+                pass
+
+        raw_rows = []
+
+        if uploaded_file:
+            fname = uploaded_file.name.lower()
+            try:
+                if fname.endswith('.csv'):
+                    file_data = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    reader = csv.DictReader(io.StringIO(file_data))
+                    for row in reader:
+                        raw_rows.append(row)
+                elif fname.endswith(('.xls', '.xlsx')):
+                    import pandas as pd
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df = df.where(pd.notnull(df), None)
+                    raw_rows = df.to_dict(orient='records')
+                else:
+                    return Response(
+                        {'detail': 'Unsupported file format. Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response({'detail': f'Error reading uploaded file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        elif 'items' in request.data:
+            items = request.data.get('items', [])
+            if isinstance(items, list):
+                raw_rows = items
+        else:
+            return Response({'detail': 'No file or items data provided for bulk upload.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not raw_rows:
+            return Response({'detail': 'The uploaded file contains no data rows.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # In-memory caches for fast lookup
+        all_sponsors = list(Sponsor.objects.all())
+        all_plans = list(PatientPlan.objects.select_related('sponsor').all())
+
+        sponsor_by_code = {s.code.strip().upper(): s for s in all_sponsors if s.code}
+        sponsor_by_name = {s.name.strip().upper(): s for s in all_sponsors if s.name}
+        sponsor_by_id = {str(s.id): s for s in all_sponsors}
+
+        plan_by_code = {p.code.strip().upper(): p for p in all_plans if p.code}
+        plan_by_name = {p.plan.strip().upper(): p for p in all_plans if p.plan}
+        plan_by_id = {str(p.id): p for p in all_plans}
+
+        staff = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+        if not staff:
+            staff = User.objects.first()
+
+        created_count = 0
+        updated_count = 0
+        skipped = []
+
+        counter = OtherService2.objects.count()
+
+        for idx, row in enumerate(raw_rows, start=1):
+            if not isinstance(row, dict):
+                continue
+
+            clean_row = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+
+            service_name = (
+                clean_row.get('service_name')
+                or clean_row.get('service')
+                or clean_row.get('procedure_name')
+                or clean_row.get('procedure')
+                or clean_row.get('name')
+                or clean_row.get('item_name')
+                or clean_row.get('item')
+            )
+            if not service_name or not str(service_name).strip():
+                skipped.append(f"Row {idx}: missing service name")
+                continue
+
+            service_name = str(service_name).strip()
+
+            raw_code = clean_row.get('service_code') or clean_row.get('service_id') or clean_row.get('code') or clean_row.get('sku') or clean_row.get('item_id')
+            service_code = str(raw_code).strip() if raw_code else ""
+
+            raw_rate = clean_row.get('rate') or clean_row.get('tariff_rate') or clean_row.get('price') or clean_row.get('tariff') or clean_row.get('fee') or clean_row.get('cost')
+            try:
+                rate_val = Decimal(str(raw_rate)) if raw_rate not in (None, '') else Decimal('0.00')
+            except Exception:
+                rate_val = Decimal('0.00')
+
+            # Determine sponsor & plan for this row
+            target_plan = default_plan
+            target_sponsor = default_sponsor
+
+            row_sponsor_val = str(clean_row.get('sponsor_code') or clean_row.get('sponsor_name') or clean_row.get('sponsor') or '').strip().upper()
+            row_plan_val = str(clean_row.get('plan_code') or clean_row.get('plan_name') or clean_row.get('plan') or '').strip().upper()
+
+            if row_sponsor_val in ('GENERAL', 'SELF', 'CASH', 'NONE') or row_plan_val in ('GENERAL', 'SELF', 'CASH', 'NONE'):
+                target_plan = None
+                target_sponsor = None
+            else:
+                if row_plan_val:
+                    target_plan = (
+                        plan_by_code.get(row_plan_val)
+                        or plan_by_name.get(row_plan_val)
+                        or plan_by_id.get(row_plan_val)
+                        or target_plan
+                    )
+                if row_sponsor_val:
+                    target_sponsor = (
+                        sponsor_by_code.get(row_sponsor_val)
+                        or sponsor_by_name.get(row_sponsor_val)
+                        or sponsor_by_id.get(row_sponsor_val)
+                        or (target_plan.sponsor if target_plan else target_sponsor)
+                    )
+
+            if target_sponsor and not target_plan:
+                sponsor_plans = [p for p in all_plans if p.sponsor_id == target_sponsor.id]
+                if sponsor_plans:
+                    target_plan = sponsor_plans[0]
+
+            # Look up existing record
+            existing = None
+            if service_code:
+                existing = OtherService2.objects.filter(service_id=service_code, plan=target_plan).first()
+            if not existing:
+                existing = OtherService2.objects.filter(service__iexact=service_name, plan=target_plan).first()
+
+            if existing:
+                existing.rate = rate_val
+                if service_code and not existing.service_id:
+                    existing.service_id = service_code
+                existing.save()
+                updated_count += 1
+            else:
+                if not service_code:
+                    counter += 1
+                    cand_id = f"SRV-{counter:03d}"
+                    while OtherService2.objects.filter(service_id=cand_id, plan=target_plan).exists():
+                        counter += 1
+                        cand_id = f"SRV-{counter:03d}"
+                    service_code = cand_id
+
+                OtherService2.objects.create(
+                    service=service_name,
+                    service_id=service_code,
+                    rate=rate_val,
+                    plan=target_plan,
+                    staff=staff
+                )
+                created_count += 1
+
+        target_label = f" for {default_plan.plan}" if default_plan else (" (General Self-Pay)" if is_general_default else "")
+        return Response({
+            'detail': f'Bulk upload completed{target_label}: {created_count} service(s) created, {updated_count} tariff(s) updated.',
+            'created': created_count,
+            'updated': updated_count,
+            'skipped_count': len(skipped),
+            'skipped': skipped[:10],
+        })
 
 
 # ==========================================================

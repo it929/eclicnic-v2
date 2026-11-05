@@ -389,9 +389,23 @@ class FamilyFolderSerializer(serializers.ModelSerializer):
 
 
 class VisitPurposeSerializer(serializers.ModelSerializer):
+    sponsor_name = serializers.CharField(source='sponsor.name', read_only=True, default=None)
+    sponsor_code = serializers.CharField(source='sponsor.code', read_only=True, default=None)
+    plan_name = serializers.CharField(source='plan.plan', read_only=True, default=None)
+    plan_code = serializers.CharField(source='plan.code', read_only=True, default=None)
+    is_general = serializers.SerializerMethodField()
+
     class Meta:
         model = VisitPurpose
-        fields = ['id', 'purpose', 'price', 'specialist_id']
+        fields = [
+            'id', 'purpose', 'price', 'specialist_id',
+            'sponsor', 'sponsor_name', 'sponsor_code',
+            'plan', 'plan_name', 'plan_code',
+            'is_general', 'created_date'
+        ]
+
+    def get_is_general(self, obj):
+        return obj.sponsor_id is None and obj.plan_id is None
 
 
 class NurseWaitingListSerializer(serializers.ModelSerializer):
