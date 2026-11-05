@@ -152,6 +152,7 @@ urlpatterns = [
     path('tariffs/medication-fees/bulk-upload/', tariff_views.BulkUploadMedicationTariffView.as_view(), name='api-tariff-medication-bulk-upload'),
     path('tariffs/medication-fees/download-template/', tariff_views.DownloadMedicationTariffTemplateView.as_view(), name='api-tariff-medication-download-template'),
     path('tariffs/medication-fees/<int:pk>/', tariff_views.MedicationFeesView.as_view(), name='api-tariff-medication-fees-detail'),
+    path('tariffs/packages/catalog-services/', tariff_views.PackageServiceCatalogView.as_view(), name='api-tariff-packages-catalog'),
     path('tariffs/packages/', tariff_views.PackagesView.as_view(), name='api-tariff-packages'),
     path('tariffs/packages/<int:pk>/', tariff_views.PackagesView.as_view(), name='api-tariff-packages-detail'),
     path('tariffs/package-data/', tariff_views.PackageDataView.as_view(), name='api-tariff-package-data'),
