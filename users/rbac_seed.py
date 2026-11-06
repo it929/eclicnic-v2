@@ -145,7 +145,8 @@ DEFAULT_MODULES = [
         'description': 'Hospital stock catalog, vendor management, internal pharmacy transfers & store requisitions',
         'submodules': [
             {'code': 'invPharmacy', 'name': 'Pharmacy Dispensing (OPD)', 'icon': 'fa-prescription-bottle-alt', 'tab_key': 'pharmacy', 'route': '/pharmacy/opd', 'order': 1},
-            {'code': 'invCatalog', 'name': 'Stock & Products Catalog', 'icon': 'fa-box-open', 'tab_key': 'inventory', 'sub_tab': 'view', 'route': '/inventory/catalog', 'order': 2},
+            {'code': 'invCentralStore', 'name': 'Central Medical Store', 'icon': 'fa-warehouse', 'tab_key': 'inventory', 'sub_tab': 'central_store', 'route': '/inventory/central-store', 'order': 2},
+            {'code': 'invCatalog', 'name': 'Stock & Products Catalog', 'icon': 'fa-box-open', 'tab_key': 'inventory', 'sub_tab': 'view', 'route': '/inventory/catalog', 'order': 3},
             {'code': 'invTransfers', 'name': 'Internal Stock Transfers', 'icon': 'fa-exchange-alt', 'tab_key': 'inventory', 'sub_tab': 'transfer', 'route': '/inventory/transfers', 'order': 3},
             {'code': 'invRequests', 'name': 'Store Product Requisitions', 'icon': 'fa-dolly', 'tab_key': 'inventory', 'sub_tab': 'request', 'route': '/inventory/requests', 'order': 4},
             {'code': 'invVendors', 'name': 'Vendors & Suppliers', 'icon': 'fa-truck', 'tab_key': 'inventory', 'sub_tab': 'vendor', 'route': '/inventory/vendors', 'order': 5},

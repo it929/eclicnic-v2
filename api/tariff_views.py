@@ -8,7 +8,7 @@ from queue_operations.models import RegFee
 from patients.models import PatientPlan, Sponsor, PatientProfile
 from IPD.models import Ward
 from radio_lab.models import RadioLabInventory, RadiologyProcedure, LabInvestigation, LabParameter, LabInvestigationParameter
-from inventory.models import PharmacyTariff
+from inventory.models import Product, PharmacyTariff
 from myAdmins.models import OtherService2, Packages, PackagesData
 from users.models import User
 
@@ -805,10 +805,11 @@ class BulkUploadLabTariffView(APIView):
             row_sponsor_code = str(clean_row.get('sponsor_code') or clean_row.get('sponsor') or '').strip().upper()
             row_plan_code = str(clean_row.get('plan_code') or clean_row.get('plan') or '').strip().upper()
 
-            sponsor = default_sponsor
-            plan = default_plan
+            # If user explicitly selected sponsor/plan in modal, respect modal choices!
+            sponsor = default_sponsor if default_sponsor else None
+            plan = default_plan if default_plan else None
 
-            if row_sponsor_code:
+            if not default_sponsor and row_sponsor_code:
                 if row_sponsor_code in ('GENERAL', 'SELF', 'CASH', 'NONE', '0'):
                     sponsor = None
                     plan = None
@@ -819,13 +820,19 @@ class BulkUploadLabTariffView(APIView):
                 elif row_sponsor_code in sponsor_by_id:
                     sponsor = sponsor_by_id[row_sponsor_code]
 
-            if row_plan_code and sponsor is not None:
-                if row_plan_code in plan_by_code:
-                    plan = plan_by_code[row_plan_code]
-                elif row_plan_code in plan_by_name:
-                    plan = plan_by_name[row_plan_code]
-                elif row_plan_code in plan_by_id:
-                    plan = plan_by_id[row_plan_code]
+            if not default_plan and row_plan_code and sponsor is not None:
+                # Find plan scoped within sponsor
+                for p in all_plans:
+                    if p.sponsor_id == sponsor.id and ((p.code and p.code.strip().upper() == row_plan_code) or (p.plan and p.plan.strip().upper() == row_plan_code)):
+                        plan = p
+                        break
+                if not plan:
+                    if row_plan_code in plan_by_code:
+                        plan = plan_by_code[row_plan_code]
+                    elif row_plan_code in plan_by_name:
+                        plan = plan_by_name[row_plan_code]
+                    elif row_plan_code in plan_by_id:
+                        plan = plan_by_id[row_plan_code]
 
             # Upsert into RadioLabInventory
             existing = None
@@ -1135,34 +1142,47 @@ class DownloadRadiologyTariffTemplateView(APIView):
             sponsor_name = "General / Out-of-Pocket"
             plan_name = "General Tariff"
         else:
-            sponsor_code = "AMH"
-            plan_code = "AIICO SLIVER"
-            sponsor_name = "AIICO MULTISHIELD (AMH)"
-            plan_name = "AIICO SLIVER"
+            sponsor_code = ""
+            plan_code = ""
+            sponsor_name = ""
+            plan_name = ""
 
-            if sponsor_id and str(sponsor_id).lower() not in ('all', 'none'):
+            if sponsor_id and str(sponsor_id).lower() not in ('all', 'none', ''):
                 try:
                     resolved_sponsor = Sponsor.objects.get(id=sponsor_id)
+                except Exception:
+                    resolved_sponsor = Sponsor.objects.filter(
+                        Q(code__iexact=str(sponsor_id).strip()) | Q(name__iexact=str(sponsor_id).strip())
+                    ).first()
+                if resolved_sponsor:
                     sponsor_code = resolved_sponsor.code or resolved_sponsor.name
                     sponsor_name = resolved_sponsor.name
-                except Sponsor.DoesNotExist:
-                    pass
 
-            if plan_id and str(plan_id).lower() not in ('all', 'none'):
+            if plan_id and str(plan_id).lower() not in ('all', 'none', ''):
                 try:
                     resolved_plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                except Exception:
+                    resolved_plan = PatientPlan.objects.filter(
+                        Q(code__iexact=str(plan_id).strip()) | Q(plan__iexact=str(plan_id).strip())
+                    ).first()
+                if resolved_plan:
                     plan_code = resolved_plan.code or resolved_plan.plan
                     plan_name = resolved_plan.plan
-                    if resolved_plan.sponsor and not resolved_sponsor:
+                    if not resolved_sponsor and resolved_plan.sponsor:
                         resolved_sponsor = resolved_plan.sponsor
                         sponsor_code = resolved_sponsor.code or resolved_sponsor.name
                         sponsor_name = resolved_sponsor.name
-                except PatientPlan.DoesNotExist:
-                    pass
+            elif resolved_sponsor:
+                # If sponsor was selected but no specific plan was passed, select first plan of this sponsor
+                first_plan = PatientPlan.objects.filter(sponsor=resolved_sponsor).first()
+                if first_plan:
+                    resolved_plan = first_plan
+                    plan_code = first_plan.code or first_plan.plan
+                    plan_name = first_plan.plan
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['item_name', 'procedure_code', 'rate', 'sponsor_code', 'plan_code', 'notes'])
+        writer.writerow(['Scan Name', 'Scan Code', 'Price', 'Sponsor Code', 'Plan Code', 'Notes'])
 
         notes_text = "General Tariff - Pay from your purse" if is_general else f"Covered under {plan_name}"
 
@@ -1225,19 +1245,27 @@ class BulkUploadRadiologyTariffView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        import csv, io
+        import csv, io, re
+        from decimal import Decimal
+        from django.db.models import Q
+        from radio_lab.models import RadioLabInventory, RadiologyProcedure
+        from patients.models import Sponsor, PatientPlan
+        from users.models import User
+
         uploaded_file = request.FILES.get('file')
         default_sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor') or request.data.get('default_sponsor_id')
         default_plan_id = request.data.get('plan_id') or request.data.get('plan') or request.data.get('default_plan_id')
 
-        is_general_default = str(default_sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+        is_general_default = str(default_sponsor_id or '').strip().lower() in ('general', 'self', 'cash', 'none')
 
         default_sponsor = None
         if not is_general_default and default_sponsor_id and str(default_sponsor_id).lower() not in ('', 'all', 'null', 'none'):
             try:
                 default_sponsor = Sponsor.objects.get(id=default_sponsor_id)
-            except Sponsor.DoesNotExist:
-                pass
+            except Exception:
+                default_sponsor = Sponsor.objects.filter(
+                    Q(code__iexact=str(default_sponsor_id).strip()) | Q(name__iexact=str(default_sponsor_id).strip())
+                ).first()
 
         default_plan = None
         if not is_general_default and default_plan_id and str(default_plan_id).lower() not in ('', 'all', 'null', 'none'):
@@ -1245,8 +1273,18 @@ class BulkUploadRadiologyTariffView(APIView):
                 default_plan = PatientPlan.objects.select_related('sponsor').get(id=default_plan_id)
                 if not default_sponsor and default_plan.sponsor:
                     default_sponsor = default_plan.sponsor
-            except PatientPlan.DoesNotExist:
-                pass
+            except Exception:
+                # If default_sponsor is known, find plan within that sponsor first!
+                if default_sponsor:
+                    default_plan = PatientPlan.objects.filter(sponsor=default_sponsor).filter(
+                        Q(code__iexact=str(default_plan_id).strip()) | Q(plan__iexact=str(default_plan_id).strip())
+                    ).first()
+                if not default_plan:
+                    default_plan = PatientPlan.objects.filter(
+                        Q(code__iexact=str(default_plan_id).strip()) | Q(plan__iexact=str(default_plan_id).strip())
+                    ).first()
+                if default_plan and not default_sponsor and default_plan.sponsor:
+                    default_sponsor = default_plan.sponsor
 
         raw_rows = []
 
@@ -1254,13 +1292,44 @@ class BulkUploadRadiologyTariffView(APIView):
             fname = uploaded_file.name.lower()
             try:
                 if fname.endswith('.csv'):
-                    file_data = uploaded_file.read().decode('utf-8-sig', errors='ignore')
-                    reader = csv.DictReader(io.StringIO(file_data))
+                    file_bytes = uploaded_file.read()
+                    text_data = None
+                    for enc in ['utf-8-sig', 'utf-8', 'latin1']:
+                        try:
+                            text_data = file_bytes.decode(enc)
+                            break
+                        except Exception:
+                            continue
+                    if text_data is None:
+                        text_data = file_bytes.decode('utf-8', errors='ignore')
+
+                    first_line = text_data.strip().split('\n')[0] if text_data else ''
+                    delimiter = ';' if (';' in first_line and first_line.count(';') > first_line.count(',')) else (
+                        '\t' if ('\t' in first_line and first_line.count('\t') > first_line.count(',')) else ','
+                    )
+                    reader = csv.DictReader(io.StringIO(text_data), delimiter=delimiter)
                     for row in reader:
                         raw_rows.append(row)
+
                 elif fname.endswith(('.xls', '.xlsx')):
                     import pandas as pd
-                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    file_bytes = uploaded_file.read()
+                    df = pd.read_excel(io.BytesIO(file_bytes))
+
+                    has_known_col = any(
+                        any(c in re.sub(r'[^a-z0-9]', '', str(col).lower()) for c in ['name', 'scan', 'procedure', 'price', 'code', 'rate', 'item'])
+                        for col in df.columns
+                    )
+                    if not has_known_col and len(df) > 0:
+                        row0 = df.iloc[0]
+                        has_row0_header = any(
+                            any(c in re.sub(r'[^a-z0-9]', '', str(v).lower()) for c in ['name', 'scan', 'procedure', 'price', 'code', 'rate', 'item'])
+                            for v in row0.values
+                        )
+                        if has_row0_header:
+                            df.columns = [str(v).strip() for v in row0.values]
+                            df = df.iloc[1:].reset_index(drop=True)
+
                     df = df.where(pd.notnull(df), None)
                     raw_rows = df.to_dict(orient='records')
                 else:
@@ -1270,7 +1339,7 @@ class BulkUploadRadiologyTariffView(APIView):
                     )
             except Exception as e:
                 return Response({'detail': f'Error reading uploaded file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-        elif 'items' in request.data:
+        elif hasattr(request, 'data') and 'items' in request.data:
             items = request.data.get('items', [])
             if isinstance(items, list):
                 raw_rows = items
@@ -1305,64 +1374,91 @@ class BulkUploadRadiologyTariffView(APIView):
 
         counter = RadioLabInventory.objects.count()
 
+        def find_field(norm_dict, candidate_keys):
+            for cand in candidate_keys:
+                if cand in norm_dict:
+                    val = norm_dict[cand]
+                    if val is not None and str(val).strip() not in ('', 'nan', 'none', 'null'):
+                        return val
+            for cand in candidate_keys:
+                for k, val in norm_dict.items():
+                    if cand in k or k in cand:
+                        if val is not None and str(val).strip() not in ('', 'nan', 'none', 'null'):
+                            return val
+            return None
+
         for idx, row in enumerate(raw_rows, start=1):
             if not isinstance(row, dict):
                 continue
 
-            clean_row = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+            non_empty_values = [v for v in row.values() if v is not None and str(v).strip() not in ('', 'nan', 'none', 'null')]
+            if not non_empty_values:
+                continue
 
-            item_name = (
-                clean_row.get('item_name')
-                or clean_row.get('procedure_name')
-                or clean_row.get('test_name')
-                or clean_row.get('radiology_procedure')
-                or clean_row.get('scan_name')
-                or clean_row.get('scan')
-                or clean_row.get('procedure')
-                or clean_row.get('item')
-                or clean_row.get('name')
-            )
+            norm_row = {}
+            clean_row = {}
+            for k, v in row.items():
+                if k is not None:
+                    sk = str(k).strip().lower()
+                    clean_row[sk] = v
+                    clean_k = re.sub(r'[^a-z0-9]', '', sk)
+                    if clean_k:
+                        norm_row[clean_k] = v
+
+            # 1. SCAN PROCEDURE / ITEM NAME
+            item_name = find_field(norm_row, [
+                'scanname', 'procedurename', 'name', 'itemname', 'item', 'procedure',
+                'scan', 'description', 'testname', 'investigationname', 'investigation',
+                'scanprocedurename', 'procedurescanname', 'title', 'service', 'servicename'
+            ])
+
+            if not item_name:
+                for v in non_empty_values:
+                    sv = str(v).strip()
+                    if len(sv) > 2 and not re.match(r'^\d+(\.\d+)?$', sv) and not re.match(r'^[A-Z0-9]{2,6}-\d+$', sv, re.I):
+                        item_name = sv
+                        break
+
             if not item_name or not str(item_name).strip():
                 skipped.append(f"Row {idx}: Missing scan procedure name")
                 continue
 
             item_name = str(item_name).strip()
 
-            rate_raw = (
-                clean_row.get('rate')
-                or clean_row.get('tariff_rate')
-                or clean_row.get('price')
-                or clean_row.get('amount')
-                or clean_row.get('fee')
-            )
+            # 2. RATE / PRICE
+            rate_raw = find_field(norm_row, [
+                'rate', 'tariffrate', 'price', 'amount', 'fee', 'cost',
+                'charge', 'baseprice', 'basepricengn', 'pricengn'
+            ])
             try:
-                rate_val = Decimal(str(rate_raw).replace(',', '').replace('₦', '').strip())
+                clean_r_str = re.sub(r'[^\d.]', '', str(rate_raw)) if rate_raw is not None else ''
+                rate_val = Decimal(clean_r_str) if clean_r_str else Decimal('0.00')
                 if rate_val < 0:
                     rate_val = Decimal('0.00')
             except Exception:
                 skipped.append(f"Row {idx} ({item_name}): Invalid rate '{rate_raw}'")
                 continue
 
-            proc_code = (
-                clean_row.get('procedure_code')
-                or clean_row.get('test_code')
-                or clean_row.get('item_id')
-                or clean_row.get('code')
-            )
-            if proc_code:
-                proc_code = str(proc_code).strip().upper()
+            # 3. PROCEDURE CODE
+            raw_code = find_field(norm_row, [
+                'procedurecode', 'scancode', 'code', 'testcode', 'itemid',
+                'scanid', 'id', 'scanprocedurecode', 'procedurescanname', 'serialnumber', 'no'
+            ])
+            if raw_code and str(raw_code).strip() not in ('', 'nan', 'none', 'null'):
+                proc_code = str(raw_code).strip().upper()
             else:
                 counter += 1
                 proc_code = f"RAD-{counter:03d}"
 
-            # Check if this row is explicitly marked as general or if default mode is general
-            row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name')
+            # 4. RESOLVE SPONSOR & PLAN
+            row_sponsor_val = find_field(norm_row, [
+                'sponsorcode', 'sponsor', 'sponsorname', 'hmo', 'hmocode', 'hmoname'
+            ])
             is_general_row = (
                 is_general_default or
                 (row_sponsor_val and str(row_sponsor_val).strip().upper() in ('GENERAL', 'SELF', 'CASH', 'NONE'))
             )
 
-            # Resolve Sponsor
             row_sponsor = None
             if not is_general_row and row_sponsor_val and str(row_sponsor_val).strip():
                 raw_s = str(row_sponsor_val).strip()
@@ -1372,48 +1468,64 @@ class BulkUploadRadiologyTariffView(APIView):
                     or sponsor_by_id.get(raw_s)
                 )
 
-            target_sponsor = None if is_general_row else (row_sponsor or default_sponsor)
+            # Priority: Modal dropdown selection ALWAYS takes precedence when explicitly chosen!
+            target_sponsor = None if is_general_row else (default_sponsor if default_sponsor else row_sponsor)
 
-            # Resolve Plan
-            row_plan_val = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name')
-            row_plan = None
-            if not is_general_row and row_plan_val and str(row_plan_val).strip():
-                raw_p = str(row_plan_val).strip()
-                row_plan = (
-                    plan_by_code.get(raw_p.upper())
-                    or plan_by_name.get(raw_p.upper())
-                    or plan_by_id.get(raw_p)
-                )
+            # Similarly for Coverage Plan:
+            # If the user chose a specific plan in the modal (e.g. Plan B), target_plan MUST be Plan B!
+            # Never let an old plan name from the CSV file override the user's explicit modal selection.
+            if is_general_row:
+                target_plan = None
+            elif default_plan:
+                target_plan = default_plan
+            else:
+                row_plan_val = find_field(norm_row, [
+                    'plancode', 'plan', 'planname', 'coverageplan', 'package'
+                ])
+                row_plan = None
+                if row_plan_val and str(row_plan_val).strip():
+                    raw_p = str(row_plan_val).strip().upper()
+                    # Resolve within target_sponsor first if sponsor is known
+                    if target_sponsor:
+                        for p in all_plans:
+                            if p.sponsor_id == target_sponsor.id:
+                                if (p.code and p.code.strip().upper() == raw_p) or (p.plan and p.plan.strip().upper() == raw_p) or str(p.id) == raw_p:
+                                    row_plan = p
+                                    break
+                    if not row_plan:
+                        row_plan = (
+                            plan_by_code.get(raw_p)
+                            or plan_by_name.get(raw_p)
+                            or plan_by_id.get(raw_p)
+                        )
+                target_plan = row_plan
 
-            target_plan = None if is_general_row else (row_plan or default_plan)
             if target_plan and target_plan.sponsor and not target_sponsor:
                 target_sponsor = target_plan.sponsor
 
             if not is_general_row and not target_sponsor and not target_plan:
-                skipped.append(f"Row {idx} ({item_name}): Could not identify Sponsor or Plan")
-                continue
+                # If no sponsor or plan is specified in file or dropdown, default to General Out-of-Pocket tariff
+                is_general_row = True
 
+            # 5. STRICT DUPLICATE PREVENTION & UPDATE
+            has_explicit_code = raw_code and str(raw_code).strip() not in ('', 'nan', 'none', 'null')
             if is_general_row:
                 # General Tariff: sponsor=None, plan=None
-                existing = RadioLabInventory.objects.filter(
-                    type='R',
-                    item__iexact=item_name,
-                    sponsor__isnull=True,
-                    plan__isnull=True
-                ).first()
-
-                if not existing and proc_code:
+                existing = None
+                if has_explicit_code:
                     existing = RadioLabInventory.objects.filter(
-                        type='R',
-                        item_id__iexact=proc_code,
-                        sponsor__isnull=True,
-                        plan__isnull=True
+                        type='R', sponsor__isnull=True, plan__isnull=True, item_id__iexact=proc_code
+                    ).first()
+                if not existing:
+                    existing = RadioLabInventory.objects.filter(
+                        type='R', sponsor__isnull=True, plan__isnull=True, item__iexact=item_name
                     ).first()
 
                 if existing:
                     existing.rate = rate_val
                     existing.item = item_name
-                    existing.item_id = proc_code
+                    if has_explicit_code:
+                        existing.item_id = proc_code
                     existing.sponsor = None
                     existing.plan = None
                     existing.staff = staff
@@ -1432,25 +1544,21 @@ class BulkUploadRadiologyTariffView(APIView):
                     created_count += 1
             else:
                 # HMO Tariff: linked to specific Sponsor and/or Plan
-                existing = RadioLabInventory.objects.filter(
-                    type='R',
-                    item__iexact=item_name,
-                    sponsor=target_sponsor,
-                    plan=target_plan
-                ).first()
-
-                if not existing and proc_code:
+                existing = None
+                if has_explicit_code:
                     existing = RadioLabInventory.objects.filter(
-                        type='R',
-                        item_id__iexact=proc_code,
-                        sponsor=target_sponsor,
-                        plan=target_plan
+                        type='R', sponsor=target_sponsor, plan=target_plan, item_id__iexact=proc_code
+                    ).first()
+                if not existing:
+                    existing = RadioLabInventory.objects.filter(
+                        type='R', sponsor=target_sponsor, plan=target_plan, item__iexact=item_name
                     ).first()
 
                 if existing:
                     existing.rate = rate_val
                     existing.item = item_name
-                    existing.item_id = proc_code
+                    if has_explicit_code:
+                        existing.item_id = proc_code
                     existing.staff = staff
                     existing.save()
                     updated_count += 1
@@ -1464,32 +1572,43 @@ class BulkUploadRadiologyTariffView(APIView):
                         plan=target_plan,
                         staff=staff
                     )
-                    # Also ensure scan procedure exists in master database catalog
-                    from radio_lab.models import RadiologyProcedure
-                    if not RadiologyProcedure.objects.filter(Q(code__iexact=proc_code) | Q(name__iexact=item_name)).exists():
-                        RadiologyProcedure.objects.create(
-                            code=proc_code,
-                            name=item_name,
-                            base_price=rate_val,
-                            is_active=True
-                        )
-
                     created_count += 1
 
-        msg = f"Bulk upload completed: {created_count} radiology tariffs created, {updated_count} updated."
+                # Safe sync with master RadiologyProcedure catalog (without throwing IntegrityError on unique code)
+                proc_master = RadiologyProcedure.objects.filter(
+                    Q(code__iexact=proc_code) | Q(name__iexact=item_name)
+                ).first()
+                if not proc_master:
+                    unique_c = proc_code
+                    if RadiologyProcedure.objects.filter(code__iexact=unique_c).exists():
+                        rad_c = RadiologyProcedure.objects.count() + 1
+                        unique_c = f"RAD-{rad_c:03d}"
+                        while RadiologyProcedure.objects.filter(code__iexact=unique_c).exists():
+                            rad_c += 1
+                            unique_c = f"RAD-{rad_c:03d}"
+                    RadiologyProcedure.objects.create(
+                        code=unique_c,
+                        name=item_name,
+                        base_price=rate_val,
+                        is_active=True
+                    )
+                elif proc_master.base_price <= 0 and rate_val > 0:
+                    proc_master.base_price = rate_val
+                    proc_master.save(update_fields=['base_price'])
+
+        detail_msg = f"Bulk upload completed: {created_count} tariff(s) created, {updated_count} updated."
         if skipped:
-            msg += f" {len(skipped)} rows were skipped."
+            detail_msg += f" ({len(skipped)} row(s) skipped)."
 
         return Response({
-            'detail': msg,
+            'detail': detail_msg,
             'created': created_count,
             'updated': updated_count,
-            'skipped': skipped,
-            'total_processed': created_count + updated_count + len(skipped),
+            'skipped_count': len(skipped),
+            'skipped': skipped[:10],
+            'total_processed': created_count + updated_count
         }, status=status.HTTP_200_OK)
 
-
-# 1.4 Admission Fees (Wards)
 class AdmissionFeesView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -2143,13 +2262,35 @@ class MedicationFeesView(APIView):
 
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
+        if not product_id or not str(product_id).strip():
+            existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+            if existing_prod and existing_prod.product_id:
+                product_id = existing_prod.product_id
+            else:
+                existing_t = PharmacyTariff.objects.filter(product_name__iexact=product_name).exclude(product_id__isnull=True).exclude(product_id='').first()
+                if existing_t and existing_t.product_id:
+                    product_id = existing_t.product_id
+                else:
+                    from inventory.utils import get_next_isl_sku
+                    product_id = get_next_isl_sku()
+
         obj = PharmacyTariff.objects.create(
             product_name=product_name,
-            product_id=product_id or f"DRG-{PharmacyTariff.objects.count()+1:03d}",
+            product_id=product_id,
             rate=Decimal(str(rate)),
             sponsor=sponsor,
             plan=plan,
             staff=staff
+        )
+
+        Product.objects.get_or_create(
+            product_name=product_name,
+            defaults={
+                'product_id': product_id,
+                'price': Decimal(str(rate)),
+                'stock': 0,
+                'staff': staff,
+            }
         )
 
         eff_sponsor = obj.sponsor or (obj.plan.sponsor if obj.plan else None)
@@ -2174,6 +2315,25 @@ class MedicationFeesView(APIView):
             obj = PharmacyTariff.objects.select_related('sponsor', 'plan').get(id=pk)
         except PharmacyTariff.DoesNotExist:
             return Response({'detail': 'Medication tariff not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        pin = request.data.get('pin') or request.data.get('security_pin')
+        staff_user = None
+        if pin and str(pin).strip():
+            raw_pin = str(pin).strip()
+            if request.user and request.user.is_authenticated and hasattr(request.user, 'check_pin') and getattr(request.user, 'has_pin', False) and request.user.check_pin(raw_pin):
+                staff_user = request.user
+            else:
+                for u in User.objects.filter(is_active=True):
+                    if hasattr(u, 'check_pin') and getattr(u, 'has_pin', False) and u.check_pin(raw_pin):
+                        staff_user = u
+                        break
+            if not staff_user:
+                return Response({'detail': 'Incorrect Security PIN. Authorization denied.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif request.user and request.user.is_authenticated:
+            staff_user = request.user
+
+        if staff_user:
+            obj.staff = staff_user
 
         if 'product_name' in request.data:
             obj.product_name = request.data['product_name'].strip()
@@ -2240,18 +2400,26 @@ class LoadGeneralMedicationPricesView(APIView):
 
         # Baseline clinical formulary prices for general self-pay patients
         BASELINE_MED_PRICES = {
-            'Paracetamol 500mg Tablet': ('MED-001', Decimal('500.00')),
-            'Amoxicillin 500mg Capsule': ('MED-002', Decimal('1200.00')),
-            'Artemether/Lumefantrine 20/120mg (Coartem)': ('MED-003', Decimal('2500.00')),
-            'Ciprofloxacin 500mg Tablet': ('MED-004', Decimal('1800.00')),
-            'Metformin 500mg Tablet': ('MED-005', Decimal('950.00')),
-            'Amlodipine 5mg Tablet': ('MED-006', Decimal('1400.00')),
-            'Ibuprofen 400mg Tablet': ('MED-007', Decimal('600.00')),
-            'Omeprazole 20mg Capsule': ('MED-008', Decimal('1100.00')),
-            'Ceftriaxone 1g Injection': ('MED-009', Decimal('3500.00')),
-            'Oral Rehydration Salts (ORS) Sachet': ('MED-010', Decimal('300.00')),
-            'Dextromethorphan Syrup': ('MED-011', Decimal('1500.00')),
+            'Paracetamol 500mg Tablet': ('ISL-001', Decimal('500.00')),
+            'Amoxicillin 500mg Capsule': ('ISL-002', Decimal('1200.00')),
+            'Artemether/Lumefantrine 20/120mg (Coartem)': ('ISL-003', Decimal('2500.00')),
+            'Ciprofloxacin 500mg Tablet': ('ISL-004', Decimal('1800.00')),
+            'Metformin 500mg Tablet': ('ISL-005', Decimal('950.00')),
+            'Amlodipine 5mg Tablet': ('ISL-006', Decimal('1400.00')),
+            'Ibuprofen 400mg Tablet': ('ISL-007', Decimal('600.00')),
+            'Omeprazole 20mg Capsule': ('ISL-008', Decimal('1100.00')),
+            'Ceftriaxone 1g Injection': ('ISL-009', Decimal('3500.00')),
+            'Oral Rehydration Salts (ORS) Sachet': ('ISL-010', Decimal('300.00')),
+            'Dextromethorphan Syrup': ('ISL-011', Decimal('1500.00')),
         }
+
+        # 0. Migrate any legacy MED- SKUs to ISL-
+        for p in Product.objects.filter(product_id__icontains='MED-'):
+            p.product_id = p.product_id.replace('MED-', 'ISL-').replace('med-', 'ISL-')[:13]
+            p.save(update_fields=['product_id'])
+        for t in PharmacyTariff.objects.filter(product_id__icontains='MED-'):
+            t.product_id = t.product_id.replace('MED-', 'ISL-').replace('med-', 'ISL-')[:13]
+            t.save(update_fields=['product_id'])
 
         # 1. Sync from inventory Product model if any exist
         inv_products = Product.objects.filter(price__gt=0)
@@ -2564,11 +2732,16 @@ class DownloadMedicationTariffTemplateView(APIView):
     def get(self, request):
         from django.http import HttpResponse
         import io, csv
+        from inventory.models import Product, PharmacyTariff, PharmacyStore, StoreStock
+        from django.db.models import Q
 
         sponsor_id = request.query_params.get('sponsor')
         plan_id = request.query_params.get('plan')
 
         is_general = str(sponsor_id).strip().lower() in ('general', 'self', 'cash', 'none')
+
+        sponsor = None
+        plan = None
 
         if is_general:
             sponsor_code = "GENERAL"
@@ -2576,55 +2749,121 @@ class DownloadMedicationTariffTemplateView(APIView):
             sponsor_name = "General / Out-of-Pocket (Self-Pay)"
             plan_name = "General Baseline Tariff"
         else:
-            sponsor_code = "AMH"
-            plan_code = "AIICO SLIVER"
-            sponsor_name = "AIICO MULTISHIELD (AMH)"
-            plan_name = "AIICO SLIVER"
+            sponsor_code = ""
+            plan_code = ""
+            sponsor_name = ""
+            plan_name = ""
 
             if sponsor_id and str(sponsor_id).lower() not in ('all', '', 'none', 'null'):
                 try:
-                    s = Sponsor.objects.get(id=sponsor_id)
-                    sponsor_code = s.code or s.name
-                    sponsor_name = s.name
-                except Sponsor.DoesNotExist:
+                    sponsor = Sponsor.objects.get(id=sponsor_id)
+                    sponsor_code = sponsor.code or sponsor.name
+                    sponsor_name = sponsor.name
+                except (Sponsor.DoesNotExist, ValueError):
                     pass
 
             if plan_id and str(plan_id).lower() not in ('all', '', 'none', 'null'):
                 try:
-                    p = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
-                    plan_code = p.code or p.plan
-                    plan_name = p.plan
-                    if p.sponsor:
-                        sponsor_code = p.sponsor.code or p.sponsor.name
-                        sponsor_name = p.sponsor.name
-                except PatientPlan.DoesNotExist:
+                    plan = PatientPlan.objects.select_related('sponsor').get(id=plan_id)
+                    plan_code = plan.code or plan.plan
+                    plan_name = plan.plan
+                    if plan.sponsor and not sponsor:
+                        sponsor = plan.sponsor
+                        sponsor_code = sponsor.code or sponsor.name
+                        sponsor_name = sponsor.name
+                except (PatientPlan.DoesNotExist, ValueError):
                     pass
 
+            if not sponsor_code:
+                sponsor_code = "AMH"
+                sponsor_name = "AIICO MULTISHIELD (AMH)"
+            if not plan_code:
+                plan_code = "AIICO SLIVER"
+                plan_name = "AIICO SLIVER"
+
+        # 1. Locate Central Medical Store
+        central_store = PharmacyStore.objects.filter(
+            Q(is_central=True) | Q(store_type='central_store') | Q(name__icontains='central')
+        ).first() or PharmacyStore.objects.first()
+
+        # Map central store stock items
+        stock_map = {}
+        if central_store:
+            for ss in StoreStock.objects.filter(store=central_store).select_related('product'):
+                if ss.product_id:
+                    stock_map[ss.product_id] = ss
+
+        # Map existing negotiated tariffs for this sponsor & plan
+        tariff_map = {}
+        if not is_general and sponsor and plan:
+            for t in PharmacyTariff.objects.filter(sponsor=sponsor, plan=plan):
+                if t.product_name:
+                    tariff_map[t.product_name.strip().lower()] = t.rate
+        elif is_general:
+            for t in PharmacyTariff.objects.filter(sponsor__isnull=True, plan__isnull=True):
+                if t.product_name:
+                    tariff_map[t.product_name.strip().lower()] = t.rate
+
+        # 2. Query all medical items in database (ordered alphabetically)
+        products = Product.objects.all().order_by('product_name')
+
+        rows_data = []
+        for p in products:
+            p_name = (p.product_name or getattr(p, 'name', '') or '').strip()
+            if not p_name:
+                continue
+
+            # Resolve price/rate:
+            # 1. Existing negotiated tariff rate for sponsor & plan
+            # 2. Product catalog default selling price
+            # 3. Fallback 0.00
+            p_name_lower = p_name.lower()
+            if p_name_lower in tariff_map and tariff_map[p_name_lower] is not None:
+                rate = tariff_map[p_name_lower]
+            elif p.price is not None:
+                rate = p.price
+            else:
+                rate = 0.00
+
+            try:
+                rate_str = f"{float(rate):.2f}"
+            except (ValueError, TypeError):
+                rate_str = "0.00"
+
+            uom = p.minimum_UoM or p.unit or ''
+            notes = f"Tariff for {plan_name}"
+            if uom:
+                notes += f" ({uom})"
+
+            rows_data.append([
+                p_name,
+                rate_str,
+                sponsor_code,
+                plan_code,
+                notes,
+            ])
+
+        # Fallback if no products exist in database
+        if not rows_data:
+            rows_data = [
+                ['Paracetamol 500mg Tablet', '500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+                ['Amoxicillin 500mg Capsule', '1200.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
+            ]
+
+        # 3. Output CSV with UTF-8 BOM so Excel opens it with clean columns
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['product_name', 'sku', 'rate', 'sponsor_code', 'plan_code', 'notes'])
-
-        samples = [
-            ['Paracetamol 500mg Tablet', 'MED-001', '500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Amoxicillin 500mg Capsule', 'MED-002', '1200.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Artemether/Lumefantrine 20/120mg (Coartem)', 'MED-003', '2500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Ciprofloxacin 500mg Tablet', 'MED-004', '1800.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Metformin 500mg Tablet', 'MED-005', '950.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Amlodipine 5mg Tablet', 'MED-006', '1400.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Ibuprofen 400mg Tablet', 'MED-007', '600.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Omeprazole 20mg Capsule', 'MED-008', '1100.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Ceftriaxone 1g Injection', 'MED-009', '3500.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-            ['Oral Rehydration Salts (ORS) Sachet', 'MED-010', '300.00', sponsor_code, plan_code, f'Tariff for {plan_name}'],
-        ]
-        for row in samples:
-            writer.writerow(row)
+        writer.writerow(['product_name', 'rate', 'sponsor_code', 'plan_code', 'notes'])
+        for r in rows_data:
+            writer.writerow(r)
 
         csv_content = output.getvalue()
-        response = HttpResponse(csv_content, content_type='text/csv; charset=utf-8')
+        response = HttpResponse('﻿' + csv_content, content_type='text/csv; charset=utf-8')
         safe_sponsor = str(sponsor_code).replace(' ', '_').replace('/', '_')
         safe_plan = str(plan_code).replace(' ', '_').replace('/', '_')
         filename = f"medication_tariffs_template_{safe_sponsor}_{safe_plan}.csv"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response
 
 
@@ -2633,7 +2872,13 @@ class BulkUploadMedicationTariffView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        import io, csv
+        import io, csv, re
+        from decimal import Decimal
+        from django.db.models import Q
+        from inventory.models import Product, PharmacyTariff
+        from patients.models import Sponsor, PatientPlan
+        from users.models import User
+
         default_sponsor_id = request.data.get('sponsor_id') or request.data.get('default_sponsor_id')
         default_plan_id = request.data.get('plan_id') or request.data.get('default_plan_id')
 
@@ -2661,16 +2906,29 @@ class BulkUploadMedicationTariffView(APIView):
         if uploaded_file:
             filename = uploaded_file.name.lower()
             try:
+                file_bytes = uploaded_file.read()
                 if filename.endswith('.csv'):
-                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    decoded_file = None
+                    for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+                        try:
+                            decoded_file = file_bytes.decode(enc)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    if decoded_file is None:
+                        decoded_file = file_bytes.decode('utf-8', errors='ignore')
+
                     reader = csv.DictReader(io.StringIO(decoded_file))
                     for row in reader:
-                        raw_rows.append(row)
+                        if any(v and str(v).strip() for v in row.values() if v is not None):
+                            raw_rows.append(row)
                 elif filename.endswith(('.xlsx', '.xls')):
                     import pandas as pd
-                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df = pd.read_excel(io.BytesIO(file_bytes))
                     df = df.where(pd.notnull(df), None)
-                    raw_rows = df.to_dict(orient='records')
+                    for r in df.to_dict(orient='records'):
+                        if any(v is not None and str(v).strip() != '' for v in r.values()):
+                            raw_rows.append(r)
                 else:
                     return Response(
                         {'detail': 'Unsupported file format. Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.'},
@@ -2687,13 +2945,13 @@ class BulkUploadMedicationTariffView(APIView):
                 raw_rows = items
         else:
             return Response(
-                {'detail': 'No file or items array provided for bulk upload.'},
+                {'detail': 'No file or items array provided for bulk upload. Please select a CSV or Excel spreadsheet.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if not raw_rows:
             return Response(
-                {'detail': 'The uploaded file contains no data rows.'},
+                {'detail': 'The uploaded file contains no data rows. Please ensure your file has valid medication entries.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -2715,118 +2973,148 @@ class BulkUploadMedicationTariffView(APIView):
         updated_count = 0
         skipped = []
 
-        counter = PharmacyTariff.objects.count()
-
         for idx, row in enumerate(raw_rows, start=1):
             if not isinstance(row, dict):
                 continue
 
-            clean_row = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+            # Multi-variant key normalizer: handles spaces, underscores, hyphens, and mixed casing
+            norm = {}
+            for k, v in row.items():
+                if k is None:
+                    continue
+                k_raw = str(k).strip().lower()
+                norm[k_raw] = v
+                norm[k_raw.replace(' ', '_').replace('-', '_')] = v
+                norm[k_raw.replace(' ', '').replace('_', '').replace('-', '')] = v
 
             product_name = (
-                clean_row.get('product_name')
-                or clean_row.get('medication_name')
-                or clean_row.get('medication')
-                or clean_row.get('drug_name')
-                or clean_row.get('drug')
-                or clean_row.get('name')
-                or clean_row.get('item')
+                norm.get('product_name')
+                or norm.get('productname')
+                or norm.get('medication_name')
+                or norm.get('medicationname')
+                or norm.get('medication')
+                or norm.get('drug_name')
+                or norm.get('drugname')
+                or norm.get('drug')
+                or norm.get('item_name')
+                or norm.get('itemname')
+                or norm.get('item')
+                or norm.get('name')
             )
             if not product_name or not str(product_name).strip():
-                skipped.append(f"Row {idx}: Missing product name")
+                skipped.append(f"Row {idx}: Missing product/medication name")
                 continue
 
             product_name = str(product_name).strip()
 
             rate_raw = (
-                clean_row.get('rate')
-                or clean_row.get('tariff_rate')
-                or clean_row.get('price')
-                or clean_row.get('amount')
-                or clean_row.get('tariff')
+                norm.get('rate')
+                or norm.get('price')
+                or norm.get('unit_cost')
+                or norm.get('unitcost')
+                or norm.get('selling_price')
+                or norm.get('sellingprice')
+                or norm.get('tariff_rate')
+                or norm.get('tariffrate')
+                or norm.get('tariff')
+                or norm.get('amount')
+                or norm.get('cost')
             )
-            try:
-                rate_val = Decimal(str(rate_raw).replace(',', '').replace('₦', '').strip())
-                if rate_val < 0:
-                    rate_val = Decimal('0.00')
-            except Exception:
-                skipped.append(f"Row {idx} ({product_name}): Invalid rate '{rate_raw}'")
-                continue
+
+            # Robust currency/rate parsing: handles '₦4,500', '4,500.00', 'NGN 4500', etc.
+            rate_val = Decimal('0.00')
+            if rate_raw is not None and str(rate_raw).strip() != '':
+                try:
+                    clean_str = ''.join(c for c in str(rate_raw).strip() if c.isdigit() or c == '.')
+                    if clean_str:
+                        rate_val = Decimal(clean_str)
+                except Exception:
+                    pass
 
             sku = (
-                clean_row.get('sku')
-                or clean_row.get('product_id')
-                or clean_row.get('code')
-                or clean_row.get('item_code')
+                norm.get('sku')
+                or norm.get('product_id')
+                or norm.get('productid')
+                or norm.get('code')
+                or norm.get('item_code')
             )
-            if sku:
+            if sku and str(sku).strip():
                 sku = str(sku).strip()[:13]
             else:
-                counter += 1
-                sku = f"MED-{counter:04d}"
+                existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+                if existing_prod and existing_prod.product_id:
+                    sku = existing_prod.product_id
+                else:
+                    existing_t = PharmacyTariff.objects.filter(product_name__iexact=product_name).exclude(product_id__isnull=True).exclude(product_id='').first()
+                    if existing_t and existing_t.product_id:
+                        sku = existing_t.product_id
+                    else:
+                        from inventory.utils import get_next_isl_sku
+                        sku = get_next_isl_sku()
 
-            # Resolve Sponsor & Plan
-            row_sponsor_val = clean_row.get('sponsor_code') or clean_row.get('sponsor') or clean_row.get('sponsor_name') or clean_row.get('hmo')
-            row_is_general = False
-            row_sponsor = None
+            # Resolve Sponsor & Plan:
+            # 1. Use the explicitly selected default_sponsor and default_plan from modal if provided
+            target_sponsor = default_sponsor
+            target_plan = default_plan
 
-            if row_sponsor_val and str(row_sponsor_val).strip():
-                s_key = str(row_sponsor_val).strip().upper()
-                if s_key in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'GENERAL TARIFF', 'NONE'):
-                    row_is_general = True
-                elif s_key in sponsor_by_code:
-                    row_sponsor = sponsor_by_code[s_key]
-                elif s_key in sponsor_by_name:
-                    row_sponsor = sponsor_by_name[s_key]
-                elif str(row_sponsor_val).strip() in sponsor_by_id:
-                    row_sponsor = sponsor_by_id[str(row_sponsor_val).strip()]
+            row_sponsor_val = norm.get('sponsor_code') or norm.get('sponsor') or norm.get('sponsor_name') or norm.get('hmo')
+            row_plan_val = norm.get('plan_code') or norm.get('plan') or norm.get('plan_name') or norm.get('coverage_plan')
 
-            # Determine if this row is General (Self-Pay)
-            is_row_general = is_general_default or row_is_general
-
-            if is_row_general:
+            if is_general_default or (row_sponsor_val and str(row_sponsor_val).strip().upper() in ('GENERAL', 'SELF', 'SELF-PAY', 'CASH', 'OUT-OF-POCKET', 'NO HMO', 'NONE')):
                 target_sponsor = None
                 target_plan = None
             else:
-                target_sponsor = row_sponsor or default_sponsor
-                target_plan = default_plan
+                # If row specifies a sponsor and no default was locked, lookup row sponsor
+                if not target_sponsor and row_sponsor_val and str(row_sponsor_val).strip():
+                    s_key = str(row_sponsor_val).strip().upper()
+                    if s_key in sponsor_by_code:
+                        target_sponsor = sponsor_by_code[s_key]
+                    elif s_key in sponsor_by_name:
+                        target_sponsor = sponsor_by_name[s_key]
+                    elif str(row_sponsor_val).strip() in sponsor_by_id:
+                        target_sponsor = sponsor_by_id[str(row_sponsor_val).strip()]
 
-                plan_hint = clean_row.get('plan_code') or clean_row.get('plan') or clean_row.get('plan_name') or clean_row.get('coverage_plan')
-                if plan_hint:
-                    plan_key = str(plan_hint).strip().upper()
-                    if plan_key in ('GENERAL', 'SELF', 'CASH', 'NONE'):
-                        target_plan = None
-                    elif plan_key in plan_by_code:
-                        target_plan = plan_by_code[plan_key]
-                    elif plan_key in plan_by_name:
-                        target_plan = plan_by_name[plan_key]
-                    elif str(plan_hint).strip() in plan_by_id:
-                        target_plan = plan_by_id[str(plan_hint).strip()]
-                    else:
-                        clean_hint = plan_key.replace(' ', '').replace('_', '')
+                # If row specifies a plan and no default was locked, lookup row plan
+                if not target_plan and row_plan_val and str(row_plan_val).strip():
+                    p_key = str(row_plan_val).strip().upper()
+                    if p_key in plan_by_code:
+                        target_plan = plan_by_code[p_key]
+                    elif p_key in plan_by_name:
+                        target_plan = plan_by_name[p_key]
+                    elif str(row_plan_val).strip() in plan_by_id:
+                        target_plan = plan_by_id[str(row_plan_val).strip()]
+                    elif target_sponsor:
+                        # Match within target sponsor's plans
+                        clean_hint = p_key.replace(' ', '').replace('_', '')
                         for p in all_plans:
-                            p_clean = (p.plan or '').upper().replace(' ', '').replace('_', '')
-                            if clean_hint and (clean_hint in p_clean or p_clean in clean_hint):
-                                target_plan = p
-                                break
-                            if ('SILVER' in clean_hint and 'SLIVER' in p_clean) or ('SLIVER' in clean_hint and 'SILVER' in p_clean):
-                                target_plan = p
-                                break
+                            if p.sponsor_id == target_sponsor.id:
+                                p_clean = (p.plan or '').upper().replace(' ', '').replace('_', '')
+                                if clean_hint in p_clean or p_clean in clean_hint:
+                                    target_plan = p
+                                    break
 
                 if not target_sponsor and target_plan and target_plan.sponsor:
                     target_sponsor = target_plan.sponsor
 
-            # Look for existing tariff for this product and (sponsor, plan)
+            # Look for existing tariff for this product, sponsor, and plan
             existing = PharmacyTariff.objects.filter(
-                Q(product_name__iexact=product_name) | Q(product_id__iexact=sku),
+                product_name__iexact=product_name,
                 sponsor=target_sponsor,
                 plan=target_plan
             ).first()
 
+            if not existing and sku:
+                existing = PharmacyTariff.objects.filter(
+                    product_id__iexact=sku,
+                    sponsor=target_sponsor,
+                    plan=target_plan
+                ).first()
+
             if existing:
                 existing.rate = rate_val
                 existing.product_name = product_name
-                existing.product_id = sku
+                if sku:
+                    existing.product_id = sku
                 existing.staff = staff
                 existing.save()
                 updated_count += 1
@@ -2842,8 +3130,12 @@ class BulkUploadMedicationTariffView(APIView):
                 created_count += 1
 
         total_processed = created_count + updated_count
+        plan_desc = f" for {default_sponsor.name if default_sponsor else 'General'}"
+        if default_plan:
+            plan_desc += f" ({default_plan.plan})"
+
         return Response({
-            'detail': f'Bulk import finished: {created_count} added, {updated_count} updated, {len(skipped)} skipped.',
+            'detail': f'Bulk import finished successfully{plan_desc}: {created_count} added, {updated_count} updated.',
             'created_count': created_count,
             'updated_count': updated_count,
             'skipped_count': len(skipped),
@@ -2852,11 +3144,6 @@ class BulkUploadMedicationTariffView(APIView):
         }, status=status.HTTP_200_OK if total_processed > 0 else status.HTTP_400_BAD_REQUEST)
 
 
-# ==========================================================
-# 3. MANAGE PACKAGES
-# ==========================================================
-
-# 3.1 Packages
 class PackageServiceCatalogView(APIView):
     """
     Returns available database services across all hospital departments 

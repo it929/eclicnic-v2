@@ -891,6 +891,7 @@ from inventory.models import Product as InventoryProduct, Transaction as Invento
 
 class InventoryProductSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source='staff.fullname', read_only=True)
+    product_id = serializers.CharField(max_length=13, required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = InventoryProduct

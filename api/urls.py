@@ -131,6 +131,12 @@ urlpatterns = [
     # Manage Tariff Plans endpoints
     path('tariffs/registration-fees/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees'),
     path('tariffs/registration-fees/<int:pk>/', tariff_views.RegistrationFeeView.as_view(), name='api-tariff-reg-fees-detail'),
+    path('lab-parameters/bulk-upload/', lab_views.LabParameterViewSet.as_view({'post': 'bulk_upload'}), name='api-lab-parameter-bulk-upload'),
+    path('lab-parameters/download-template/', lab_views.LabParameterViewSet.as_view({'get': 'download_template'}), name='api-lab-parameter-download-template'),
+    path('lab-investigations/bulk-upload/', lab_views.LabInvestigationViewSet.as_view({'post': 'bulk_upload'}), name='api-lab-investigation-bulk-upload'),
+    path('lab-investigations/download-template/', lab_views.LabInvestigationViewSet.as_view({'get': 'download_template'}), name='api-lab-investigation-download-template'),
+    path('radiology-procedures/bulk-upload/', lab_views.RadiologyProcedureViewSet.as_view({'post': 'bulk_upload'}), name='api-radiology-procedure-bulk-upload'),
+    path('radiology-procedures/download-template/', lab_views.RadiologyProcedureViewSet.as_view({'get': 'download_template'}), name='api-radiology-procedure-download-template'),
     path('tariffs/lab-charges/', tariff_views.LabChargesView.as_view(), name='api-tariff-lab-charges'),
     path('tariffs/lab-charges/load-general-prices/', tariff_views.LoadGeneralLabPricesView.as_view(), name='api-tariff-lab-load-general'),
     path('tariffs/lab-charges/bulk-upload/', tariff_views.BulkUploadLabTariffView.as_view(), name='api-tariff-lab-bulk-upload'),
