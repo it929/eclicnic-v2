@@ -4090,7 +4090,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if os.id in already_invoiced_os_ids or os.completed == 1:
                     continue
                 rate = float(os.price or 0)
-                os_cmt = (os.comment or '').lower()
+                os_cmt = (getattr(os, 'comment', '') or getattr(os, 'exception_bill', '') or '').lower()
                 os_purpose = (os.purpose or '').lower()
 
                 is_purse = (
