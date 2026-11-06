@@ -27,7 +27,7 @@ from inventory.models import (
     Product, PharmacyStore, StoreStock, StoreStockBatch,
     StockRequisition, StockRequisitionItem,
     StockTransfer, StockTransferItem, StockMovement,
-    PharmacyVendor, Transaction, AdministerDrugs
+    PharmacyVendor, Transaction, AdministerDrugs, PharmacyTariff
 )
 
 from .serializers import (
@@ -753,16 +753,30 @@ class SponsorViewSet(viewsets.ModelViewSet):
             cell.font = header_font
             cell.alignment = center_align
 
-        # Sample rows to guide the user
-        samples = [
-            (1, "AIICO MULTISHIELD", "AMH", "HMO"),
-            (2, "BASTION HEALTH", "BH", "HMO"),
-            (3, "TOTAL ENERGIES RETAINERSHIP", "TER", "Private Retainership"),
-            (4, "FIRST BANK CORPORATE", "FBN", "Corporate"),
-            (5, "ISALU STAFF SCHEME", "ISS", "Staff"),
-        ]
+        # Export existing sponsors from database or fallback to sample rows
+        existing_sponsors = Sponsor.objects.all().select_related('category').order_by('name')
 
-        for r_idx, row_data in enumerate(samples, start=2):
+        if existing_sponsors.exists():
+            rows_data = []
+            for idx, sponsor in enumerate(existing_sponsors, start=1):
+                cat_name = sponsor.category.category if (sponsor.category and sponsor.category.category) else ""
+                rows_data.append((
+                    idx,
+                    sponsor.name or "",
+                    sponsor.code or "",
+                    cat_name
+                ))
+        else:
+            # Sample rows to guide the user if database has no sponsors yet
+            rows_data = [
+                (1, "AIICO MULTISHIELD", "AMH", "HMO"),
+                (2, "BASTION HEALTH", "BH", "HMO"),
+                (3, "TOTAL ENERGIES RETAINERSHIP", "TER", "Private Retainership"),
+                (4, "FIRST BANK CORPORATE", "FBN", "Corporate"),
+                (5, "ISALU STAFF SCHEME", "ISS", "Staff"),
+            ]
+
+        for r_idx, row_data in enumerate(rows_data, start=2):
             for c_idx, val in enumerate(row_data, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = thin_border
@@ -4947,12 +4961,18 @@ class InventoryProductViewSet(viewsets.ModelViewSet):
     queryset = InventoryProduct.objects.all().order_by('-created_date')
     serializer_class = InventoryProductSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(staff=staff)
+        product_id = serializer.validated_data.get('product_id')
+        if not product_id or not str(product_id).strip():
+            from inventory.utils import get_next_isl_sku
+            serializer.save(staff=staff, product_id=get_next_isl_sku())
+        else:
+            serializer.save(staff=staff)
 
 
 class InventoryTransactionViewSet(viewsets.ModelViewSet):
@@ -5642,6 +5662,29 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
         return qs
 
+    def list(self, request, *args, **kwargs):
+        # Auto-ensure primary Central Medical Store exists if no stores exist or no central store is designated
+        try:
+            if not PharmacyStore.objects.filter(is_central=True).exists():
+                existing = PharmacyStore.objects.filter(name__icontains='central').first()
+                if existing:
+                    existing.is_central = True
+                    existing.store_type = 'central_store'
+                    existing.save(update_fields=['is_central', 'store_type'])
+                elif not PharmacyStore.objects.exists():
+                    PharmacyStore.objects.create(
+                        name='Central Medical Store',
+                        code='CMS-01',
+                        store_type='central_store',
+                        location='Main Warehouse (Ground Floor)',
+                        description='Primary hospital pharmaceutical receiving and distribution warehouse',
+                        is_central=True,
+                        is_active=True,
+                    )
+        except Exception:
+            pass
+        return super().list(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
         serializer.save()
@@ -5692,6 +5735,25 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         store_id = self.request.query_params.get('store', None)
         if store_id:
+            try:
+                target_store = PharmacyStore.objects.filter(id=store_id).first()
+                if target_store and (target_store.is_central or target_store.store_type == 'central_store'):
+                    existing_product_ids = set(StoreStock.objects.filter(store=target_store).values_list('product_id', flat=True))
+                    missing_products = Product.objects.exclude(id__in=existing_product_ids)
+                    if missing_products.exists():
+                        new_stocks = [
+                            StoreStock(
+                                store=target_store,
+                                product=p,
+                                stock=p.stock or 0,
+                                low_stock_threshold=p.low_stock_threshold or 10,
+                                expiry_date=p.expiry_date
+                            )
+                            for p in missing_products
+                        ]
+                        StoreStock.objects.bulk_create(new_stocks, ignore_conflicts=True)
+            except Exception:
+                pass
             qs = qs.filter(store_id=store_id)
         product_id = self.request.query_params.get('product', None)
         if product_id:
@@ -5718,8 +5780,35 @@ class StoreStockViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='adjust')
     def adjust_stock(self, request):
         """
-        Manual stock-taking adjustment with audit trail.
+        Manual stock-taking adjustment with mandatory staff security PIN verification.
+        Captures who performed the adjustment for audit compliance and records a StockMovement entry.
         """
+        pin = request.data.get('pin') or request.data.get('security_pin')
+        if not pin or str(pin).strip() == '':
+            return Response(
+                {'error': 'Staff Security PIN is required to authorize physical stock adjustment.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        raw_pin = str(pin).strip()
+        staff_user = None
+
+        # 1. Verify against current session user
+        if request.user and request.user.is_authenticated and hasattr(request.user, 'check_pin') and getattr(request.user, 'has_pin', False) and request.user.check_pin(raw_pin):
+            staff_user = request.user
+        else:
+            # 2. Match against active staff users by PIN
+            for u in User.objects.filter(is_active=True):
+                if hasattr(u, 'check_pin') and getattr(u, 'has_pin', False) and u.check_pin(raw_pin):
+                    staff_user = u
+                    break
+
+        if not staff_user:
+            return Response(
+                {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         store_id = request.data.get('store_id')
         product_id = request.data.get('product_id')
         new_stock = request.data.get('new_stock')
@@ -5738,24 +5827,552 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         store_stock.stock = max(0, int(new_stock))
         store_stock.save()
 
-        user = request.user if request.user.is_authenticated else None
+        # Update central product stock if adjusting central warehouse
+        if store.is_central or getattr(store, 'store_type', '') == 'central_store':
+            product.stock = store_stock.stock
+            product.staff = staff_user
+            product.save(update_fields=['stock', 'staff'])
+        else:
+            product.staff = staff_user
+            product.save(update_fields=['staff'])
+
         delta = store_stock.stock - old_stock
+        editor_display = (
+            f"{staff_user.first_name} {staff_user.last_name}".strip()
+            or getattr(staff_user, 'full_name', '')
+            or staff_user.username
+        )
+        notes_str = f"Adjusted by {editor_display} (PIN Verified). Reason: {reason} | Variance: {'+' if delta > 0 else ''}{delta} units (from {old_stock} to {store_stock.stock})"
+
         StockMovement.objects.create(
             store=store,
             product=product,
             movement_type='ADJUSTMENT',
             quantity=delta,
             balance_after=store_stock.stock,
-            reference_number=f"ADJ-{timezone.now().strftime('%Y%m%d%H%M')}",
-            notes=reason,
-            performed_by=user
+            reference_number=f"ADJ-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+            notes=notes_str,
+            performed_by=staff_user
         )
 
         return Response({
             'success': True,
+            'message': f"Stock adjusted successfully to {store_stock.stock} units by {editor_display} (PIN Verified).",
+            'editor_name': editor_display,
             'store_stock': StoreStockSerializer(store_stock).data,
             'delta': delta,
             'new_stock': store_stock.stock
+        }, status=status.HTTP_200_OK)
+
+    def _do_edit_item(self, request, stock_id=None):
+        """
+        Edit medication details and stock parameters with mandatory staff security PIN verification.
+        Captures who performed the edit for audit compliance and records a StockMovement entry.
+        """
+        from decimal import Decimal
+        from django.db.models import Q
+
+        pin = request.data.get('pin') or request.data.get('security_pin')
+        if not pin or str(pin).strip() == '':
+            return Response(
+                {'error': 'Staff Security PIN is required to authorize editing this medication.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        raw_pin = str(pin).strip()
+        staff_user = None
+
+        # 1. Verify against current session user
+        if request.user and request.user.is_authenticated and hasattr(request.user, 'check_pin') and getattr(request.user, 'has_pin', False) and request.user.check_pin(raw_pin):
+            staff_user = request.user
+        else:
+            # 2. Match against active staff users by PIN
+            for u in User.objects.filter(is_active=True):
+                if hasattr(u, 'check_pin') and getattr(u, 'has_pin', False) and u.check_pin(raw_pin):
+                    staff_user = u
+                    break
+
+        if not staff_user:
+            return Response(
+                {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        target_id = stock_id or request.data.get('id') or request.data.get('stock_id') or request.data.get('store_stock_id')
+        if not target_id:
+            return Response({'error': 'Stock record ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        store_stock = StoreStock.objects.filter(id=target_id).select_related('store', 'product').first()
+        if not store_stock:
+            return Response({'error': 'Stock record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        prod = store_stock.product
+        changes = []
+
+        # 1. Medication Name
+        new_name = request.data.get('product_name')
+        if new_name and str(new_name).strip() and str(new_name).strip() != prod.product_name:
+            old_name = prod.product_name
+            prod.product_name = str(new_name).strip()
+            changes.append(f"Name: '{old_name}' -> '{prod.product_name}'")
+            PharmacyTariff.objects.filter(product_name__iexact=old_name).update(
+                product_name=prod.product_name,
+                staff=staff_user
+            )
+
+        # 2. Selling Price / Unit Cost
+        new_price_raw = request.data.get('price') or request.data.get('rate')
+        if new_price_raw is not None and str(new_price_raw).strip() != '':
+            try:
+                new_price = Decimal(str(new_price_raw).replace(',', '').replace('₦', '').strip())
+                if new_price >= 0 and new_price != prod.price:
+                    changes.append(f"Price: ₦{prod.price} -> ₦{new_price}")
+                    prod.price = new_price
+                    PharmacyTariff.objects.filter(
+                        Q(product_id=prod.product_id) | Q(product_name__iexact=prod.product_name),
+                        sponsor__isnull=True,
+                        plan__isnull=True
+                    ).update(rate=new_price, staff=staff_user)
+            except Exception:
+                pass
+
+        # 3. Unit of Measurement / Dosage Type
+        new_uom = request.data.get('minimum_UoM') or request.data.get('uom')
+        if new_uom and str(new_uom).strip() != prod.minimum_UoM:
+            clean_uom = str(new_uom).strip().lower()[:22]
+            changes.append(f"UoM: '{prod.minimum_UoM}' -> '{clean_uom}'")
+            prod.minimum_UoM = clean_uom
+
+        # 4. Low Stock Alert Threshold
+        new_thresh = request.data.get('low_stock_threshold')
+        if new_thresh is not None and str(new_thresh).strip() != '':
+            try:
+                nt = max(0, int(new_thresh))
+                if nt != store_stock.low_stock_threshold:
+                    changes.append(f"Threshold: {store_stock.low_stock_threshold} -> {nt}")
+                    store_stock.low_stock_threshold = nt
+                    prod.low_stock_threshold = nt
+            except Exception:
+                pass
+
+        # 5. Batch Number & Expiry Date
+        new_batch = request.data.get('batch_number')
+        if new_batch is not None:
+            clean_b = str(new_batch).strip()
+            if clean_b != (store_stock.batch_number or ''):
+                changes.append(f"Batch: '{store_stock.batch_number}' -> '{clean_b}'")
+                store_stock.batch_number = clean_b
+
+        new_expiry = request.data.get('expiry_date')
+        if new_expiry is not None:
+            clean_exp = str(new_expiry).strip()[:10] if str(new_expiry).strip() else None
+            if clean_exp != str(store_stock.expiry_date or ''):
+                changes.append(f"Expiry: '{store_stock.expiry_date}' -> '{clean_exp}'")
+                store_stock.expiry_date = clean_exp
+                prod.expiry_date = clean_exp
+
+        # 6. Stock Count
+        new_stock_raw = request.data.get('stock')
+        delta = 0
+        if new_stock_raw is not None and str(new_stock_raw).strip() != '':
+            try:
+                new_s = max(0, int(new_stock_raw))
+                old_s = store_stock.stock or 0
+                if new_s != old_s:
+                    delta = new_s - old_s
+                    changes.append(f"Stock: {old_s} -> {new_s} ({delta:+d})")
+                    store_stock.stock = new_s
+                    prod.stock = new_s
+            except Exception:
+                pass
+
+        # Save updates with staff tracking
+        prod.staff = staff_user
+        prod.save()
+        store_stock.save()
+
+        # Update or record batch
+        if store_stock.batch_number:
+            StoreStockBatch.objects.update_or_create(
+                store=store_stock.store,
+                product=prod,
+                batch_number=store_stock.batch_number,
+                defaults={
+                    'quantity': store_stock.stock,
+                    'expiry_date': store_stock.expiry_date,
+                    'store_stock': store_stock
+                }
+            )
+
+        # Audit movement record
+        editor_display = staff_user.fullname or staff_user.username
+        change_desc = "; ".join(changes) if changes else "Medication details verified"
+        user_notes = request.data.get('notes') or request.data.get('reason') or ''
+        notes_str = f"Edited by {editor_display} (PIN Verified). Changes: {change_desc}"
+        if user_notes:
+            notes_str += f" | Notes: {user_notes}"
+        movement_type = 'ADJUSTMENT' if delta != 0 else 'MODIFICATION'
+
+        StockMovement.objects.create(
+            store=store_stock.store,
+            product=prod,
+            movement_type=movement_type,
+            quantity=delta,
+            balance_after=store_stock.stock,
+            reference_number=f"EDIT-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+            notes=notes_str,
+            performed_by=staff_user
+        )
+
+        return Response({
+            'success': True,
+            'message': f"Medication '{prod.product_name}' updated successfully by {editor_display} (PIN Verified).",
+            'editor_name': editor_display,
+            'editor_id': staff_user.id,
+            'changes': changes,
+            'store_stock': StoreStockSerializer(store_stock).data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='edit-item')
+    def edit_item(self, request):
+        return self._do_edit_item(request)
+
+    @action(detail=True, methods=['post', 'patch', 'put'], url_path='edit-item')
+    def edit_single_item(self, request, pk=None):
+        return self._do_edit_item(request, stock_id=pk)
+
+    @action(detail=False, methods=['get'], url_path='download-template')
+    def download_template(self, request):
+        """
+        Download pre-populated Excel (.xlsx) or CSV receiving template containing ALL existing medical items
+        in the database (1,037+ products) with their current stock and unit costs.
+        """
+        import io, openpyxl, csv
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from django.http import HttpResponse
+
+        store_id = request.query_params.get('store')
+        target_store = PharmacyStore.objects.filter(id=store_id).first() if store_id else (
+            PharmacyStore.objects.filter(is_central=True).first() or PharmacyStore.objects.first()
+        )
+
+        file_format = (request.query_params.get('format') or 'xlsx').lower()
+        category = (request.query_params.get('category') or 'all').lower()
+
+        # Query all products in database
+        products_qs = Product.objects.all().order_by('product_name')
+
+        # Stock map for current on-hand quantities
+        stock_map = {}
+        if target_store:
+            for s in StoreStock.objects.filter(store=target_store).values('product_id', 'stock'):
+                stock_map[s['product_id']] = s['stock']
+
+        items_data = []
+        for p in products_qs:
+            name = p.product_name or ''
+            uom = p.minimum_UoM or 'tablets'
+
+            # Apply category filter if requested
+            if category == 'tablets' and not (uom == 'tablets' or 'tab' in name.lower()):
+                continue
+            elif category == 'capsules' and not (uom == 'capsules' or 'cap' in name.lower()):
+                continue
+            elif category == 'injections' and not (uom in ['vial', 'ampoules', 'syringes'] or any(k in name.lower() for k in ['inj', 'vial', 'ampoule', 'infusion'])):
+                continue
+            elif category == 'syrups' and not (uom in ['bottles', 'mls', 'tins'] or any(k in name.lower() for k in ['syrup', 'suspension', 'liquid'])):
+                continue
+            elif category == 'ointments' and not (uom in ['tubes', 'tins'] or any(k in name.lower() for k in ['ointment', 'cream', 'gel'])):
+                continue
+
+            current_stock = stock_map.get(p.id, p.stock or 0)
+            items_data.append({
+                'Medication_Name': name,
+                'Dosage_Type_UOM': uom,
+                'Current_In_Stock': current_stock,
+                'Quantity_Received': '',
+                'Batch_Number': '',
+                'Expiry_Date': '',
+                'Unit_Cost': float(p.price) if p.price else '',
+            })
+
+        # Add 5 blank template rows for new drugs
+        for i in range(1, 6):
+            items_data.append({
+                'Medication_Name': f"[Enter New Medication {i} Name if not listed]",
+                'Dosage_Type_UOM': category if category != 'all' else 'tablets',
+                'Current_In_Stock': 0,
+                'Quantity_Received': '',
+                'Batch_Number': '',
+                'Expiry_Date': '',
+                'Unit_Cost': '',
+            })
+
+        if file_format == 'csv':
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="Vendor_Receiving_Template_ALL.csv"'
+            writer = csv.writer(response)
+            writer.writerow(['Medication_Name', 'Dosage_Type_UOM', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost'])
+            for item in items_data:
+                writer.writerow([
+                    item['Medication_Name'],
+                    item['Dosage_Type_UOM'],
+                    item['Current_In_Stock'],
+                    item['Quantity_Received'],
+                    item['Batch_Number'],
+                    item['Expiry_Date'],
+                    item['Unit_Cost']
+                ])
+            return response
+
+        # Excel (.xlsx) format
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "GRN_Receiving_Template"
+        ws.views.sheetView[0].showGridLines = True
+
+        headers = ['Medication_Name', 'Dosage_Type_UOM', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost']
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        thin_border = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1')
+        )
+
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = thin_border
+        ws.row_dimensions[1].height = 28
+
+        for row_idx, item in enumerate(items_data, start=2):
+            ws.append([
+                item['Medication_Name'],
+                item['Dosage_Type_UOM'],
+                item['Current_In_Stock'],
+                item['Quantity_Received'],
+                item['Batch_Number'],
+                item['Expiry_Date'],
+                item['Unit_Cost']
+            ])
+            for col_num in range(1, len(headers) + 1):
+                c = ws.cell(row=row_idx, column=col_num)
+                c.border = thin_border
+                if col_num in (3, 4, 7):
+                    c.alignment = Alignment(horizontal="right")
+                elif col_num in (2, 5, 6):
+                    c.alignment = Alignment(horizontal="center")
+                else:
+                    c.alignment = Alignment(horizontal="left")
+
+        widths = {'A': 42, 'B': 18, 'C': 18, 'D': 20, 'E': 18, 'F': 16, 'G': 16}
+        for col, width in widths.items():
+            ws.column_dimensions[col].width = width
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="Vendor_Receiving_Template_ALL.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='bulk-upload-stock')
+    def bulk_upload_stock(self, request):
+        """
+        Bulk upload delivered items from CSV / Excel directly into Central Medical Store (or specified store).
+        Automatically creates missing Products with sequential ISL-xxx SKUs, records StoreStockBatch (FEFO),
+        updates StoreStock and Product.stock, records StockMovement, and syncs PharmacyTariff.
+        """
+        import io, csv, uuid
+        from decimal import Decimal
+        from django.db import transaction
+        from inventory.utils import get_next_isl_sku
+
+        store_id = request.data.get('store_id') or request.data.get('store')
+        if not store_id:
+            store = PharmacyStore.objects.filter(is_central=True).first() or PharmacyStore.objects.first()
+        else:
+            store = PharmacyStore.objects.filter(id=store_id).first()
+
+        if not store:
+            return Response({'error': 'Target store not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        raw_rows = []
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+            filename = uploaded_file.name.lower()
+            try:
+                if filename.endswith('.csv'):
+                    decoded_file = uploaded_file.read().decode('utf-8-sig', errors='ignore')
+                    reader = csv.DictReader(io.StringIO(decoded_file))
+                    for row in reader:
+                        raw_rows.append(row)
+                elif filename.endswith(('.xlsx', '.xls')):
+                    import pandas as pd
+                    df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+                    df = df.where(pd.notnull(df), None)
+                    raw_rows = df.to_dict(orient='records')
+                else:
+                    return Response(
+                        {'error': 'Unsupported file format. Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response({'error': f'Error reading uploaded file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        elif 'items' in request.data:
+            raw_rows = request.data.get('items', [])
+        else:
+            return Response({'error': 'No file or items array provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not raw_rows:
+            return Response({'error': 'The uploaded file contains no data rows.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        staff = request.user if request.user.is_authenticated else User.objects.first()
+        grn_ref = f"BULK-GRN-{timezone.now().strftime('%Y%m%d%H%M')}-{uuid.uuid4().hex[:4].upper()}"
+
+        created_prods = 0
+        updated_prods = 0
+        stocked_count = 0
+        total_units = 0
+
+        with transaction.atomic():
+            for idx, row in enumerate(raw_rows, start=1):
+                if not isinstance(row, dict):
+                    continue
+                clean = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+                name = (
+                    clean.get('medication_name')
+                    or clean.get('product_name')
+                    or clean.get('drug_name')
+                    or clean.get('name')
+                    or clean.get('item')
+                )
+                if not name or not str(name).strip() or str(name).strip().startswith('['):
+                    continue
+                name = str(name).strip()
+
+                uom = str(clean.get('dosage_type_uom') or clean.get('uom') or clean.get('unit') or 'tablets').strip() or 'tablets'
+                
+                qty_raw = clean.get('quantity_received') or clean.get('quantity') or clean.get('current_in_stock') or clean.get('qty') or 1
+                try:
+                    qty = int(float(str(qty_raw).replace(',', '').strip()))
+                    if qty <= 0:
+                        qty = 1
+                except Exception:
+                    qty = 1
+
+                batch_num = str(clean.get('batch_number') or clean.get('batch') or clean.get('lot') or '').strip()
+                expiry = clean.get('expiry_date') or clean.get('expiry') or None
+                if expiry:
+                    expiry = str(expiry).strip()[:10]
+
+                cost_raw = clean.get('unit_cost') or clean.get('cost') or clean.get('price') or clean.get('rate') or 0
+                try:
+                    cost = Decimal(str(cost_raw).replace(',', '').replace('₦', '').strip())
+                except Exception:
+                    cost = Decimal('0.00')
+
+                # 1. Product
+                prod = Product.objects.filter(product_name__iexact=name).first()
+                if not prod:
+                    sku = get_next_isl_sku()
+                    prod = Product.objects.create(
+                        product_name=name,
+                        product_id=sku,
+                        minimum_UoM=uom.lower()[:22],
+                        price=cost,
+                        stock=0,
+                        low_stock_threshold=10,
+                        staff=staff
+                    )
+                    created_prods += 1
+                else:
+                    if cost > 0 and (prod.price == 0 or prod.price is None):
+                        prod.price = cost
+                        prod.save(update_fields=['price'])
+                    updated_prods += 1
+
+                # 2. StoreStock
+                store_stock, _ = StoreStock.objects.get_or_create(
+                    store=store,
+                    product=prod,
+                    defaults={'stock': 0, 'low_stock_threshold': 10}
+                )
+                store_stock.stock = (store_stock.stock or 0) + qty
+                if batch_num:
+                    store_stock.batch_number = batch_num
+                if expiry:
+                    store_stock.expiry_date = expiry
+                store_stock.save()
+
+                # 3. StoreStockBatch (FEFO lot tracking)
+                if batch_num:
+                    batch_obj, _ = StoreStockBatch.objects.get_or_create(
+                        store=store,
+                        product=prod,
+                        batch_number=batch_num,
+                        defaults={
+                            'quantity': 0,
+                            'expiry_date': expiry,
+                            'store_stock': store_stock
+                        }
+                    )
+                    batch_obj.quantity = (batch_obj.quantity or 0) + qty
+                    if expiry:
+                        batch_obj.expiry_date = expiry
+                    batch_obj.store_stock = store_stock
+                    batch_obj.save()
+
+                # 4. Product global stock
+                prod.stock = store_stock.stock
+                prod.save(update_fields=['stock'])
+
+                # 5. StockMovement audit
+                StockMovement.objects.create(
+                    store=store,
+                    product=prod,
+                    movement_type='PURCHASE_GRN',
+                    quantity=qty,
+                    balance_after=store_stock.stock,
+                    reference_number=grn_ref,
+                    notes=f"Bulk inventory intake: {qty} units (Batch: {batch_num or 'N/A'})",
+                    performed_by=staff
+                )
+
+                # 6. PharmacyTariff
+                PharmacyTariff.objects.update_or_create(
+                    product_name=prod.product_name,
+                    sponsor=None,
+                    plan=None,
+                    defaults={
+                        'product_id': prod.product_id,
+                        'rate': cost if cost > 0 else Decimal('500.00'),
+                        'staff': staff
+                    }
+                )
+
+                stocked_count += 1
+                total_units += qty
+
+        return Response({
+            'success': True,
+            'message': f"Successfully imported and stocked {stocked_count} medical items ({total_units:,} units) into {store.name}!",
+            'stocked_count': stocked_count,
+            'total_units': total_units,
+            'created_products': created_prods,
+            'updated_products': updated_prods,
+            'store_name': store.name,
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], url_path='receive-vendor-stock')

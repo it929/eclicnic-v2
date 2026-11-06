@@ -25,7 +25,7 @@ class Product(models.Model):
     ]
 
     product_name = models.CharField(max_length=200)
-    product_id = models.CharField(max_length = 13, help_text="13 Characters max", null=True, unique=True) #SKU
+    product_id = models.CharField(max_length = 13, help_text="13 Characters max", null=True, blank=True, unique=True) #SKU
     description = models.CharField(blank=True, null=True,max_length=300)
     price = models.DecimalField(max_digits=15, decimal_places=2)
     stock = models.PositiveIntegerField()
@@ -48,6 +48,9 @@ class Product(models.Model):
         return self.product_name
     
     def save(self, *args, **kwargs):
+        if not self.product_id or not str(self.product_id).strip():
+            from inventory.utils import get_next_isl_sku
+            self.product_id = get_next_isl_sku()
         CODE_39 = barcode.get_barcode_class('code39')
         code = CODE_39(f'{self.product_id}', writer=ImageWriter())
         buffer = BytesIO()
@@ -167,7 +170,7 @@ class VendorTransaction(models.Model):
 
 
 class PharmacyTariff(models.Model):
-    product_id = models.CharField(max_length=13, db_index=True) # SKU
+    product_id = models.CharField(max_length=13, db_index=True, blank=True) # SKU
     product_name = models.CharField(max_length=200)
     sponsor = models.ForeignKey('patients.Sponsor', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
@@ -180,6 +183,19 @@ class PharmacyTariff(models.Model):
         ordering = ['product_name']
 
     def save(self, *args, **kwargs):
+        if not self.product_id or not str(self.product_id).strip():
+            existing_prod = Product.objects.filter(product_name__iexact=self.product_name.strip()).first()
+            if existing_prod and existing_prod.product_id:
+                self.product_id = existing_prod.product_id
+            else:
+                existing_t = PharmacyTariff.objects.filter(
+                    product_name__iexact=self.product_name.strip()
+                ).exclude(product_id__isnull=True).exclude(product_id='').first()
+                if existing_t and existing_t.product_id:
+                    self.product_id = existing_t.product_id
+                else:
+                    from inventory.utils import get_next_isl_sku
+                    self.product_id = get_next_isl_sku()
         if self.plan and self.plan.sponsor and not self.sponsor:
             self.sponsor = self.plan.sponsor
         super().save(*args, **kwargs)
@@ -459,4 +475,4 @@ class PharmacyVendor(models.Model):
         ordering = ['name']
 
     def __str__(self):
-        return f"{self.name} ({self.code or 'No Code'})"
+        return f"{self.name} ({self.code or 'No Code'})"
