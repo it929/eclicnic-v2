@@ -4,6 +4,8 @@ from . import task_manager_views as tm_views
 from . import tariff_views
 from . import rbac_views
 from . import lab_views
+from . import immunization_views
+from . import immunization_drug_views
 from .views import (
     LoginView,
     CurrentUserView,
@@ -164,6 +166,17 @@ urlpatterns = [
     path('tariffs/package-data/', tariff_views.PackageDataView.as_view(), name='api-tariff-package-data'),
     path('tariffs/package-data/<int:pk>/', tariff_views.PackageDataView.as_view(), name='api-tariff-package-data-detail'),
     path('tariffs/immunization-fees/', tariff_views.ImmunizationFeesView.as_view(), name='api-tariff-immunization-fees'),
+
+    # Immunization Clinic Routes
+    path('immunizations/catalog/', immunization_views.ImmunizationCatalogView.as_view(), name='api-immunization-catalog'),
+    path('immunizations/patient/<int:patient_id>/', immunization_views.PatientImmunizationListView.as_view(), name='api-patient-immunizations'),
+    path('immunizations/patient/<int:patient_id>/vaccine-tariffs/', immunization_views.PatientVaccineTariffView.as_view(), name='api-patient-vaccine-tariffs'),
+    path('immunizations/administer/', immunization_views.AdministerImmunizationBatchView.as_view(), name='api-administer-immunization'),
+    path('immunizations/confirm-administration/', immunization_views.ConfirmImmunizationAdministrationView.as_view(), name='api-confirm-immunization'),
+    path('immunizations/record/<int:pk>/', immunization_views.DeleteImmunizationRecordView.as_view(), name='api-delete-immunization-record'),
+    path('immunizations/drug-records/', immunization_drug_views.ImmunizationDrugRecordListView.as_view(), name='api-imm-drug-records'),
+    path('immunizations/drug-records/products/', immunization_drug_views.ImmunizationDrugProductsView.as_view(), name='api-imm-drug-products'),
+    path('immunizations/drug-records/<int:pk>/<str:action>/', immunization_drug_views.ImmunizationDrugRecordActionView.as_view(), name='api-imm-drug-record-action'),
 
     # Meta & stats
     path('departments/', DepartmentListView.as_view(), name='api-departments'),

@@ -2206,8 +2206,37 @@ class MedicationFeesView(APIView):
                 Q(product_id__icontains=search)
             )
 
+        # Drug category comes from the linked catalogue Product (by SKU, then by name);
+        # tariffs with no matching product get a best-guess category from their name.
+        from inventory.models import Product
+        from inventory.categories import CATEGORY_LABELS, VALID_CATEGORIES, infer_product_category
+        cat_by_sku = {}
+        cat_by_name = {}
+        for sku_val, name_val, cat_val in Product.objects.values_list('product_id', 'product_name', 'category'):
+            if not cat_val:
+                continue
+            if sku_val:
+                cat_by_sku[str(sku_val).strip().upper()] = cat_val
+            if name_val:
+                cat_by_name.setdefault(name_val.strip().lower(), cat_val)
+
+        def resolve_category(tariff):
+            cat = cat_by_sku.get(str(tariff.product_id or '').strip().upper()) \
+                or cat_by_name.get((tariff.product_name or '').strip().lower())
+            if not cat:
+                try:
+                    cat = infer_product_category(tariff.product_name or '', '')
+                except Exception:
+                    cat = 'other'
+            return cat if cat in VALID_CATEGORIES else 'other'
+
+        category_filter = request.query_params.get('category', '').strip().lower()
+
         data = []
         for p in qs:
+            category = resolve_category(p)
+            if category_filter and category_filter != 'all' and category != category_filter:
+                continue
             eff_sponsor = p.sponsor or (p.plan.sponsor if p.plan else None)
             is_gen = bool(not eff_sponsor and not p.plan)
             data.append({
@@ -2215,6 +2244,8 @@ class MedicationFeesView(APIView):
                 'product_name': p.product_name,
                 'product_id': p.product_id,
                 'sku': p.product_id,
+                'category': category,
+                'category_label': CATEGORY_LABELS.get(category, 'Others'),
                 'rate': float(p.rate),
                 'sponsor_id': eff_sponsor.id if eff_sponsor else None,
                 'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
@@ -2901,13 +2932,14 @@ class BulkUploadMedicationTariffView(APIView):
                 pass
 
         raw_rows = []
+        detected_headers = []
         uploaded_file = request.FILES.get('file')
 
         if uploaded_file:
             filename = uploaded_file.name.lower()
             try:
                 file_bytes = uploaded_file.read()
-                if filename.endswith('.csv'):
+                if filename.endswith(('.csv', '.txt', '.tsv')):
                     decoded_file = None
                     for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
                         try:
@@ -2917,14 +2949,31 @@ class BulkUploadMedicationTariffView(APIView):
                             continue
                     if decoded_file is None:
                         decoded_file = file_bytes.decode('utf-8', errors='ignore')
+                    decoded_file = decoded_file.lstrip('\ufeff')
 
-                    reader = csv.DictReader(io.StringIO(decoded_file))
+                    # Detect the delimiter: files exported/pasted from Excel are often
+                    # TAB- or semicolon-separated even when named .csv
+                    first_line = decoded_file.split('\n', 1)[0]
+                    delimiter = ','
+                    try:
+                        delimiter = csv.Sniffer().sniff(decoded_file[:4096], delimiters=',\t;|').delimiter
+                    except csv.Error:
+                        counts = {d: first_line.count(d) for d in (',', '\t', ';', '|')}
+                        best = max(counts, key=counts.get)
+                        if counts[best] > 0:
+                            delimiter = best
+                    if first_line.count('\t') > first_line.count(delimiter):
+                        delimiter = '\t'
+
+                    reader = csv.DictReader(io.StringIO(decoded_file), delimiter=delimiter)
+                    detected_headers = [str(h).strip() for h in (reader.fieldnames or []) if h is not None]
                     for row in reader:
-                        if any(v and str(v).strip() for v in row.values() if v is not None):
+                        if any(v and str(v).strip() for v in row.values() if v is not None and not isinstance(v, list)):
                             raw_rows.append(row)
                 elif filename.endswith(('.xlsx', '.xls')):
                     import pandas as pd
                     df = pd.read_excel(io.BytesIO(file_bytes))
+                    detected_headers = [str(c).strip() for c in df.columns]
                     df = df.where(pd.notnull(df), None)
                     for r in df.to_dict(orient='records'):
                         if any(v is not None and str(v).strip() != '' for v in r.values()):
@@ -2980,9 +3029,11 @@ class BulkUploadMedicationTariffView(APIView):
             # Multi-variant key normalizer: handles spaces, underscores, hyphens, and mixed casing
             norm = {}
             for k, v in row.items():
-                if k is None:
+                if k is None or isinstance(v, list):
                     continue
-                k_raw = str(k).strip().lower()
+                if isinstance(v, str):
+                    v = v.strip()
+                k_raw = str(k).strip().lstrip('\ufeff').lower()
                 norm[k_raw] = v
                 norm[k_raw.replace(' ', '_').replace('-', '_')] = v
                 norm[k_raw.replace(' ', '').replace('_', '').replace('-', '')] = v
@@ -3134,14 +3185,32 @@ class BulkUploadMedicationTariffView(APIView):
         if default_plan:
             plan_desc += f" ({default_plan.plan})"
 
+        if total_processed == 0:
+            header_hint = ', '.join(detected_headers[:8]) if detected_headers else 'none detected'
+            return Response({
+                'detail': (
+                    'No medication tariffs were imported. Make sure the file has a "product_name" '
+                    f'column and a "rate" column. Columns found in your file: {header_hint}.'
+                ),
+                'created_count': 0,
+                'updated_count': 0,
+                'skipped_count': len(skipped),
+                'total_processed': 0,
+                'detected_headers': detected_headers,
+                'skipped_details': skipped[:10],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        detail = f'Bulk import finished successfully{plan_desc}: {created_count} added, {updated_count} updated'
+        detail += f', {len(skipped)} skipped.' if skipped else '.'
+
         return Response({
-            'detail': f'Bulk import finished successfully{plan_desc}: {created_count} added, {updated_count} updated.',
+            'detail': detail,
             'created_count': created_count,
             'updated_count': updated_count,
             'skipped_count': len(skipped),
             'total_processed': total_processed,
             'skipped_details': skipped[:10],
-        }, status=status.HTTP_200_OK if total_processed > 0 else status.HTTP_400_BAD_REQUEST)
+        }, status=status.HTTP_200_OK)
 
 
 class PackageServiceCatalogView(APIView):

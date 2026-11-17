@@ -3,283 +3,628 @@
 
 {% block content %}
     <style>
+        /* Embedded / Iframe Mode: completely remove outer navigation, sidebar, topbar, and margins */
+        html.is-embedded #accordionSidebar,
+        html.is-embedded .sidebar,
+        html.is-embedded .topbar,
+        html.is-embedded nav.navbar,
+        html.is-embedded #sidebarToggleTop,
+        html.is-embedded footer.sticky-footer,
+        html.is-embedded footer,
+        body.is-embedded #accordionSidebar,
+        body.is-embedded .sidebar,
+        body.is-embedded .topbar,
+        body.is-embedded nav.navbar,
+        body.is-embedded #sidebarToggleTop,
+        body.is-embedded footer.sticky-footer,
+        body.is-embedded footer {
+            display: none !important;
+        }
+
+        html.is-embedded #content-wrapper,
+        body.is-embedded #content-wrapper {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            background-color: #ffffff !important;
+        }
+
+        html.is-embedded #content,
+        body.is-embedded #content {
+            padding: 10px 20px !important;
+        }
+
+        html.is-embedded .container,
+        body.is-embedded .container {
+            max-width: 100% !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            padding: 10px 15px !important;
+        }
+    </style>
+    <script>
+        // Immediately detect if inside iframe or embed parameter
+        if (window.self !== window.top || window.location.search.indexOf('embed=') !== -1) {
+            document.documentElement.classList.add('is-embedded');
+            document.addEventListener("DOMContentLoaded", function() {
+                document.body.classList.add('is-embedded');
+                var sb = document.getElementById('accordionSidebar');
+                if (sb) sb.style.display = 'none';
+                var tb = document.querySelector('.topbar') || document.querySelector('nav.navbar');
+                if (tb) tb.style.display = 'none';
+                var cw = document.getElementById('content-wrapper');
+                if (cw) {
+                    cw.style.marginLeft = '0px';
+                    cw.style.width = '100%';
+                    cw.style.backgroundColor = '#ffffff';
+                }
+                var ft = document.querySelector('footer');
+                if (ft) ft.style.display = 'none';
+            });
+        }
+    </script>
+    <style>
+        /* Modern Clinical Case Note Theme */
         body {
-            font-family: 'Arial', sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background-color: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.5;
+            color: #1e293b;
+            background-color: #f8fafc;
+            -webkit-font-smoothing: antialiased;
         }
-        .container {
-            max-width: 1200px;
+
+        .container, .container-fluid {
+            max-width: 1240px;
             margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            background-color: #ffffff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
+
+        /* Embedded / Iframe Mode */
+        html.is-embedded #accordionSidebar,
+        html.is-embedded .sidebar,
+        html.is-embedded .topbar,
+        html.is-embedded nav.navbar,
+        html.is-embedded #sidebarToggleTop,
+        html.is-embedded footer.sticky-footer,
+        html.is-embedded footer,
+        html.is-embedded #medical-module-wrapper,
+        html.is-embedded .custom-nav,
+        body.is-embedded #accordionSidebar,
+        body.is-embedded .sidebar,
+        body.is-embedded .topbar,
+        body.is-embedded nav.navbar,
+        body.is-embedded #sidebarToggleTop,
+        body.is-embedded footer.sticky-footer,
+        body.is-embedded footer,
+        body.is-embedded #medical-module-wrapper,
+        body.is-embedded .custom-nav {
+            display: none !important;
+        }
+
+        html.is-embedded #content-wrapper,
+        body.is-embedded #content-wrapper {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            background-color: #ffffff !important;
+        }
+
+        html.is-embedded #content,
+        body.is-embedded #content {
+            padding: 8px 16px !important;
+        }
+
+        html.is-embedded .container,
+        html.is-embedded .container-fluid,
+        body.is-embedded .container,
+        body.is-embedded .container-fluid {
+            max-width: 100% !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            padding: 8px 12px !important;
+            border: none !important;
+        }
+
+        /* Clean Global Typography & Resets */
+        strong {
+            text-decoration: none !important;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Document Header */
         .header {
-            border-bottom: 2px solid #2c3e50;
-            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 16px;
             margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-        }
-        #medical-module-wrapper .hover-dropdown:hover > .dropdown-menu {
-            display: block;
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
+            flex-wrap: wrap;
+            gap: 16px;
         }
 
-        #medical-module-wrapper .dropdown-menu {
-            display: block;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(15px);
-            transition: all 0.3s ease;
+        .header h2 {
+            margin: 0 0 4px 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.02em;
+        }
+
+        .header p {
+            margin: 0;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        /* Export & Toolbar Buttons */
+        .export-btn, .speech-btn {
+            color: white;
             border: none;
-            border-radius: 12px;
-            box-shadow: 0px 8px 24px rgba(0,0,0,0.1) !important;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.15s ease-in-out;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-        .patient-info {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+
+        .pdf-btn {
+            background-color: #dc2626;
+            box-shadow: 0 1px 3px rgba(220, 38, 38, 0.25);
         }
+        .pdf-btn:hover {
+            background-color: #b91c1c;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(220, 38, 38, 0.3);
+        }
+
+        .excel-btn {
+            background-color: #059669;
+            box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);
+        }
+        .excel-btn:hover {
+            background-color: #047857;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(5, 150, 105, 0.3);
+        }
+
+        .speech-btn {
+            background-color: #6366f1;
+            box-shadow: 0 1px 3px rgba(99, 102, 241, 0.25);
+        }
+        .speech-btn:hover {
+            background-color: #4f46e5;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(99, 102, 241, 0.3);
+        }
+        .speech-btn.playing {
+            background-color: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
+
+        .speech-highlight {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 2px 8px;
+            margin: 2px 0;
+            transition: all 0.3s ease;
+        }
+
+        .speech-reading {
+            background-color: #d1fae5;
+            border-left: 4px solid #10b981;
+        }
+
+        /* Filter Toolbar Card */
         .date-filter {
-            background-color: #e9ecef;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 14px 18px;
+            border-radius: 12px;
+            margin-bottom: 22px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
         }
+
+        .date-filter h3 {
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin: 0 0 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
         .filter-controls {
             display: flex;
-            gap: 15px;
+            gap: 12px;
             flex-wrap: wrap;
-            align-items: center;
-        }
-        .filter-controls input, .filter-controls select {
-            padding: 8px 12px;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-        }
-        .filter-controls button {
-            background-color: #2c3e50;
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .filter-controls button:hover {
-            background-color: #1a252f;
+            align-items: flex-end;
         }
 
-        .comp{
-            margin-top: -10px;
-            font-size: 14px;
-            /* margin-left: 10px; */
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
-        .comp2{
-            margin-top: -15px;
-            font-size: 14px;
+
+        .filter-group label,
+        .filter-controls label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin: 0;
+            line-height: 1.2;
         }
-        strong{
-            text-decoration: underline;
-        }
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            padding-bottom: -10px;
-            gap: 10px;
-            font-size: 14px;
-        }
-        .form-grid-inner {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            padding-bottom: -10px;
-            gap: 10px;
-            font-size: 14px;
-        }
-        .form-grid2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            padding-bottom: -10px;
-            gap: 10px;
-            font-size: 14px;
-        }
-        .ref-label{
-            text-decoration: underline;
-        }
-        .ref-value{
-            margin-top: -10px;
-            font-family: cursive;
-        }
-        .print-btn:hover {
-            background-color: #218838;
-        }
-        .section {
-            margin-bottom: 5px;
-        }
-        .section-title {
-            background-color: #2c3e50;
-            color: white;
-            padding: 8px 15px;
-            border-radius: 3px;
-            margin-bottom: 5px;
+
+        .filter-controls input[type="date"],
+        .filter-controls select {
+            height: 38px;
+            padding: 6px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background-color: #ffffff;
+            color: #0f172a;
             font-size: 13px;
+            font-weight: 500;
+            outline: none;
+            box-sizing: border-box;
+            transition: all 0.15s ease;
         }
+
+        .filter-controls input[type="date"]:focus,
+        .filter-controls select:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .date-range-controls {
+            display: none;
+            flex-direction: row !important;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .date-range-controls > .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .filter-buttons button,
+        .filter-controls button#applyFilter,
+        .filter-controls button#resetFilter {
+            height: 38px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-sizing: border-box;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 16px;
+        }
+
+        button#applyFilter {
+            background-color: #1d4ed8;
+            color: white;
+            border: none;
+            box-shadow: 0 1px 2px rgba(29, 78, 216, 0.2);
+        }
+
+        button#applyFilter:hover {
+            background-color: #1e40af;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(29, 78, 216, 0.25);
+        }
+
+        button#resetFilter {
+            background-color: #ffffff;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+        }
+
+        button#resetFilter:hover {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            border-color: #94a3b8;
+        }
+
+        /* Section Styling */
+        .section {
+            margin-bottom: 22px;
+        }
+
+        .section-title {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2b4c7e 100%);
+            color: #ffffff;
+            padding: 9px 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            box-shadow: 0 1px 3px rgba(30, 58, 95, 0.12);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Vital Signs Section */
         .vital-signs-container {
             margin-bottom: 15px;
         }
+
         .vital-signs-date-group {
-            margin-bottom: 20px;
-            padding: 5px;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            background-color: #fafafa;
-            font-size: 12px;
+            margin-bottom: 16px;
+            padding: 14px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background-color: #ffffff;
+            font-size: 13px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
         }
+
         .vital-signs-date-header {
-            font-weight: bold;
-            font-family: cursive;
-            color: brown;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #ddd;
+            font-family: inherit !important;
+            font-weight: 600 !important;
+            color: #0f172a !important;
+            background-color: #f1f5f9;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border-left: 3px solid #2563eb;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .vital-signs-provider {
+            font-weight: 500;
+            font-size: 12px;
+            color: #475569;
+        }
+
+        .vital-signs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 10px;
+        }
+
+        .vital-item {
+            padding: 8px 12px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #0f172a;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .vital-signs-provider {
-            font-weight: bold;
-            font-size: 0.9em;
-            color: #666;
+
+        .vital-item strong {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #64748b;
+            text-decoration: none !important;
         }
-        .vital-signs-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 10px;
-        }
-        .vital-item {
-            padding: 8px;
-            background-color: #f1f1f1;
-            border-radius: 3px;
-        }
+
+        /* Tables */
         table {
             width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+            font-size: 13px;
         }
+
         th, td {
-            border: 1px solid #ddd;
-            padding: 4px;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 10px 14px;
             text-align: left;
-            font-size: 12px;
+            vertical-align: middle;
         }
+
         th {
-            background-color: #f2f2f2;
+            background-color: #f8fafc;
+            color: #475569;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        .timestamp {
-            font-size: 0.9em;
-            color: #666;
-            text-align: right;
-            margin-top: 20px;
+
+        tr:last-child td {
+            border-bottom: none;
         }
+
+        tr:hover td {
+            background-color: #f8fafc;
+        }
+
+        /* Complaints & Form Grids */
+        .comp {
+            margin-bottom: 8px;
+            font-size: 13.5px;
+            line-height: 1.5;
+            color: #1e293b;
+        }
+
+        .comp strong {
+            display: inline-block;
+            min-width: 180px;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            text-decoration: none !important;
+        }
+
+        .comp2 {
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #334155;
+        }
+
+        .comp2 strong {
+            color: #475569;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-decoration: none !important;
+        }
+
+        .ref-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #64748b;
+            text-decoration: none !important;
+        }
+
+        .ref-value {
+            margin-top: -6px;
+            font-family: inherit;
+            color: #0f172a;
+            font-weight: 500;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .form-grid-inner {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .form-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 16px;
+            background-color: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            border-radius: 8px;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
         .loading {
             display: none;
             text-align: center;
-            padding: 10px;
-            color: #2c3e50;
+            padding: 16px;
+            color: #1e3a5f;
+            font-weight: 600;
         }
-        .no-data {
-            text-align: center;
-            padding: 0px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-            color: #6c757d;
-        }
-        .date-range-controls {
-            display: none;
-            gap: 10px;
-            align-items: center;
-        }
-        .date-filter .filter-controls > div {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .date-filter .filter-controls label {
-            font-weight: bold;
-            font-size: 0.9em;
-        }
-        #singleDateControl {
-            display: block;
-        }
-        .date-range-controls {
-            display: none;
-            gap: 10px;
-            align-items: center;
-        }
-        .date-range-controls > div {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        /* Styles for dynamically generated content in case note */
+
+        /* Dynamically generated content */
         #caseNoteContent .date-section {
-            margin-bottom: 30px;
-            border: 2px solid #2c3e50;
-            border-radius: 8px;
+            margin-bottom: 24px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
             padding: 20px;
-            background-color: #f8f9fa;
+            background-color: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
             page-break-inside: avoid;
         }
 
         #caseNoteContent .date-section h3 {
-            color: #2c3e50;
-            border-bottom: 2px solid #2c3e50;
-            padding-bottom: 15px;
-            margin-bottom: 25px;
-            font-size: 18px;
-            font-weight: bold;
+            color: #0f172a;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 12px;
+            margin-bottom: 18px;
+            font-size: 16px;
+            font-weight: 700;
         }
 
         #caseNoteContent .section {
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
 
         #caseNoteContent .section-title {
-            background-color: #2c3e50;
+            background: linear-gradient(135deg, #1e3a5f 0%, #2b4c7e 100%);
             color: white;
-            padding: 8px 15px;
-            border-radius: 3px;
-            margin-bottom: 10px;
-            font-size: 13px;
-        }
-
-        #caseNoteContent .vital-signs-container {
-            margin-bottom: 15px;
+            padding: 9px 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
         }
 
         #caseNoteContent .vital-signs-date-group {
-            margin-bottom: 20px;
-            padding: 10px;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            background-color: #fafafa;
-            font-size: 12px;
+            margin-bottom: 16px;
+            padding: 14px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background-color: #ffffff;
+            font-size: 13px;
         }
 
         #caseNoteContent .vital-signs-date-header {
-            font-weight: bold;
-            font-family: cursive;
-            color: brown;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #ddd;
+            font-family: inherit !important;
+            font-weight: 600 !important;
+            color: #0f172a !important;
+            background-color: #f1f5f9;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border-left: 3px solid #2563eb;
+            margin-bottom: 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -287,200 +632,146 @@
 
         #caseNoteContent .vital-signs-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
             gap: 10px;
         }
 
         #caseNoteContent .vital-item {
-            padding: 8px;
-            background-color: #f1f1f1;
-            border-radius: 3px;
+            padding: 8px 12px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #0f172a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #caseNoteContent .vital-item strong {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #64748b;
+            text-decoration: none !important;
         }
 
         #caseNoteContent table {
             width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+            font-size: 13px;
         }
 
         #caseNoteContent th, 
         #caseNoteContent td {
-            border: 1px solid #ddd;
-            padding: 4px;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 10px 14px;
             text-align: left;
-            font-size: 12px;
+            vertical-align: middle;
         }
 
         #caseNoteContent th {
-            background-color: #f2f2f2;
+            background-color: #f8fafc;
+            color: #475569;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        #caseNoteContent tr:last-child td {
+            border-bottom: none;
+        }
+
+        #caseNoteContent tr:hover td {
+            background-color: #f8fafc;
         }
 
         #caseNoteContent .comp {
-            margin-top: -10px;
-            font-size: 14px;
-            margin-left: 10px;
+            margin-bottom: 8px;
+            font-size: 13.5px;
+            line-height: 1.5;
+            color: #1e293b;
+        }
+
+        #caseNoteContent .comp strong {
+            display: inline-block;
+            min-width: 180px;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            text-decoration: none !important;
         }
 
         #caseNoteContent .comp2 {
-            margin-top: -15px;
-            font-size: 14px;
-        }
-
-        #caseNoteContent .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 10px;
-            font-size: 14px;
-        }
-
-        #caseNoteContent .form-grid-inner {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 10px;
-            font-size: 14px;
-        }
-
-        #caseNoteContent .form-grid2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            font-size: 14px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #334155;
         }
 
         #caseNoteContent .ref-label {
-            text-decoration: underline;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #64748b;
+            text-decoration: none !important;
         }
 
         #caseNoteContent .ref-value {
-            margin-top: -10px;
-            font-family: cursive;
+            margin-top: -6px;
+            font-family: inherit;
+            color: #0f172a;
+            font-weight: 500;
         }
 
-        #caseNoteContent .no-data {
-            text-align: center;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-            color: #6c757d;
-            margin: 10px 0;
-        }
-
-        #caseNoteContent > .container-fluid {
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
         @media print {
             body {
-                background-color: white;
-                margin: 0;
-                padding: 0;
+                background-color: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
             }
-            .container {
-                box-shadow: none;
-                margin: 0;
-                padding: 10px;
+            .container, .container-fluid {
+                box-shadow: none !important;
+                border: none !important;
+                margin: 0 !important;
+                padding: 10px !important;
+                max-width: 100% !important;
             }
-            .date-filter, .print-btn {
-                display: none;
+            .date-filter, .export-btn, .speech-btn, #speechControls, .print-btn {
+                display: none !important;
             }
             .header {
-                border-bottom: 2px solid #000;
+                border-bottom: 2px solid #0f172a !important;
             }
             .section-title {
-                background-color: #000 !important;
+                background-color: #1e3a5f !important;
                 color: white !important;
-                -webkit-print-color-adjust: exact;
-                font-family: cursive;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
             .vital-signs-date-group {
-                border: 1px solid #000;
-                page-break-inside: avoid;
+                border: 1px solid #cbd5e1 !important;
+                page-break-inside: avoid !important;
             }
             table {
-                page-break-inside: auto;
+                page-break-inside: auto !important;
             }
             tr {
-                page-break-inside: avoid;
-                page-break-after: auto;
+                page-break-inside: avoid !important;
             }
         }
-        /* Export to excel and pdf */
-        .export-btn {
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            font-size: 14px;
-        }
-
-        .pdf-btn {
-            background-color: #dc3545;
-        }
-
-        .pdf-btn:hover {
-            background-color: #c82333;
-        }
-
-        .excel-btn {
-            background-color: #28a745;
-        }
-
-        .excel-btn:hover {
-            background-color: #218838;
-        }
-
-        .export-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        /* Speech synthesis */
-        .speech-btn {
-    background-color: #9c27b0;
-    color: white;
-    border: none;
-    padding: 8px 15px;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 14px;
-}
-
-.speech-btn:hover {
-    background-color: #7b1fa2;
-}
-
-.speech-btn.playing {
-    background-color: #f44336;
-    animation: pulse 1.5s infinite;
-}
-
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
-.speech-highlight {
-    background-color: #fff3cd;
-    border-left: 4px solid #ffc107;
-    padding: 2px 8px;
-    margin: 2px 0;
-    transition: all 0.3s ease;
-}
-
-.speech-reading {
-    background-color: #d4edda;
-    border-left: 4px solid #28a745;
-}
     </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
@@ -499,8 +790,18 @@
     {% endif %}
         <div class="header">
             <div>
-                <h2 style="margin-top: 10px; font-weight: bold;">MEDICAL CASE NOTE</h2>
-                <p><strong>Healthcare Facility:</strong> [Isalu Hospital]</p>
+                <div style="display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: #1e40af; border: 1px solid #dbeafe; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 6px; margin-bottom: 6px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    Official Medical Case Note
+                </div>
+                <h2>MEDICAL CASE NOTE</h2>
+                <p>Healthcare Facility: <span style="font-weight: 600; color: #0f172a;">Isalu Hospital</span></p>
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <button class="export-btn pdf-btn" id="printBtn">
@@ -562,35 +863,48 @@
             </div>
         </div>
         <div class="date-filter">
-            <h3>FILTER CASE NOTE BY DATE</h3>
+            <h3>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                </svg>
+                FILTER CASE NOTE BY DATE
+            </h3>
             <div class="filter-controls">
-                <div>
-                    <!-- <label for="dateFilterType">Filter Type:</label> -->
+                <div class="filter-group">
+                    <label for="dateFilterType">Filter Type</label>
                     <select id="dateFilterType">
+                        <option value="all" selected>All Records</option>
                         <option value="single">Single Date</option>
                         <option value="range">Date Range</option>
-                        <option value="all">All Records</option>
                     </select>
                 </div>
                 
-                <div id="singleDateControl">
-                    <label for="selectedDate">Select Date:</label>
+                <div id="singleDateControl" class="filter-group">
+                    <label for="selectedDate">Select Date</label>
                     <input type="date" id="selectedDate" value="{{ current_date|date:'Y-m-d' }}">
                 </div>
                 
                 <div id="dateRangeControls" class="date-range-controls">
-                    <div>
-                        <label for="startDate">From:</label>
+                    <div class="filter-group">
+                        <label for="startDate">From</label>
                         <input type="date" id="startDate">
                     </div>
-                    <div>
-                        <label for="endDate">To:</label>
+                    <div class="filter-group">
+                        <label for="endDate">To</label>
                         <input type="date" id="endDate">
                     </div>
                 </div>
                 
-                <button id="applyFilter">Apply Filter</button>
-                <button id="resetFilter">Reset Filter</button>
+                <div class="filter-buttons">
+                    <button id="applyFilter" type="button">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        Apply Filter
+                    </button>
+                    <button id="resetFilter" type="button">Reset Filter</button>
+                </div>
             </div>
         </div>
 
@@ -607,33 +921,33 @@
                 <div id="vitalSignsSection">
                     <div class="vital-signs-container">
                         {% if vital_signs %}
-                        <div class="vital-signs-date-group">
                             {% for vitals in vital_signs %}
-                            <div class="vital-signs-date-header">
-                                <span>Date: {{ vitals.created_date|date:"F j, Y" }} &nbsp;&nbsp;<span style="color: rgb(72, 63, 63);">Provider: {{bg_health_last_modified_by}} {{ vitals.staff.fullname }}</span></span>
+                            <div class="vital-signs-date-group">
+                                <div class="vital-signs-date-header">
+                                    <span>Date: {{ vitals.created_date|date:"F j, Y H:i" }} &nbsp;&nbsp;<span class="vital-signs-provider">Provider: {{ vitals.staff.fullname|default:bg_health_last_modified_by }}</span></span>
+                                </div>
+                                <div class="vital-signs-grid">
+                                    {% if vitals.height %}<div class="vital-item"><strong>Height:</strong> {{ vitals.height }} (cm)</div>{% endif %}
+                                    {% if vitals.weight %}<div class="vital-item"><strong>Weight:</strong> {{ vitals.weight }} (kg)</div>{% endif %}
+                                    {% if vitals.bmi %}<div class="vital-item"><strong>BMI:</strong> {{ vitals.bmi }} (kg/m&sup2)</div>{% endif %}
+                                    {% if vitals.bp %}<div class="vital-item"><strong>BP:</strong> {{ vitals.bp }} (mmHg)</div>{% endif %}
+                                    {% if vitals.pulse %}<div class="vital-item"><strong>Pulse:</strong> {{ vitals.pulse }} (BPM)</div>{% endif %}
+                                    {% if vitals.temperature %}<div class="vital-item"><strong>Temperature:</strong> {{ vitals.temperature }} (&deg;C)</div>{% endif %}
+                                    {% if vitals.respiratory_rate %}<div class="vital-item"><strong>Respiratory Rate:</strong> {{ vitals.respiratory_rate }} (cpm)</div>{% endif %}
+                                    {% if vitals.sp_02 %}<div class="vital-item"><strong>SpO2:</strong> {{ vitals.sp_02 }} (%)</div>{% endif %}
+                                    {% if vitals.oxygen_volume %}<div class="vital-item"><strong>Oxygen Volume:</strong> {{ vitals.oxygen_volume }} (L/min)</div>{% endif %}
+                                    {% if vitals.urine_ph %}<div class="vital-item"><strong>Urine PH:</strong> {{ vitals.urine_ph }}</div>{% endif %}
+                                    {% if vitals.blood_glucose %}<div class="vital-item"><strong>Blood Glucose:</strong> {{ vitals.blood_glucose }} (mg/dl)</div>{% endif %}
+                                    {% if vitals.urine_glucose %}<div class="vital-item"><strong>Urine Glucose:</strong> {{ vitals.urine_glucose }} (mg/dl)</div>{% endif %}
+                                    {% if vitals.urine_protein %}<div class="vital-item"><strong>Urine Protein:</strong> {{ vitals.urine_protein }} (mg/dl)</div>{% endif %}
+                                </div>
+                                {% if vitals.comment %}
+                                    <p style="margin-top: 10px; margin-bottom: 0;"><strong>Clinical Comments:</strong> {{ vitals.comment }}</p>
+                                {% endif %}
                             </div>
-                            <div class="vital-signs-grid">
-                                {% if vitals.height %}<div class="vital-item"><strong>Height:</strong> {{ vitals.height }} (cm)</div>{% endif %}
-                                {% if vitals.weight %}<div class="vital-item"><strong>Weight:</strong> {{ vitals.weight }} (kg)</div>{% endif %}
-                                {% if vitals.bmi %}<div class="vital-item"><strong>BMI:</strong> {{ vitals.bmi }} (kg/m&sup2)</div>{% endif %}
-                                {% if vitals.bp %}<div class="vital-item"><strong>BP:</strong> {{ vitals.bp }} (mmHg)</div>{% endif %}
-                                {% if vitals.pulse %}<div class="vital-item"><strong>Pulse:</strong> {{ vitals.pulse }} (BPM)</div>{% endif %}
-                                {% if vitals.temperature %}<div class="vital-item"><strong>Temperature:</strong> {{ vitals.temperature }} (&deg;C)</div>{% endif %}
-                                {% if vitals.respiratory_rate %}<div class="vital-item"><strong>Respiratory Rate:</strong> {{ vitals.respiratory_rate }} (cpm)</div>{% endif %}
-                                {% if vitals.sp_02 %}<div class="vital-item"><strong>SpO2:</strong> {{ vitals.sp_02 }} (%)</div>{% endif %}
-                                {% if vitals.oxygen_volume %}<div class="vital-item"><strong>Oxygen Volume:</strong> {{ vitals.oxygen_volume }} (L/min)</div>{% endif %}
-                                {% if vitals.urine_ph %}<div class="vital-item"><strong>Urine PH:</strong> {{ vitals.urine_ph }}</div>{% endif %}
-                                {% if vitals.blood_glucose %}<div class="vital-item"><strong>Blood Glucose:</strong> {{ vitals.blood_glucose }} (mg/dl)</div>{% endif %}
-                                {% if vitals.urine_glucose %}<div class="vital-item"><strong>Urine Glucose:</strong> {{ vitals.urine_glucose }} (mg/dl)</div>{% endif %}
-                                {% if vitals.urine_protein %}<div class="vital-item"><strong>Urine Protein:</strong> {{ vitals.urine_protein }} (mg/dl)</div>{% endif %}
-                            </div>
-                            {% if vitals.comment %}
-                                <p style="margin-top: 10px;"><strong>Clinical Comments:</strong> {{ vitals.comment }}</p>
-                            {% endif %}
                             {% endfor %}
-                        </div>
                         {% else %}
-                            <div class="no-data">No vital signs recorded for selected date.</div>
+                            <div class="no-data">No vital signs recorded for this patient.</div>
                         {% endif %}
                     </div>
                 </div>
@@ -644,16 +958,17 @@
                 <div id="encountersSection">
                     {% if patient_encounters %}
                         {% for encounter in patient_encounters %}
-                            <p class="comp" style="margin-top: 10px;"><strong>Chief Complaint:</strong> {{ encounter.chief_complaint }}</p>
-                            <p class="comp"><strong>History of Present Illness:</strong> {{ encounter.history_of_present_illness }}</p>
-                            <p class="comp"><strong>Diagnosis:</strong> {{ encounter.diagnosis }}</p>
-                            <p class="comp"><strong>Comments on Diagnosis:</strong> {{ encounter.comments_on_diagnosis }}</p>
-                            <p class="comp"><strong>Provider:</strong> Dr. {{ encounter.provider.fullname }}</p>
-                            <p class="comp"><strong>Date/Time:</strong> {{ encounter.created_at }}</p>
-                            {% if not forloop.last %}<hr>{% endif %}
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px;">
+                                <p class="comp"><strong>Chief Complaint:</strong> {{ encounter.chief_complaint }}</p>
+                                <p class="comp"><strong>History of Present Illness:</strong> {{ encounter.history_of_present_illness }}</p>
+                                <p class="comp"><strong>Diagnosis:</strong> {{ encounter.diagnosis }}</p>
+                                <p class="comp"><strong>Comments on Diagnosis:</strong> {{ encounter.comments_on_diagnosis }}</p>
+                                <p class="comp"><strong>Provider:</strong> {{ encounter.provider.fullname }}</p>
+                                <p class="comp"><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">{{ encounter.created_at|date:"F j, Y H:i" }}</span></p>
+                            </div>
                         {% endfor %}
                     {% else %}
-                        <div class="no-data">No encounter data available for selected date.</div>
+                        <div class="no-data">No encounter data available for this patient.</div>
                     {% endif %}
                 </div>
             </div>
@@ -691,7 +1006,7 @@
                                         <td>{{ drug.dose }}</td>
                                         <td>{{ drug.duration }}</td>
                                         <td>{{ drug.start_date }}</td>
-                                        <td style="color: brown;">{{ drug.created_date|timesince }} ago</td>
+                                        <td style="color: #64748b; font-weight: 500;">{{ drug.created_date|timesince }} ago</td>
                                     </tr>
                                     {% empty %}
                                     <tr>
@@ -726,7 +1041,7 @@
                                         <tr>
                                             <td>{{ prescription.quantity }} units of {{ prescription.item }}</td>
                                             <td>{{ prescription.instruction }}</td>
-                                            <td>Dr. {{ prescription.provider.fullname }}</td>
+                                            <td>{{ prescription.provider.fullname }}</td>
                                             <td>{{ prescription.created_date }}</td>
                                         </tr>
                                         {% endfor %}
@@ -760,7 +1075,7 @@
                                             <td>{{ test.samples }}</td>
                                             <td>{{ test.emergency }}</td>
                                             <td>{{ test.comment }}</td>
-                                            <td>Dr. {{ test.staff.fullname }}</td>
+                                            <td>{{ test.staff.fullname }}</td>
                                             <td>{{ test.created_date }}</td>
                                         </tr>
                                         {% endfor %}
@@ -794,7 +1109,7 @@
                                             <td>{{ test.samples }}</td>
                                             <td>{{ test.emergency }}</td>
                                             <td>{{ test.comment }}</td>
-                                            <td>Dr. {{ test.staff.fullname }}</td>
+                                            <td>{{ test.staff.fullname }}</td>
                                             <td>{{ test.created_date }}</td>
                                         </tr>
                                         {% endfor %}
@@ -817,8 +1132,8 @@
                                 <p class='comp2'><strong>Arrival Date:</strong> <span>{{appointment.arrival_date}} By {{appointment.arrival_time}}</span></p>
                                 <p class='comp2'><strong>Purpose of the appointment:</strong> <span>{{appointment.purpose}}</span></p>
                                 <p class='comp2'><strong>Visit Type:</strong> <span>{{appointment.visit_type}}</span></p>
-                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{appointment.provider.fullname}}</span></p>
-                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{appointment.created_date}}</span></p>
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">{{appointment.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">{{appointment.created_date}}</span></p>
                                 {% endfor %}
                             {% else %}
                             <p>No Appointment found recorded</p>
@@ -843,7 +1158,7 @@
                                         {% for service in other_services %}
                                         <tr>
                                             <td>{{ service.purpose }}</td>
-                                            <td>Dr. {{ service.provider.fullname }}</td>
+                                            <td>{{ service.provider.fullname }}</td>
                                             <td>{{ service.created_date }}</td>
                                         </tr>
                                         {% endfor %}
@@ -873,8 +1188,8 @@
                                 <p class="comp2"><strong>Treatment progress:</strong> [{{followup.treatment_progress}}]</p>
                                 <p class="comp2"><strong>Drugs compliance:</strong> [{{followup.drugs_compliance}}]</p>
                                 {% endif %}
-                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{followup.provider.fullname}}</span></p>
-                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{followup.created_at}}</span></p>
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">{{followup.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">{{followup.created_at}}</span></p>
                                 {% endfor %}
                             {% else %}
                             <p>No Clinical Assessment and treatment plan or follow up recorded</p>
@@ -892,8 +1207,8 @@
                                 <p class="comp2"><strong>To be Admitted?:</strong> [{{other_detail.to_be_admitted}}]</p>
                                 <p class="comp2"><strong>Assigned Doctor?:</strong> [{{other_detail.assigned_doctor}}]</p>
                                 <p class="comp2"><strong>To be referred out?:</strong> [{{other_detail.be_referred_out}}]</p>
-                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">Dr. {{other_detail.provider.fullname}}</span></p>
-                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{other_detail.created_at}}</span></p>
+                                <p class='comp2'><strong>Provider:</strong> <span class="text-primary">{{other_detail.provider.fullname}}</span></p>
+                                <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">{{other_detail.created_at}}</span></p>
                                 {% endfor %}
                             {% else %}
                             <p>No other details recorded</p>
@@ -969,8 +1284,8 @@
                                 </div>
                             </div>
                             <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
-                            <p class='comp2'><strong>Provider:</strong> <span>Dr. {{referral.provider.fullname}}</span></p>
-                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">{{referral.created_at}}</span></p>   
+                            <p class='comp2'><strong>Provider:</strong> <span>{{referral.provider.fullname}}</span></p>
+                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">{{referral.created_at}}</span></p>   
                             {% endfor %}
                         {% else %}
                         <span>No Referral Informatiom found for this patient</span>
@@ -982,7 +1297,7 @@
 
         <div class="timestamp">
             <p>Case Note Generated: <span id="generationTime">{% now "F j, Y, g:i a" %}</span></p>
-            <p>Generated by: Dr. {{ request.user.fullname }}</p>
+            <p>Generated by: {{ request.user.fullname }}</p>
         </div>
     </div>
 
@@ -1014,6 +1329,9 @@
             document.getElementById('endDate').valueAsDate = today;
         }
         
+        if (dateFilterType) {
+            dateFilterType.value = 'all';
+        }
         // Initialize filter type display
         updateFilterTypeDisplay();
         
@@ -1032,7 +1350,7 @@
         
         if (resetFilterBtn) {
             resetFilterBtn.addEventListener('click', function() {
-                document.getElementById('dateFilterType').value = 'single';
+                document.getElementById('dateFilterType').value = 'all';
                 document.getElementById('selectedDate').valueAsDate = today;
                 document.getElementById('startDate').valueAsDate = oneWeekAgo;
                 document.getElementById('endDate').valueAsDate = today;
@@ -1074,7 +1392,7 @@
         function updateFilterTypeDisplay() {
             const filterType = dateFilterType.value;
             if (filterType === 'single') {
-                singleDateControl.style.display = 'block';
+                singleDateControl.style.display = 'flex';
                 dateRangeControls.style.display = 'none';
             } else if (filterType === 'range') {
                 singleDateControl.style.display = 'none';
@@ -1593,7 +1911,7 @@
                                 </div>
                                 <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
                                 <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span>${referral.provider || 'Unknown'}</span></p>
-                                <p class='comp2'><strong>Date/Time: 🕒</strong> <span style="color: brown;">${referral.created_at || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time: 🕒</strong> <span style="color: #64748b; font-weight: 500;">${referral.created_at || 'Unknown'}</span></p>
                                 ${index < dateData.referrals.length - 1 ? '<hr style="margin: 20px 0; border-color: #ccc;">' : ''}
                             `;
                         });
@@ -1629,7 +1947,7 @@
                             
                             html += `
                                 <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${followup.provider || 'Unknown'}</span></p>
-                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${followup.created_at || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: #64748b; font-weight: 500;">${followup.created_at || 'Unknown'}</span></p>
                                 ${index < dateData.followups.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
                             `;
                         });
@@ -1659,7 +1977,7 @@
                                     <p class="comp2"><strong>Purpose of the appointment:</strong> [${appointment.purpose || 'Not specified'}]</p>
                                     <p class="comp2"><strong>Visit type:</strong> [${appointment.visit_type || 'Not specified'}]</p>
                                     <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${appointment.provider || 'Unknown'}</span></p>
-                                    <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${appointment.created_date || 'Unknown'}</span></p>
+                                    <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: #64748b; font-weight: 500;">${appointment.created_date || 'Unknown'}</span></p>
                                     ${index < dateData.appointments.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
                                 `;
                             });
@@ -1684,7 +2002,7 @@
                                 <p class="comp2"><strong>Assigned Doctor?:</strong> [${detail.assigned_doctor || 'Not specified'}]</p>
                                 <p class="comp2"><strong>To be referred out?:</strong> [${detail.be_referred_out || 'Not specified'}]</p>
                                 <p class='comp2'><strong>Provider 👨‍⚕️:</strong> <span class="text-primary">${detail.provider || 'Unknown'}</span></p>
-                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: brown;">${detail.created_at || 'Unknown'}</span></p>
+                                <p class='comp2'><strong>Date/Time 🕒:</strong> <span style="color: #64748b; font-weight: 500;">${detail.created_at || 'Unknown'}</span></p>
                                 ${index < dateData.other_details.length - 1 ? '<hr style="margin: 15px 0;">' : ''}
                             `;
                         });
@@ -1735,7 +2053,7 @@
                         vitalSignsHTML += `
                             <div class="vital-signs-date-group">
                                 <div class="vital-signs-date-header">
-                                    <span>Date: ${vitalGroup.date || 'Unknown Date'} &nbsp;&nbsp;<span style='color: rgb(72, 63, 63);'>Provider: ${vitalGroup.staff}</span></span>
+                                    <span>Date: ${vitalGroup.date || 'Unknown Date'} &nbsp;&nbsp;<span class="vital-signs-provider">Provider: ${vitalGroup.staff}</span></span>
                                 </div>
                                 <div class="vital-signs-grid">
                         `;
@@ -1814,7 +2132,7 @@
                         <p class="comp2"><strong>Assigned Doctor?:</strong> [${detail.assigned_doctor || 'Not specified'}]</p>
                         <p class="comp2"><strong>To be referred out?:</strong> [${detail.be_referred_out || 'Not specified'}]</p>
                         <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${detail.provider || 'Unknown'}</span></p>
-                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${detail.created_at || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">${detail.created_at || 'Unknown'}</span></p>
                     `;
                     
                     if (index < otherDetailsData.length - 1) {
@@ -1852,7 +2170,7 @@
                     
                     followupsHTML += `
                         <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${followup.provider || 'Unknown'}</span></p>
-                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${followup.created_at || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">${followup.created_at || 'Unknown'}</span></p>
                     `;
                     
                     if (index < followupsData.length - 1) {
@@ -1937,7 +2255,7 @@
                         </div>
                         <hr style="margin-top: -20px; border-color: rgb(52, 48, 48);">   
                         <p class='comp2'><strong>Provider:</strong> <span>${referral.provider || 'Unknown'}</span></p>
-                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${referral.created_at || 'Unknown'}</span></p>
+                        <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">${referral.created_at || 'Unknown'}</span></p>
                     `;
                     
                     if (index < referralsData.length - 1) {
@@ -2088,7 +2406,7 @@
                             <p class="comp2"><strong>Purpose of the appointment:</strong> [${appointment.purpose || 'Not specified'}]</p>
                             <p class="comp2"><strong>Visit type:</strong> [${appointment.visit_type || 'Not specified'}]</p>
                             <p class='comp2'><strong>Provider:</strong> <span class="text-primary">${appointment.provider || 'Unknown'}</span></p>
-                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: brown;">${appointment.created_date || 'Unknown'}</span></p>
+                            <p class='comp2'><strong>Date/Time:</strong> <span style="color: #64748b; font-weight: 500;">${appointment.created_date || 'Unknown'}</span></p>
                         `;
                         
                         if (index < appointmentsData.length - 1) {

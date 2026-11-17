@@ -1,5 +1,5 @@
 <div id="current_pregnancy" class=" antenatal-form-section color-current-pregnancy">
-                    <h3>Current Pregnancy <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{pregnancy_instance.staff.fullname}}</span></h3>
+                    <h3>Current Pregnancy <span style="color:#0d2466; font-size: 13px;">Captured by: {{pregnancy_instance.staff.fullname}}</span></h3>
                     <form id="currentPregnancyForm" method="post" data-form-type="current_pregnancy">
                         {% csrf_token %}
                         <input type="hidden" name="form_type" value="current_pregnancy">

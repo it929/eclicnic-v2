@@ -1,5 +1,5 @@
 <div id="obstetric_history" class="antenatal-form-section color-obstetric">
-    <h3>Obstetric History <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{obstetric_instance.staff.fullname}}</span></h3>
+    <h3>Obstetric History <span style="color:#0d2466; font-size: 13px;">Captured by: {{obstetric_instance.staff.fullname}}</span></h3>
     <form id="obstetricForm" method="post" data-form-type="obstetric">
         {% csrf_token %}
         <input type="hidden" name="form_type" value="obstetric">

@@ -7,7 +7,20 @@ from dateutil.relativedelta import relativedelta
 
 class ANCRegistration(models.Model):
     """Main ANC Registration model"""
+    JOURNEY_STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+    ]
+
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='anc_registrations')
+    antenatal_visit = models.ForeignKey(
+        'AntenatalVisit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='registrations',
+    )
+    status = models.CharField(max_length=20, choices=JOURNEY_STATUS_CHOICES, default='active', db_index=True)
     registration_date = models.DateTimeField(auto_now_add=True)
     visit_date = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
@@ -72,10 +85,11 @@ BLOOD_GROUP_CHOICES = [
     ('AB+', 'AB+'), ('AB-', 'AB-'),
     ('O+', 'O+'), ('O-', 'O-'),
     ('Unknown', 'Unknown'),
+    ('Awaiting Result', 'Awaiting Result'),
 ]
 
 GENOTYPE_CHOICES = [
-    ('AA', 'AA'), ('AS', 'AS'), ('SS', 'SS'), ('AC', 'AC'), ('CC', 'CC'), ('Unknown', 'Unknown'),
+    ('AA', 'AA'), ('AS', 'AS'), ('SS', 'SS'), ('AC', 'AC'), ('CC', 'CC'), ('Unknown', 'Unknown'), ('Awaiting Result', 'Awaiting Result'),
 ]
 
 RELATIONSHIP2PP_CHOICES = [
@@ -90,12 +104,158 @@ OTHER_CHOICES = [
     ('N/A', 'N/A'),('Myomectomy', 'Myomectomy'), ('Removal of Septum', 'Removal of Septum'), ('Cone Biopsy', 'Cone Biopsy'),('Classical CS', 'Classical CS'),('Cervical Cerclage', 'Cervical Cerclage'),('Others', 'Others'),
 ]
 class AntenatalVisit(models.Model):
+    """Represents a single Antenatal Care (ANC) Journey / Pregnancy Episode for a patient."""
+    STATUS_ACTIVE = 'active'
+    STATUS_COMPLETED = 'completed'
+    JOURNEY_STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_COMPLETED, 'Completed'),
+    ]
+
+    OUTCOME_CHOICES = [
+        ('live_birth', 'Live Birth / Delivery Completed'),
+        ('miscarriage', 'Miscarriage / Spontaneous Abortion'),
+        ('stillbirth', 'Stillbirth / Intrauterine Fetal Demise'),
+        ('termination', 'Medical Termination of Pregnancy'),
+        ('ectopic', 'Ectopic Pregnancy'),
+        ('transferred', 'Transferred Out'),
+        ('discontinued', 'Discontinued / Lost to Follow-up'),
+        ('other', 'Other'),
+    ]
+
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='antenatal_visits')
     visit_date = models.DateField(default=timezone.now)
+    status = models.CharField(max_length=20, choices=JOURNEY_STATUS_CHOICES, default=STATUS_ACTIVE, db_index=True)
+    journey_number = models.PositiveIntegerField(default=1)
+    booking_completed = models.BooleanField(default=False)
+    booking_completed_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=30, choices=OUTCOME_CHOICES, null=True, blank=True)
+    outcome_date = models.DateField(null=True, blank=True)
+    outcome_notes = models.TextField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ended_anc_journeys',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+
+    def get_gestational_age_weeks(self, reference_date=None):
+        """Return gestational age in weeks from CurrentPregnancy LMP, ANCRegistration, or visit date."""
+        if reference_date is None:
+            reference_date = timezone.localdate()
+
+        # 1. Check CurrentPregnancy LMP
+        preg = getattr(self, 'current_pregnancy', None)
+        if preg and preg.last_menstrual_period:
+            return preg.calculate_gestational_age(reference_date)
+
+        # 2. Check related ANCRegistration LMP
+        reg = self.registrations.filter(last_menstrual_period__isnull=False).order_by('-id').first()
+        if reg and reg.last_menstrual_period:
+            delta = reference_date - reg.last_menstrual_period
+            return max(0, delta.days // 7)
+
+        # 3. Fallback: duration from visit_date or created_at
+        start_date = self.visit_date or (self.created_at.date() if self.created_at else None)
+        if start_date:
+            delta = reference_date - start_date
+            return max(0, delta.days // 7)
+
+        return 0
+
+    def check_and_auto_end_if_expired(self, reference_date=None):
+        """
+        Automatically end/complete this ANC Journey if gestational age reaches or exceeds 52 weeks
+        (1 full year from LMP / episode inception).
+        """
+        if self.status != self.STATUS_ACTIVE:
+            return False
+
+        weeks = self.get_gestational_age_weeks(reference_date)
+        if weeks is not None and weeks >= 52:
+            ref = reference_date or timezone.localdate()
+            preg = getattr(self, 'current_pregnancy', None)
+            lmp = preg.last_menstrual_period if preg else None
+
+            # Outcome date defaults to ~40 weeks (EDD) or reference date
+            outcome_dt = (lmp + timedelta(days=280)) if lmp else (self.visit_date + timedelta(days=280) if self.visit_date else ref)
+            if outcome_dt > ref:
+                outcome_dt = ref
+
+            self.status = self.STATUS_COMPLETED
+            self.outcome = 'live_birth'
+            self.outcome_date = outcome_dt
+            self.outcome_notes = f"Auto-ended: Antenatal journey reached {weeks} weeks (maximum 52-week clinical gestation threshold)."
+            self.ended_at = timezone.now()
+            self.save(update_fields=['status', 'outcome', 'outcome_date', 'outcome_notes', 'ended_at'])
+
+            # Close associated active registrations
+            self.registrations.filter(status='active').update(status='completed')
+            return True
+
+        return False
+
+    @classmethod
+    def auto_end_all_expired_journeys(cls):
+        """Scans all active ANC journeys across the system and auto-completes those reaching 52+ weeks."""
+        active_visits = cls.objects.filter(status=cls.STATUS_ACTIVE).select_related('current_pregnancy')
+        ended_count = 0
+        for v in active_visits:
+            if v.check_and_auto_end_if_expired():
+                ended_count += 1
+        return ended_count
+
+    @classmethod
+    def get_active_for_patient(cls, patient):
+        """Return the patient's currently active ANC Journey, if any (strictly female patients only)."""
+        if not patient:
+            return None
+        gender = getattr(patient, 'gender', '') or ''
+        if str(gender).strip().lower() != 'female':
+            return None
+
+        active_visit = (
+            cls.objects.filter(patient=patient, status=cls.STATUS_ACTIVE)
+            .select_related('current_pregnancy')
+            .order_by('-visit_date', '-id')
+            .first()
+        )
+        if active_visit:
+            # Check if this journey reached 52 weeks and should be auto-ended
+            if active_visit.check_and_auto_end_if_expired():
+                return None
+        return active_visit
+
+    @classmethod
+    def get_active_anc_weeks_label(cls, patient):
+        """Return gestational age label ('week N') only when an active ANC journey exists."""
+        active_visit = cls.get_active_for_patient(patient)
+        if not active_visit:
+            return ""
+        pregnancy_instance = getattr(active_visit, 'current_pregnancy', None)
+        if pregnancy_instance and pregnancy_instance.last_menstrual_period:
+            gest_age = pregnancy_instance.calculate_gestational_age()
+            return f"week {gest_age}"
+        return ""
+
+    def has_completed_booking(self):
+        """Determine whether First Consultation Booking is completed for this ANC Journey."""
+        if self.booking_completed:
+            return True
+        if self.registrations.filter(completed=True).exists():
+            return True
+        preg = getattr(self, 'current_pregnancy', None)
+        if preg and preg.last_menstrual_period:
+            return True
+        return False
 
     def __str__(self):
+        status_label = self.get_status_display()
         if self.patient:
-            return f"Antenatal Visit for {self.patient.surname} on {self.visit_date}"
+            return f"ANC Journey #{self.journey_number} ({status_label}) - {self.patient.surname} on {self.visit_date}"
         return f"Antenatal Visit on {self.visit_date} (ID: {self.id})"
 
 # --- 1. Obstetric History ---
@@ -105,7 +265,7 @@ class ObstetricHistory(models.Model):
     history_spontaneous_abortions = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     birthweight_gt_4500g = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     previous_caesarean_section = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
-    previous_surgery_reproductive_tract = models.CharField(max_length=20, null=True, choices=OTHER_CHOICES, default='N/A') # Text field for 'Others'
+    previous_surgery_reproductive_tract = models.CharField(max_length=100, null=True, choices=OTHER_CHOICES, default='N/A') # Text field for 'Others'
     age_gt_40_years = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     vaginal_bleeding = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     diastolic_bp_gt_90 = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
@@ -211,8 +371,8 @@ class LabTests(models.Model):
     # Lab Test Results
     vdrl = models.CharField(max_length=20, default='Awaiting Result',choices=RHYTHM_FACTOR_CHOICES) 
     hiv = models.CharField(max_length=20, default='Negative', choices=RHYTHM_FACTOR_CHOICES)
-    blood_group = models.CharField(max_length=8, choices=BLOOD_GROUP_CHOICES, default='Unknown')
-    genotype = models.CharField(max_length=8, choices=GENOTYPE_CHOICES, default='Unknown')
+    blood_group = models.CharField(max_length=30, choices=BLOOD_GROUP_CHOICES, default='Unknown')
+    genotype = models.CharField(max_length=30, choices=GENOTYPE_CHOICES, default='Unknown')
     hepatitis_b = models.CharField(max_length=20, default='Negative', choices=RHYTHM_FACTOR_CHOICES)
     hepatitis_c = models.CharField(max_length=20, default='Negative', choices=RHYTHM_FACTOR_CHOICES)
     rhesus_factor = models.CharField(max_length=20, default='Negative', choices=RHYTHM_FACTOR_CHOICES)
@@ -312,6 +472,13 @@ class Examination(models.Model):
     pvc = models.CharField(null=True, max_length=50, blank=True)
     comment = models.TextField(null=True, max_length=60, blank=True)
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.SET_NULL, null=True)
+    antenatal_visit = models.ForeignKey(
+        AntenatalVisit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='examinations',
+    )
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.SET_NULL, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.SET_NULL, null=True)
     staff = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)

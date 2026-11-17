@@ -140,11 +140,11 @@
                     <tbody>
                         {% for record in total_admissions %}
                         <tr>
-                            <td><a class="text-warning" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">Dr. {{ record.doctor_admitted.fullname }}</a></td>
+                            <td><a class="text-warning" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.doctor_admitted.fullname }}</a></td>
                             <td><a class="text-warning" href="{% url 'patient_profile' record.patient.id %}" style="color: brown; text-decoration: none;">{{ record.doctor_admit_date |date:"M d, Y" }}</a></td>
                             <td><a class="text-info" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">Nur. {{ record.nurse_admitted }}</a></td>
                             <td><a class="text-info" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.nurse_admit_date |date:"M d, Y" }}</a></td>
-                            <td><a class="text-success" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">Dr. {{ record.doctor_discharged }}</a></td>
+                            <td><a class="text-success" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.doctor_discharged }}</a></td>
                             <td><a class="text-success" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.doctor_discharge_date |date:"M d, Y" }}</a></td>
                             <td><a class="text-dark" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.bill_discharged }}</a></td>
                             <td><a class="text-dark" href="{% url 'patient_profile' record.patient.id %}" style="text-decoration: none;">{{ record.bill_discharge_date |date:"M d, Y" }}</a></td>

@@ -3,6 +3,7 @@ import barcode
 from barcode.writer import ImageWriter
 from io import BytesIO
 from django.core.files import File
+from inventory.categories import PRODUCT_CATEGORIES, infer_product_category, infer_dosage_uom
 
 UOM = [
         ("", "--Select Units--"),("ampoules", "Ampoules"),("bottles", "Bottles"),("boxes", "Boxes"),
@@ -31,6 +32,7 @@ class Product(models.Model):
     stock = models.PositiveIntegerField()
     unit = models.PositiveIntegerField(default=0)
     minimum_UoM = models.CharField(choices=UOM, default="", null=True, max_length=22, blank=True) # unit of measurement
+    category = models.CharField(choices=PRODUCT_CATEGORIES, default="", max_length=20, blank=True, db_index=True)  # drug category (vaccine, tablet, injection...)
     low_stock_threshold = models.PositiveIntegerField(default=10)  # Alert when stock is below this value
     status = models.IntegerField(default=1, null=True)
     activation_status = models.IntegerField(default=1, null=True)
@@ -51,6 +53,10 @@ class Product(models.Model):
         if not self.product_id or not str(self.product_id).strip():
             from inventory.utils import get_next_isl_sku
             self.product_id = get_next_isl_sku()
+        if not self.category:
+            self.category = infer_product_category(self.product_name, self.minimum_UoM)
+        if not self.minimum_UoM:
+            self.minimum_UoM = infer_dosage_uom(self.category, self.product_name)
         CODE_39 = barcode.get_barcode_class('code39')
         code = CODE_39(f'{self.product_id}', writer=ImageWriter())
         buffer = BytesIO()

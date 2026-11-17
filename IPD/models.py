@@ -80,7 +80,7 @@ class AdmissionNote(models.Model):
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f" Notes for {self.patient.surname} {self.patient.first_name} - from Dr. {self.staff.fullname}"
+        return f" Notes for {self.patient.surname} {self.patient.first_name} - from {self.staff.fullname}"
 
 class DoctorNote(models.Model):
     doctor_note =  models.TextField(null=True) 
@@ -89,7 +89,7 @@ class DoctorNote(models.Model):
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f" Notes for {self.patient.surname} {self.patient.first_name} - from Dr. {self.staff.fullname}"
+        return f" Notes for {self.patient.surname} {self.patient.first_name} - from {self.staff.fullname}"
 
 class NurseNote(models.Model):
     nurse_note =  models.TextField(null=True) 
@@ -98,7 +98,7 @@ class NurseNote(models.Model):
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f" Notes for {self.patient.surname} {self.patient.first_name} - from Dr. {self.staff.fullname}"
+        return f" Notes for {self.patient.surname} {self.patient.first_name} - from {self.staff.fullname}"
     
 class WardRound(models.Model):
     notes = models.TextField(null=True)
@@ -107,7 +107,7 @@ class WardRound(models.Model):
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f" Notes for {self.patient.surname} {self.patient.first_name} - from Dr. {self.staff.fullname}"
+        return f" Notes for {self.patient.surname} {self.patient.first_name} - from {self.staff.fullname}"
     
 
 

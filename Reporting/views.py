@@ -2304,7 +2304,7 @@ def get_admission_data(context):
         
         # Get doctor names
         doctor_admitted = record.doctor_admitted
-        doctor_admitted_name = f"Dr. {doctor_admitted.fullname}" if doctor_admitted else ''
+        doctor_admitted_name = doctor_admitted.fullname if doctor_admitted else ''
         
         # Get nurse name
         nurse_admitted_name = record.nurse_admitted or ''
@@ -2314,7 +2314,7 @@ def get_admission_data(context):
         # Get discharge doctor
         doctor_discharged_name = record.doctor_discharged or ''
         if doctor_discharged_name:
-            doctor_discharged_name = f"Dr. {doctor_discharged_name}"
+            doctor_discharged_name = doctor_discharged_name.strip()
         
         # Get bill cleared by
         bill_cleared_name = record.bill_discharged or ''
