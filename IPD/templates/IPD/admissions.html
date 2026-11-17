@@ -86,7 +86,7 @@
                         <tr>
                             <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">{{ admits.patient.surname }} {{ admits.patient.other_name }} {{ admits.patient.first_name }}</a></td>
                             <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="color: brown; text-decoration: none;">{{ admits.patient.hospital_number|default:"-" }}</a></td>
-                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">Dr. {{ admits.doctor_admitted.fullname }}</a></td>
+                            <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">{{ admits.doctor_admitted.fullname }}</a></td>
                             <td><a href="{% url 'allocate_bed_page' admits.patient.id %}" style="text-decoration: none;">{{ admits.doctor_admit_date |timesince }} ago</a></td>
                         </tr>
                         {% empty %}

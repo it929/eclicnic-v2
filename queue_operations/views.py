@@ -417,13 +417,7 @@ def vital_signs(request, key):
     appointment = PatientAppointmentForm()
 
     # Antenatal checks
-    current_gestational_age_weeks = ''
-    antenatal_visit = AntenatalVisit.objects.filter(patient=patient).select_related('current_pregnancy').first()
-    if antenatal_visit:
-        pregnancy_instance = getattr(antenatal_visit, 'current_pregnancy', None)
-        if pregnancy_instance and pregnancy_instance.last_menstrual_period:
-            gest_age = pregnancy_instance.calculate_gestational_age()
-            current_gestational_age_weeks = f'week {gest_age}'
+    current_gestational_age_weeks = AntenatalVisit.get_active_anc_weeks_label(patient)
 
     try:
         patient_health_hist = PatientBackgroundHealth.objects.get(patient=patient)
@@ -580,7 +574,7 @@ def manage_vital_signs(request, key):
             dept_name = last_modifed_bg_health.department.department
             
             if dept_name == 'Clinical':
-                bg_health_last_modified_by = 'Dr.'
+                bg_health_last_modified_by = ''
             elif dept_name == 'Nursing':
                 bg_health_last_modified_by = 'Nurse'
  
@@ -1016,7 +1010,7 @@ def doctor_nurse_report(request, key):
             dept_name = last_modifed_bg_health.department.department
             
             if dept_name == 'Clinical':
-                bg_health_last_modified_by = 'Dr.'
+                bg_health_last_modified_by = ''
             elif dept_name == 'Nursing':
                 bg_health_last_modified_by = 'Nurse'
  
@@ -2042,7 +2036,7 @@ def get_case_note(request, patient_id):
         dept_name = getattr(last_bg_health.staff.department, 'department', None)
         
         if dept_name == 'Clinical':
-            bg_health_last_modified_by = 'Dr.'
+            bg_health_last_modified_by = ''
         elif dept_name == 'Nursing':
             bg_health_last_modified_by = 'Nurse'
 
@@ -2064,70 +2058,53 @@ def get_case_note(request, patient_id):
             except (ValueError, TypeError):
                 messages.error(request, 'Invalid Pin Format!')
 
-    # 3. Data Retrieval for Template
+    # 3. Data Retrieval for Template - Full Patient EMR History
     today = timezone.now().date()
-    one_day_ago = timezone.now() - timedelta(hours=24)
 
-    vital_signs = DoctorWaitingList.objects.filter(patient=patient).order_by('-created_date')[:1]
-    patient_encounters = PatientEncounter.objects.filter(patient=patient).order_by('-created_at')[:1]
-    patient_other_details = PatientOtherDetails.objects.filter(patient=patient).order_by('-created_at')[:1]
-    followups = PatientFollowUp.objects.filter(patient=patient).order_by('-created_at')[:1]
-    referrals_information = PatientReferral.objects.filter(patient=patient).order_by('-created_at')[:1]
-    appointments = PatientAppointment.objects.filter(patient=patient).order_by('-created_date')[:1]
-    
+    vital_signs = DoctorWaitingList.objects.filter(patient=patient).select_related('staff').order_by('-created_date')
+    patient_encounters = PatientEncounter.objects.filter(patient=patient).select_related('provider').order_by('-created_at')
+    patient_other_details = PatientOtherDetails.objects.filter(patient=patient).select_related('provider').order_by('-created_at')
+    followups = PatientFollowUp.objects.filter(patient=patient).select_related('provider').order_by('-created_at')
+    referrals_information = PatientReferral.objects.filter(patient=patient).order_by('-created_at')
+    appointments = PatientAppointment.objects.filter(patient=patient).order_by('-created_date')
 
-
-    #  FETCH DRUGS FROM ALL STORES in the last 24 hours 
+    # Fetch administered drugs from all stores (completed dispensing for this patient)
     administered_drugs = []
-    
-    # Get drugs from all stores (for doctor's requests)
     for store_id, config in STORES_CONFIG.items():
         try:
             transaction_model = get_store_model(store_id, 'transaction')
-            
-            # Fetch drugs for this patient from this store
             drugs = transaction_model.objects.filter(
-                staff=request.user,
                 patient=patient,
-                # pharm_waiting_status=0,
-                completed=1,
-                created_date__gte=timezone.now() - timedelta(hours=24)
+                completed=1
             ).select_related('product')
             
-            # Add store information to each drug
             for drug in drugs:
                 drug.store_id = store_id
                 drug.store_name = config['display_name']
                 drug.store_color = 'primary' if 'IPD' in config['display_name'] else 'success'
                 administered_drugs.append(drug)
-                
         except Exception as e:
-            print(f"Error fetching drugs from {config['display_name']}: {str(e)}")
             continue
     
-    # Sort by created date (newest first)
     administered_drugs.sort(key=lambda x: x.created_date, reverse=True)
 
     radiology_scan = RadiologyLab.objects.filter(
         patient=patient, 
-        item_type='R',
-        created_date__gte=one_day_ago
-    )
+        item_type='R'
+    ).order_by('-created_date')
+
     laboratory_lab = RadiologyLab.objects.filter(
         patient=patient, 
-        item_type='L',
-        created_date__gte=one_day_ago
-    )
+        item_type='L'
+    ).order_by('-created_date')
+
     other_services = OtherService.objects.filter(
-        patient=patient,
-        created_date__gte=one_day_ago
-    )
+        patient=patient
+    ).order_by('-created_date')
 
     written_prescriptions = WrittenPrescriptions.objects.filter(
-        patient=patient,
-        created_date__gte=one_day_ago
-        
-    )
+        patient=patient
+    ).select_related('provider').order_by('-created_date')
 
     context = {
         'patient': patient,
@@ -2144,6 +2121,7 @@ def get_case_note(request, patient_id):
         'appointments': appointments,
         'other_services': other_services,
         'written_prescriptions': written_prescriptions,
+        'is_embedded': request.GET.get('embed') in ('1', 'true', 'yes'),
     }
     
     return render(request, 'queue_operations/case_note.html', context)
@@ -2274,11 +2252,11 @@ def get_filtered_case_note(request, patient_id):
             vital_provider_prefix = ""
             if vital.staff and hasattr(vital.staff, 'department') and vital.staff.department:
                 if vital.staff.department.department in 'Clinical, CMD':
-                    vital_provider_prefix = 'Dr. '
+                    vital_provider_prefix = ''
                 elif vital.staff.department.department == 'Nursing':
-                    vital_provider_prefix = 'Nurse '
+                    vital_provider_prefix = ''
                 elif vital.staff.department.department == 'Admin':
-                    vital_provider_prefix = 'Admin, '
+                    vital_provider_prefix = ''
                 else:
                     vital_provider_prefix = 'Intruder '
             
@@ -2317,7 +2295,7 @@ def get_filtered_case_note(request, patient_id):
                 'history_of_present_illness': encounter.history_of_present_illness or 'Not specified',
                 'diagnosis': getattr(encounter, 'diagnosis', 'Not specified') or 'Not specified',
                 'comments_on_diagnosis': getattr(encounter, 'comments_on_diagnosis', 'Not specified') or 'Not specified',
-                'provider_name': f"Dr. {encounter.provider.fullname}" if encounter.provider else 'Unknown',
+                'provider_name': encounter.provider.fullname if encounter.provider else 'Unknown',
                 'created_at': encounter.created_at.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2335,11 +2313,11 @@ def get_filtered_case_note(request, patient_id):
             vital_provider_prefix = ""
             if drug.staff and hasattr(drug.staff, 'department') and drug.staff.department:
                 if drug.staff.department.department in 'Clinical, CMD':
-                    drug_provider_prefix = 'Dr. '
+                    drug_provider_prefix = ''
                 elif drug.staff.department.department == 'Nursing':
-                    drug_provider_prefix = 'Nurse '
+                    drug_provider_prefix = ''
                 elif drug.staff.department.department == 'Admin':
-                    drug_provider_prefix = 'Admin, '
+                    drug_provider_prefix = ''
                 else:
                     drug_provider_prefix = 'Intruder '
 
@@ -2387,8 +2365,6 @@ def get_filtered_case_note(request, patient_id):
             doc_name = ''
             if test.staff:
                 doc_name = getattr(test.staff, 'fullname', None) or test.staff.get_full_name() or test.staff.username or ''
-                if doc_name and not doc_name.startswith('Dr.'):
-                    doc_name = f"Dr. {doc_name}"
 
             grouped_data[date_str]['investigations'].append({
                 'id': test.id,
@@ -2424,8 +2400,6 @@ def get_filtered_case_note(request, patient_id):
             doc_name = ''
             if encounter.provider:
                 doc_name = getattr(encounter.provider, 'fullname', None) or encounter.provider.get_full_name() or encounter.provider.username or ''
-                if doc_name and not doc_name.startswith('Dr.'):
-                    doc_name = f"Dr. {doc_name}"
 
             # 1. Parse LABORATORY ORDERS from consultation text
             lab_match = re.search(r'LABORATORY ORDERS:\s*([\s\S]*?)(?=(?:\n\s*[A-Z &]+:|\Z))', comments)
@@ -2511,7 +2485,7 @@ def get_filtered_case_note(request, patient_id):
                 'to_be_admitted': detail.to_be_admitted or 'Not specified',
                 'assigned_doctor': detail.assigned_doctor or 'Not specified',
                 'be_referred_out': detail.be_referred_out or 'Not specified',
-                'provider': f"Dr. {detail.provider.fullname}" if detail.provider else 'Unknown',
+                'provider': detail.provider.fullname if detail.provider else 'Unknown',
                 'created_at': detail.created_at.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2531,7 +2505,7 @@ def get_filtered_case_note(request, patient_id):
                 'visit_type': followup.visit_type or 'Not specified',
                 'treatment_progress': followup.treatment_progress or 'Not specified',
                 'drugs_compliance': followup.drugs_compliance or 'Not specified',
-                'provider': f"Dr. {followup.provider.fullname}" if followup.provider else 'Unknown',
+                'provider': followup.provider.fullname if followup.provider else 'Unknown',
                 'created_at': followup.created_at.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2560,7 +2534,7 @@ def get_filtered_case_note(request, patient_id):
                 'referred_department_clinic': referral.referred_department_clinic or 'Not specified',
                 'refer_to_clinician': referral.refer_to_clinician or 'Not specified',
                 'reason_for_referring': referral.reason_for_referring or 'Not specified',
-                'provider': f"Dr. {referral.provider.fullname}" if referral.provider else 'Unknown',
+                'provider': referral.provider.fullname if referral.provider else 'Unknown',
                 'created_at': referral.created_at.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2581,7 +2555,7 @@ def get_filtered_case_note(request, patient_id):
                 'visit_type': appointment.visit_type or 'Not specified',
                 'arrival_date': str(appointment.arrival_date) if appointment.arrival_date else 'Not specified',
                 'arrival_time': str(appointment.arrival_time) if appointment.arrival_time else 'Not specified',
-                'provider': f"Dr. {appointment.provider.fullname}" if appointment.provider else 'Unknown',
+                'provider': appointment.provider.fullname if appointment.provider else 'Unknown',
                 'created_date': appointment.created_date.strftime('%Y-%m-%d %H:%M'),
             })
         
@@ -2598,7 +2572,7 @@ def get_filtered_case_note(request, patient_id):
             
             grouped_data[date_str]['other_services'].append({
                 'purpose': service.purpose or 'Not specified',
-                'provider': f"Dr. {service.provider.fullname}" if service.provider else 'Unknown',
+                'provider': service.provider.fullname if service.provider else 'Unknown',
                 'created_date': service.created_date.strftime('%Y-%m-%d %H:%M'),
             })
 
@@ -2628,8 +2602,6 @@ def get_filtered_case_note(request, patient_id):
             doc_display = ''
             if prescription.provider:
                 doc_display = getattr(prescription.provider, 'fullname', None) or prescription.provider.get_full_name() or prescription.provider.username or ''
-                if doc_display and not doc_display.startswith('Dr.'):
-                    doc_display = f"Dr. {doc_display}"
 
             grouped_data[date_str]['written_prescriptions'].append({
                 'item': prescription.item or 'Unknown',
@@ -3661,18 +3633,7 @@ def administer_drugs(request, patient_id):
     visit_purposes = VisitPurpose.objects.all()
 
      # Antenatal week checks
-    current_gestational_age_weeks = ''
-
-    antenatal_visit = AntenatalVisit.objects.filter(
-        patient=patient
-    ).select_related('current_pregnancy').first()
-
-    if antenatal_visit:
-        pregnancy_instance = getattr(antenatal_visit, 'current_pregnancy', None)
-
-        if pregnancy_instance and pregnancy_instance.last_menstrual_period:
-            gest_age = pregnancy_instance.calculate_gestational_age()
-            current_gestational_age_weeks = f'week {gest_age}'  
+    current_gestational_age_weeks = AntenatalVisit.get_active_anc_weeks_label(patient)
         # End Antenatal checks
 
     # Get existing OtherService records for this patient

@@ -774,11 +774,29 @@ class BedAllocationSerializer(serializers.ModelSerializer):
 class ANCRegistrationSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
+    patient_gender = serializers.CharField(source='patient.gender', read_only=True)
     created_by_name = serializers.CharField(source='created_by.fullname', read_only=True)
+    journey_number = serializers.SerializerMethodField(read_only=True)
+    booking_completed = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ANCRegistration
         fields = '__all__'
+
+    def validate_patient(self, value):
+        if value:
+            gender = getattr(value, 'gender', '') or ''
+            if str(gender).strip().lower() != 'female':
+                raise serializers.ValidationError('Antenatal care (ANC) is strictly for female patients only.')
+        return value
+
+    def get_journey_number(self, obj):
+        return obj.antenatal_visit.journey_number if obj.antenatal_visit else 1
+
+    def get_booking_completed(self, obj):
+        if obj.antenatal_visit:
+            return obj.antenatal_visit.has_completed_booking()
+        return bool(obj.completed)
 
 
 # Pharmacy Serializers
@@ -996,10 +1014,10 @@ class WrittenPrescriptionSerializer(serializers.ModelSerializer):
         return 'hmo_claim' if self.get_is_hmo(obj) else 'private_payment'
 
     def get_is_cleared(self, obj):
-        # A prescription is cleared ONLY if it has been marked dispensed,
+        # A prescription is cleared if dispensed, part of an Admin ANC Template (no billing),
         # or if an associated Invoice in Billings is settled/approved (completed=1).
         # Note: status='billed' indicates an invoice was generated, NOT that it has been cleared!
-        if obj.status == 'dispensed':
+        if obj.status == 'dispensed' or getattr(obj, 'is_anc_template', False):
             return True
         from Billings.models import Invoice
         return Invoice.objects.filter(
@@ -1011,6 +1029,9 @@ class WrittenPrescriptionSerializer(serializers.ModelSerializer):
     def get_payment_status(self, obj):
         if obj.status == 'dispensed':
             return 'Dispensed'
+        if getattr(obj, 'is_anc_template', False):
+            tpl_name = getattr(obj, 'anc_template_name', None) or 'Standard'
+            return f'ANC Template ({tpl_name})'
         from Billings.models import Invoice
         inv = Invoice.objects.filter(
             original_source_model='WrittenPrescriptions',
@@ -1042,7 +1063,7 @@ class WrittenPrescriptionSerializer(serializers.ModelSerializer):
             'item', 'instruction', 'quantity', 'dosage_form', 'route', 'strength',
             'dose_qty', 'dose_unit', 'frequency', 'duration', 'duration_unit',
             'dispense_unit', 'dispense_quantity', 'dispense_detail', 'comment',
-            'start_date', 'status', 'is_hmo', 'clearance_type', 'is_cleared', 'payment_status', 'clearance_status_text', 'invoice_number',
+            'start_date', 'status', 'is_anc_template', 'anc_template_name', 'is_hmo', 'clearance_type', 'is_cleared', 'payment_status', 'clearance_status_text', 'invoice_number',
             'dispensed_at', 'dispensed_by', 'dispensed_by_name',
             'created_date'
         ]
@@ -1124,6 +1145,8 @@ class StoreStockSerializer(serializers.ModelSerializer):
     product_sku = serializers.CharField(source='product.product_id', read_only=True)
     price = serializers.DecimalField(source='product.price', max_digits=15, decimal_places=2, read_only=True)
     minimum_UoM = serializers.CharField(source='product.minimum_UoM', read_only=True)
+    product_category = serializers.CharField(source='product.category', read_only=True)
+    product_category_label = serializers.CharField(source='product.get_category_display', read_only=True)
     is_low_stock = serializers.BooleanField(read_only=True)
     days_until_earliest_expiry = serializers.IntegerField(read_only=True)
     expiry_status = serializers.CharField(read_only=True)
@@ -1134,6 +1157,7 @@ class StoreStockSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'store', 'store_name', 'store_code',
             'product', 'product_name', 'product_sku', 'price', 'minimum_UoM',
+            'product_category', 'product_category_label',
             'stock', 'low_stock_threshold', 'batch_number', 'expiry_date',
             'is_low_stock', 'days_until_earliest_expiry', 'expiry_status',
             'batches', 'created_date', 'updated_date'

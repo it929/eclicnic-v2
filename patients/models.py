@@ -444,19 +444,7 @@ class PatientAppointment(models.Model):
         if not self.patient:
             return ""
 
-        antenatal_visit = AntenatalVisit.objects.filter(
-            patient=self.patient
-        ).select_related('current_pregnancy').first()
-        if antenatal_visit:
-            pregnancy_instance = getattr(
-                antenatal_visit,
-                'current_pregnancy',
-                None
-            )
-            if pregnancy_instance and pregnancy_instance.last_menstrual_period:
-                gest_age = pregnancy_instance.calculate_gestational_age()
-                return f"week {gest_age}"
-        return ""
+        return AntenatalVisit.get_active_anc_weeks_label(self.patient)
 
     def save(self, *args, **kwargs):
         self.anc_weeks = self.calculate_anc_weeks()

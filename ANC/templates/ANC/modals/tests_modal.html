@@ -1,5 +1,5 @@
 <div id="tests" class="antenatal-form-section color-tests">
-                    <h3>Tests <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{tests_instance.staff.fullname}}</span></h3>
+                    <h3>Tests <span style="color:#0d2466; font-size: 13px;">Captured by: {{tests_instance.staff.fullname}}</span></h3>
                     <form id="testsForm" method="post" data-form-type="tests">
                         {% csrf_token %}
                         <input type="hidden" name="form_type" value="tests">

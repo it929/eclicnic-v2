@@ -50,7 +50,7 @@ def fetch_lab_queue(request):
             'hospital_number': f"{patient.hospital_number}",
             'category': f"{patient.category}",
             'plan': f"{patient.plan}",
-            'attendant': f"Dr. {record.staff.fullname}" if record.staff else "N/A",
+            'attendant': record.staff.fullname if record.staff else "N/A",
             'created_date': record.created_date.strftime('%Y-%m-%d %H:%M'),
         })
 
@@ -528,7 +528,7 @@ def fetch_scan_queue(request):
             'hospital_number': f"{patient.hospital_number}",
             'category': f"{patient.category}",
             'plan': f"{patient.plan}",
-            'attendant': f"Dr. {record.staff.fullname}" if record.staff else "N/A",
+            'attendant': record.staff.fullname if record.staff else "N/A",
             'created_date': record.created_date.strftime('%Y-%m-%d %H:%M'),
         })
 

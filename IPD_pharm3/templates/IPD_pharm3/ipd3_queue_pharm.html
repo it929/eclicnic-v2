@@ -27,7 +27,7 @@
                 <td><a href="{% url 'ipd3_dispense_history' data.patient.id %}">{{data.patient.category}}</a></td>
                 <td><a href="{% url 'ipd3_dispense_history' data.patient.id %}">{{data.patient.plan}}</a></td>
                 <td><a href="{% url 'ipd3_dispense_history' data.patient.id %}" style="color: brown;">{{data.created_date}}</a></td>
-                <td><a href="{% url 'ipd3_dispense_history' data.patient.id %}">Dr. {{data.staff.fullname}}</a></td>
+                <td><a href="{% url 'ipd3_dispense_history' data.patient.id %}">{{data.staff.fullname}}</a></td>
             </tr>
             {% endfor %}
         </tbody>

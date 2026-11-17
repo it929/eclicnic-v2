@@ -42,7 +42,7 @@
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="text-decoration: none;">Completed <i class="fa fa-check"></i></a></td>
-                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-success" style="color: brown; text-decoration: none;">{{patient.provider.fullname}}</a></td>
                     </tr>
                     {% elif patient.is_expired %}
                     <tr>
@@ -50,7 +50,7 @@
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="text-decoration: none;">Expired <i class="fa fa-times-circle"></i></a></td>
-                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-danger" style="color: brown; text-decoration: none;">{{patient.provider.fullname}}</a></td>
                     </tr>
                     {% elif patient.is_cancelled %}
                     <tr>
@@ -58,7 +58,7 @@
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="text-decoration: none;">Cancelled <i class="fa fa-times"></i></a></td>
-                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}}</a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-warning" style="color: brown; text-decoration: none;">{{patient.provider.fullname}}</a></td>
                     </tr>
                     {% else %}
                     <tr>
@@ -66,7 +66,7 @@
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.arrival_time}}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">Still Available <i class="fa fa-available"></i></a></td>
-                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}} </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{patient.provider.fullname}} </a></td>
                     </tr>
                     {% endif %}
                     {% empty %}
@@ -163,7 +163,7 @@
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{ patient.purpose }}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">{{ patient.visit_type}}</a></td>
                         <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="text-decoration: none;">Cancelled <i class="fa fa-available"></i></a></td>
-                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">Dr. {{patient.provider.fullname}} </a></td>
+                        <td><a href="{% url 'appointment_review_all' patient.id %}" class="text-primary" style="color: brown; text-decoration: none;">{{patient.provider.fullname}} </a></td>
                     </tr>
                     {% empty %}
                     <tr>
@@ -277,7 +277,7 @@
         <!-- Overflow Hidden -->
         <div class="card mb-4">
             <div class="card-header py-3">
-                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by {{appointment.provider.fullname}}</span></h6>
             </div>
             <div class="card-body">
                 <table>
@@ -371,7 +371,7 @@ aria-hidden="true">
         <!-- Overflow Hidden -->
         <div class="card mb-4">
             <div class="card-header py-3">
-                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by {{appointment.provider.fullname}}</span></h6>
             </div>
             <div class="card-body">
                 <table>
@@ -468,7 +468,7 @@ aria-hidden="true">
         <!-- Overflow Hidden -->
         <div class="card mb-4">
             <div class="card-header py-3">
-                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by Dr. {{appointment.provider.fullname}}</span></h6>
+                <h6 class="m-0 font-weight-bold text-primary">Appointment Details: <span style="font-size: 12px;" class="text-success">by {{appointment.provider.fullname}}</span></h6>
             </div>
             <div class="card-body">
                 <table>

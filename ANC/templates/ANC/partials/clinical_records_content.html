@@ -204,7 +204,7 @@
                             <p class="comp"><strong>History of Present Illness:</strong> {{ encounter.history_of_present_illness }}</p>
                             <p class="comp"><strong>Diagnosis:</strong> {{ encounter.diagnosis }}</p>
                             <p class="comp"><strong>Comments on Diagnosis:</strong> {{ encounter.comments_on_diagnosis }}</p>
-                            <p class="comp"><strong>Provider:</strong> Dr. {{ encounter.provider.fullname }}</p>
+                            <p class="comp"><strong>Provider:</strong> {{ encounter.provider.fullname }}</p>
                             <p class="comp"><strong>Date/Time:</strong> {{ encounter.created_at }} &nbsp;&nbsp;<span class="badge badge-info">{{ encounter.anc_weeks }}</span></p>
                             {% if not forloop.last %}<hr>{% endif %}
                         {% endfor %}
@@ -246,7 +246,7 @@
                                             <td>{{ lab.samples }}</td>
                                             <td>{{ lab.emergency }}</td>
                                             <td>{{ lab.comment }}</td>
-                                            <td>Dr. {{ lab.staff.fullname }}</td>
+                                            <td>{{ lab.staff.fullname }}</td>
                                             <td>{{ lab.created_date }}</td>
                                             <td><span class="badge badge-info">{{ lab.anc_weeks }}</span></td>
                                         </tr>
@@ -296,7 +296,7 @@
                                     <td>{{ drug.frequency }}</td>
                                     <td>{{ drug.duration }}</td>
                                     <td>{{ drug.quantity }}</td>
-                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.staff.fullname }}</td>
                                     <td>{{ drug.created_date }}</td>
                                     <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
                                 </tr>
@@ -334,7 +334,7 @@
                                     <td>{{ drug.frequency }}</td>
                                     <td>{{ drug.duration }}</td>
                                     <td>{{ drug.quantity }}</td>
-                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.staff.fullname }}</td>
                                     <td>{{ drug.created_date }}</td>
                                     <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
                                 </tr>
@@ -372,7 +372,7 @@
                                     <td>{{ drug.frequency }}</td>
                                     <td>{{ drug.duration }}</td>
                                     <td>{{ drug.quantity }}</td>
-                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.staff.fullname }}</td>
                                     <td>{{ drug.created_date }}</td>
                                     <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
                                 </tr>
@@ -410,7 +410,7 @@
                                     <td>{{ drug.frequency }}</td>
                                     <td>{{ drug.duration }}</td>
                                     <td>{{ drug.quantity }}</td>
-                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.staff.fullname }}</td>
                                     <td>{{ drug.created_date }}</td>
                                     <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
                                 </tr>
@@ -448,7 +448,7 @@
                                     <td>{{ drug.frequency }}</td>
                                     <td>{{ drug.duration }}</td>
                                     <td>{{ drug.quantity }}</td>
-                                    <td>Dr. {{ drug.staff.fullname }}</td>
+                                    <td>{{ drug.staff.fullname }}</td>
                                     <td>{{ drug.created_date }}</td>
                                     <td><span class="badge badge-info">{{ drug.anc_weeks }}</span></td>
                                 </tr>
@@ -475,7 +475,7 @@
                             {% if appointments %}
                                 {% for apt in appointments %}
                                 <p class='comp2' style="margin-top: 5px;">
-                                    <strong>Provider:</strong> <span class="text-primary">Dr. {{apt.provider.fullname}}</span> -
+                                    <strong>Provider:</strong> <span class="text-primary">{{apt.provider.fullname}}</span> -
                                     <strong>Date/Time:</strong> <span style="color: brown;">{{apt.created_date}}</span>
                                 </p>
                                 <p class='comp2'><strong>Arrival Date:</strong> <span>{{apt.arrival_date}} By {{apt.arrival_time}}</span></p>
@@ -504,7 +504,7 @@
                                         {% for service in other_services %}
                                         <tr>
                                             <td>{{ service.purpose }}</td>
-                                            <td>Dr. {{ service.provider.fullname }}</td>
+                                            <td>{{ service.provider.fullname }}</td>
                                             <td>{{ service.created_date }}</td>
                                         </tr>
                                         {% endfor %}

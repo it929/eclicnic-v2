@@ -1,5 +1,5 @@
 <div id="general_medical" class="antenatal-form-section color-general-medical">
-                    <h3>General Medical <span style="color:#0d2466; font-size: 13px;">Captured by: Dr. {{medical_instance.staff.fullname}}</span></h3>
+                    <h3>General Medical <span style="color:#0d2466; font-size: 13px;">Captured by: {{medical_instance.staff.fullname}}</span></h3>
                     <form id="generalMedicalForm" method="post" data-form-type="general_medical">
                         {% csrf_token %}
                         <input type="hidden" name="form_type" value="general_medical">

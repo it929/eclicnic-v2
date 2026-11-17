@@ -102,7 +102,7 @@
                             <td>{{ drug.frequency|default:"-" }}</td>
                             <td>{{ drug.duration|default:"-" }}</td>
                             <td>{{ drug.start_date |default:"-"}}</td>
-                            <td>Dr. {{ drug.staff.fullname }}</td>
+                            <td>{{ drug.staff.fullname }}</td>
                             <td>{{drug.pharm_staff}}</td>
                             <td style="color: brown;">{{drug.updated_date |date:"d M Y H:i"}}</td>
                         </tr>
@@ -180,7 +180,7 @@
                         <td>{{ drug.frequency|default:"-" }}</td>
                         <td>{{ drug.duration|default:"-" }}</td>
                         <td>{{ drug.start_date|default:"-" }}</td>
-                        <td>Dr. {{ drug.staff.fullname }}</td>
+                        <td>{{ drug.staff.fullname }}</td>
                         <td>
                             {% if drug.completed == 0 %} 
                                 {% if patient.category.category == 'HMO' %}Not yet Approved{% else %}Not yet Paid{% endif %}

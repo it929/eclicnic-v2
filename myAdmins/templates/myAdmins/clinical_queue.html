@@ -164,7 +164,7 @@
                         <td><a href="{% url 'lab_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'lab_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'lab_investigation' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
-                        <td><a href="{% url 'lab_investigation' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'lab_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -200,7 +200,7 @@
                         <td><a href="{% url 'scan_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'scan_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'scan_investigation' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_investigations }}</a></td> 
-                        <td><a href="{% url 'scan_investigation' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'scan_investigation' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -305,7 +305,7 @@
                         <td><a href="{% url 'prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'prescribe_drugs' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
-                        <td><a href="{% url 'prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -340,7 +340,7 @@
                         <td><a href="{% url 'ipd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'ipd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'ipd2_prescribe_drugs' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
-                        <td><a href="{% url 'ipd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'ipd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -375,7 +375,7 @@
                         <td><a href="{% url 'ipd3_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'ipd3_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'ipd3_prescribe_drugs' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
-                        <td><a href="{% url 'ipd3_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'ipd3_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -410,7 +410,7 @@
                         <td><a href="{% url 'opd_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'opd_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'opd_prescribe_drugs' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
-                        <td><a href="{% url 'opd_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'opd_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>
@@ -445,7 +445,7 @@
                         <td><a href="{% url 'opd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.patient.category.category|default:"-" }} ({{ patient.patient.plan.plan|default:"-" }})</a></td>
                         <td><a href="{% url 'opd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.created_date|date:"h:i A" }}</a></td>
                         <td><a href="{% url 'opd2_prescribe_drugs' patient.patient.id %}" class="text-success" style="text-decoration: none;">{{ patient.all_medications }}</a></td> 
-                        <td><a href="{% url 'opd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">Dr. {{ patient.staff.fullname }}</a></td> 
+                        <td><a href="{% url 'opd2_prescribe_drugs' patient.patient.id %}" style="text-decoration: none;">{{ patient.staff.fullname }}</a></td> 
                     </tr>
                 {% empty %}
                     <tr>

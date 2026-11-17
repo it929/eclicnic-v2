@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth import authenticate, login as auth_login
 from django.utils import timezone
 from django.db.models import Q, Count, Sum
@@ -20,7 +22,10 @@ from queue_operations.models import (
 )
 from Billings.models import Invoice, Receipt, Deposit, Refund
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
-from ANC.models import ANCRegistration
+from ANC.models import (
+    ANCRegistration, AntenatalVisit, ObstetricHistory,
+    CurrentPregnancy, GeneralMedical, LabTests, ANCDetails
+)
 from OPD_pharm.models import OpdDrugs, OpdDrugsUpdate
 from radio_lab.models import RadiologyLab, LabResult, ScanResult
 from inventory.models import (
@@ -355,12 +360,12 @@ class DashboardStatsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        today = date.today()
+        today = timezone.localdate()
         total_patients = PatientProfile.objects.count()
         active_patients = PatientProfile.objects.filter(active=1).count()
         inactive_patients = PatientProfile.objects.filter(active=0).count()
         today_patients = PatientProfile.objects.filter(created_date__date=today).count()
-        queued_patients = NurseWaitingList.objects.count()
+        queued_patients = NurseWaitingList.objects.filter(completed=0).count()
 
         # Category specific
         private_patients = PatientProfile.objects.filter(category__category__iexact='Private').count()
@@ -650,6 +655,467 @@ class PatientViewSet(viewsets.ModelViewSet):
             'deactivated_date': patient.deactivated_date,
             'deactivated_by': patient.deactivated_by,
             'patient': self.get_serializer(patient).data
+        })
+
+    def _is_admin_user(self, user):
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+            return True
+        dept_name = (getattr(getattr(user, 'department', None), 'department', '') or '').lower()
+        if any(k in dept_name for k in ['admin', 'cmd', 'administrator', 'management']):
+            return True
+        try:
+            role_name = (getattr(getattr(user, 'role', None), 'name', '') or '').lower()
+            if any(k in role_name for k in ['admin', 'cmd', 'administrator']):
+                return True
+        except Exception:
+            pass
+        try:
+            role_serialized = (UserSerializer(user).data.get('role_name') or '').lower()
+            if any(k in role_serialized for k in ['admin', 'cmd', 'administrator']):
+                return True
+        except Exception:
+            pass
+        return False
+
+    @action(detail=True, methods=['post'], url_path='change-sponsor')
+    def change_sponsor(self, request, pk=None):
+        """
+        Changes a patient's payer category, sponsor, coverage plan, and policy number,
+        with optional hospital number prefix regeneration, family folder synchronization,
+        and automated audit logging. Strictly restricted to hospital administrators.
+        """
+        if not self._is_admin_user(request.user):
+            return Response(
+                {
+                    'detail': 'Access denied: Only hospital administrators are authorized to change patient sponsors and billing profiles.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        patient = self.get_object()
+        data = request.data or {}
+
+        new_category_id = data.get('category')
+        new_sponsor_id = data.get('sponsor')
+        new_plan_id = data.get('plan')
+        new_policy_number = (data.get('insurance_policy_number') or '').strip()
+        update_hospital_number = bool(data.get('update_hospital_number', False))
+        custom_hospital_number = (data.get('new_hospital_number') or '').strip()
+        sync_family = bool(data.get('sync_family', True))
+        reason = (data.get('reason') or '').strip() or 'Sponsor Change / Update'
+        notes = (data.get('notes') or '').strip()
+
+        # Capture snapshot of previous values
+        prev_category = patient.category
+        prev_sponsor = patient.sponsor
+        prev_plan = patient.plan
+        prev_category_name = prev_category.category if prev_category else 'N/A'
+        prev_sponsor_name = patient.get_sponsor_name()
+        prev_plan_name = prev_plan.plan if prev_plan else 'N/A'
+        prev_policy_number = patient.insurance_policy_number or 'N/A'
+        prev_hospital_number = patient.hospital_number or 'N/A'
+
+        # Resolve new objects
+        new_category_obj = None
+        if new_category_id:
+            try:
+                new_category_obj = PatientCategory.objects.get(pk=new_category_id)
+            except PatientCategory.DoesNotExist:
+                return Response({'detail': f'Selected category ID {new_category_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_sponsor_obj = None
+        if new_sponsor_id:
+            try:
+                new_sponsor_obj = Sponsor.objects.get(pk=new_sponsor_id)
+                # Auto-set category if not provided and sponsor has one
+                if not new_category_obj and new_sponsor_obj.category:
+                    new_category_obj = new_sponsor_obj.category
+            except Sponsor.DoesNotExist:
+                return Response({'detail': f'Selected sponsor ID {new_sponsor_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_plan_obj = None
+        if new_plan_id:
+            try:
+                new_plan_obj = PatientPlan.objects.get(pk=new_plan_id)
+                if not new_sponsor_obj and new_plan_obj.sponsor:
+                    new_sponsor_obj = new_plan_obj.sponsor
+                if not new_category_obj and new_plan_obj.category:
+                    new_category_obj = new_plan_obj.category
+            except PatientPlan.DoesNotExist:
+                return Response({'detail': f'Selected plan ID {new_plan_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Apply new fields to patient
+        patient.category = new_category_obj
+        patient.sponsor = new_sponsor_obj
+        patient.plan = new_plan_obj
+        patient.insurance_policy_number = new_policy_number or None
+
+        # Hospital number logic
+        if update_hospital_number:
+            if custom_hospital_number:
+                patient.hospital_number = custom_hospital_number
+            else:
+                # Retain numeric sequence and update prefix based on new sponsor code
+                import re
+                old_hosp = patient.hospital_number or ''
+                num_match = re.search(r'(\d+)$', old_hosp)
+                suffix_num = num_match.group(1) if num_match else '1001'
+                if new_sponsor_obj and getattr(new_sponsor_obj, 'code', None) and new_sponsor_obj.code.strip():
+                    patient.hospital_number = f"{new_sponsor_obj.code.strip().upper()}/ISL-{suffix_num}"
+                else:
+                    patient.hospital_number = f"ISLH/ISL-{suffix_num}"
+
+        update_fields = ['category', 'sponsor', 'plan', 'insurance_policy_number']
+        if update_hospital_number:
+            update_fields.append('hospital_number')
+
+        patient.save(update_fields=update_fields)
+
+        # Family members synchronization if requested and patient is principal
+        family_synced_count = 0
+        if sync_family and patient.pk:
+            try:
+                for fam in patient.principal_for_families.all():
+                    fam.category = new_category_obj
+                    fam.sponsor = new_sponsor_obj
+                    fam.save(update_fields=['category', 'sponsor'])
+                    fam.sync_members_to_principal()
+                    family_synced_count += fam.members.count()
+            except Exception:
+                pass
+
+        # Audit Log in UserActivityLog
+        new_category_name = new_category_obj.category if new_category_obj else 'N/A'
+        new_sponsor_name = patient.get_sponsor_name()
+        new_plan_name = new_plan_obj.plan if new_plan_obj else 'N/A'
+
+        user_obj = request.user if request.user and request.user.is_authenticated else None
+        if not user_obj:
+            from users.models import User
+            user_obj = User.objects.filter(is_superuser=True).first()
+
+        staff_name = 'Staff'
+        if request.user and request.user.is_authenticated:
+            staff_name = getattr(request.user, 'fullname', '') or request.user.username or 'Staff'
+
+        log_payload = {
+            'action': 'change_sponsor',
+            'patient_id': patient.id,
+            'patient_name': patient.get_full_name(),
+            'hospital_number': patient.hospital_number,
+            'previous': {
+                'category_id': prev_category.id if prev_category else None,
+                'category_name': prev_category_name,
+                'sponsor_id': prev_sponsor.id if prev_sponsor else None,
+                'sponsor_name': prev_sponsor_name,
+                'plan_id': prev_plan.id if prev_plan else None,
+                'plan_name': prev_plan_name,
+                'policy_number': prev_policy_number,
+                'hospital_number': prev_hospital_number,
+            },
+            'new': {
+                'category_id': new_category_obj.id if new_category_obj else None,
+                'category_name': new_category_name,
+                'sponsor_id': new_sponsor_obj.id if new_sponsor_obj else None,
+                'sponsor_name': new_sponsor_name,
+                'plan_id': new_plan_obj.id if new_plan_obj else None,
+                'plan_name': new_plan_name,
+                'policy_number': patient.insurance_policy_number or 'N/A',
+                'hospital_number': patient.hospital_number,
+            },
+            'reason': reason,
+            'notes': notes,
+            'family_synced': bool(family_synced_count > 0),
+            'family_members_synced': family_synced_count,
+            'changed_by': staff_name,
+            'timestamp': timezone.now().isoformat(),
+        }
+
+        try:
+            from myAdmins.models import UserActivityLog
+            UserActivityLog.objects.create(
+                user=user_obj,
+                activity_type='profile_update',
+                description=f"Sponsor changed for {patient.get_full_name()} ({patient.hospital_number}): {prev_sponsor_name} -> {new_sponsor_name}. Reason: {reason}",
+                additional_data=log_payload
+            )
+        except Exception:
+            pass
+
+        return Response({
+            'success': True,
+            'message': f"Sponsor for {patient.get_full_name()} successfully updated to {new_sponsor_name}.",
+            'patient': self.get_serializer(patient).data,
+            'previous_sponsor': prev_sponsor_name,
+            'new_sponsor': new_sponsor_name,
+            'family_synced_count': family_synced_count,
+            'log': log_payload,
+        })
+
+    @action(detail=False, methods=['get'], url_path='sponsor-patient-counts')
+    def sponsor_patient_counts(self, request):
+        """
+        Returns active patient counts grouped by sponsor ID for rapid bulk migration insight.
+        """
+        from django.db.models import Count
+        counts = (
+            PatientProfile.objects
+            .values('sponsor_id')
+            .annotate(total=Count('id'))
+        )
+        counts_dict = {}
+        self_pay_count = 0
+        for item in counts:
+            sp_id = item['sponsor_id']
+            if sp_id is None:
+                self_pay_count = item['total']
+            else:
+                counts_dict[str(sp_id)] = item['total']
+
+        return Response({
+            'counts': counts_dict,
+            'self_pay_count': self_pay_count,
+            'total_patients': PatientProfile.objects.count()
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='bulk-change-sponsor')
+    def bulk_change_sponsor(self, request):
+        """
+        Bulk migrates all (or selected) patients from one sponsor to another sponsor.
+        Includes optional prefix regeneration, family synchronization, and comprehensive audit logging.
+        Strictly restricted to hospital administrators.
+        """
+        if not self._is_admin_user(request.user):
+            return Response(
+                {
+                    'detail': 'Access denied: Only hospital administrators are authorized to perform bulk sponsor migrations.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        data = request.data or {}
+        source_sponsor_id = data.get('source_sponsor_id')
+        target_sponsor_id = data.get('target_sponsor_id')
+        target_category_id = data.get('target_category_id')
+        target_plan_id = data.get('target_plan_id')
+        patient_ids = data.get('patient_ids')  # list of specific patient IDs (optional)
+        update_hospital_number = bool(data.get('update_hospital_number', False))
+        sync_family = bool(data.get('sync_family', True))
+        reason = (data.get('reason') or '').strip() or 'Bulk Sponsor Migration'
+        notes = (data.get('notes') or '').strip()
+
+        if not target_sponsor_id:
+            return Response({'detail': 'Target sponsor is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve target sponsor
+        try:
+            target_sponsor = Sponsor.objects.get(pk=target_sponsor_id)
+        except Sponsor.DoesNotExist:
+            return Response({'detail': f'Target sponsor ID {target_sponsor_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve target category
+        target_category = None
+        if target_category_id:
+            try:
+                target_category = PatientCategory.objects.get(pk=target_category_id)
+            except PatientCategory.DoesNotExist:
+                return Response({'detail': f'Target category ID {target_category_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif target_sponsor.category:
+            target_category = target_sponsor.category
+
+        # Resolve target plan
+        target_plan = None
+        if target_plan_id:
+            try:
+                target_plan = PatientPlan.objects.get(pk=target_plan_id)
+            except PatientPlan.DoesNotExist:
+                return Response({'detail': f'Target plan ID {target_plan_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Query patients to migrate
+        qs = PatientProfile.objects.all().select_related('category', 'sponsor', 'plan')
+        if patient_ids and isinstance(patient_ids, list) and len(patient_ids) > 0:
+            qs = qs.filter(id__in=patient_ids)
+        elif str(source_sponsor_id).lower() in ['null', 'self_pay', 'none', '']:
+            qs = qs.filter(sponsor__isnull=True)
+        else:
+            qs = qs.filter(sponsor_id=source_sponsor_id)
+
+        patients_to_migrate = list(qs)
+        if not patients_to_migrate:
+            return Response({'detail': 'No patients found matching the selected source criteria.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        import re
+        from django.db import transaction
+        from myAdmins.models import UserActivityLog
+
+        user_obj = request.user if request.user and request.user.is_authenticated else None
+        if not user_obj:
+            from users.models import User
+            user_obj = User.objects.filter(is_superuser=True).first()
+
+        staff_name = getattr(request.user, 'fullname', '') or getattr(request.user, 'username', '') or 'Hospital Administrator'
+
+        source_sponsor_name = 'Multiple Sponsors'
+        if source_sponsor_id and str(source_sponsor_id).lower() not in ['null', 'self_pay', 'none', '']:
+            try:
+                source_sponsor_name = Sponsor.objects.get(pk=source_sponsor_id).name
+            except Exception:
+                pass
+        elif str(source_sponsor_id).lower() in ['null', 'self_pay', 'none', '']:
+            source_sponsor_name = 'Self-Pay / Private (No Sponsor)'
+
+        target_code = (target_sponsor.code or '').strip().upper()
+        migrated_patients = []
+        logs_to_create = []
+
+        with transaction.atomic():
+            for patient in patients_to_migrate:
+                prev_category_name = patient.category.category if patient.category else 'N/A'
+                prev_sponsor_name = patient.get_sponsor_name()
+                prev_plan_name = patient.plan.plan if patient.plan else 'N/A'
+                prev_hospital_number = patient.hospital_number or 'N/A'
+
+                patient.category = target_category
+                patient.sponsor = target_sponsor
+                if target_plan:
+                    patient.plan = target_plan
+
+                if update_hospital_number:
+                    old_hosp = patient.hospital_number or ''
+                    num_match = re.search(r'(\d+)$', old_hosp)
+                    suffix_num = num_match.group(1) if num_match else '1001'
+                    if target_code:
+                        patient.hospital_number = f"{target_code}/ISL-{suffix_num}"
+                    else:
+                        patient.hospital_number = f"ISLH/ISL-{suffix_num}"
+
+                update_fields = ['category', 'sponsor']
+                if target_plan:
+                    update_fields.append('plan')
+                if update_hospital_number:
+                    update_fields.append('hospital_number')
+
+                patient.save(update_fields=update_fields)
+
+                # Sync family members if principal
+                if sync_family and patient.pk:
+                    try:
+                        for fam in patient.principal_for_families.all():
+                            fam.category = target_category
+                            fam.sponsor = target_sponsor
+                            fam.save(update_fields=['category', 'sponsor'])
+                            fam.sync_members_to_principal()
+                    except Exception:
+                        pass
+
+                # Build Audit Log payload
+                log_payload = {
+                    'action': 'change_sponsor',
+                    'bulk_migration': True,
+                    'patient_id': patient.id,
+                    'patient_name': patient.get_full_name(),
+                    'hospital_number': patient.hospital_number,
+                    'previous': {
+                        'category_name': prev_category_name,
+                        'sponsor_name': prev_sponsor_name,
+                        'plan_name': prev_plan_name,
+                        'hospital_number': prev_hospital_number,
+                    },
+                    'new': {
+                        'category_name': target_category.category if target_category else 'N/A',
+                        'sponsor_name': target_sponsor.name,
+                        'plan_name': target_plan.plan if target_plan else 'N/A',
+                        'hospital_number': patient.hospital_number,
+                    },
+                    'reason': f"[BULK MIGRATION] {reason}",
+                    'notes': notes,
+                    'changed_by': staff_name,
+                    'timestamp': timezone.now().isoformat(),
+                }
+                logs_to_create.append(
+                    UserActivityLog(
+                        user=user_obj,
+                        activity_type='profile_update',
+                        description=f"[BULK MIGRATION] Sponsor changed for {patient.get_full_name()} ({patient.hospital_number}): {prev_sponsor_name} -> {target_sponsor.name}. Reason: {reason}",
+                        additional_data=log_payload
+                    )
+                )
+
+                migrated_patients.append({
+                    'id': patient.id,
+                    'name': patient.get_full_name(),
+                    'hospital_number': patient.hospital_number,
+                    'previous_sponsor': prev_sponsor_name,
+                })
+
+            if logs_to_create:
+                UserActivityLog.objects.bulk_create(logs_to_create)
+
+        return Response({
+            'success': True,
+            'message': f"Successfully migrated {len(migrated_patients)} patients from {source_sponsor_name} to {target_sponsor.name}.",
+            'migrated_count': len(migrated_patients),
+            'source_sponsor': source_sponsor_name,
+            'target_sponsor': target_sponsor.name,
+            'target_category': target_category.category if target_category else None,
+            'target_plan': target_plan.plan if target_plan else None,
+            'migrated_patients': migrated_patients[:50],
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='sponsor-change-logs')
+    def sponsor_change_logs(self, request):
+        """
+        Retrieves historical audit log records for patient sponsor changes.
+        """
+        from myAdmins.models import UserActivityLog
+        qs = UserActivityLog.objects.filter(
+            activity_type='profile_update',
+            additional_data__action='change_sponsor'
+        ).order_by('-timestamp')
+
+        patient_id = request.query_params.get('patient')
+        if patient_id:
+            try:
+                qs = qs.filter(additional_data__patient_id=int(patient_id))
+            except Exception:
+                pass
+
+        search = request.query_params.get('search', '').strip()
+        logs = []
+        for log in qs[:150]:
+            data = log.additional_data or {}
+            # Check search
+            if search:
+                s = search.lower()
+                p_name = str(data.get('patient_name', '')).lower()
+                h_num = str(data.get('hospital_number', '')).lower()
+                prev_sp = str(data.get('previous', {}).get('sponsor_name', '')).lower()
+                new_sp = str(data.get('new', {}).get('sponsor_name', '')).lower()
+                rsn = str(data.get('reason', '')).lower()
+                by = str(data.get('changed_by', '')).lower()
+                if not (s in p_name or s in h_num or s in prev_sp or s in new_sp or s in rsn or s in by):
+                    continue
+
+            logs.append({
+                'id': log.id,
+                'timestamp': log.timestamp,
+                'patient_id': data.get('patient_id'),
+                'patient_name': data.get('patient_name'),
+                'hospital_number': data.get('hospital_number'),
+                'previous': data.get('previous', {}),
+                'new': data.get('new', {}),
+                'reason': data.get('reason', ''),
+                'notes': data.get('notes', ''),
+                'family_synced': data.get('family_synced', False),
+                'family_members_synced': data.get('family_members_synced', 0),
+                'changed_by': data.get('changed_by', log.user.username if log.user else 'Staff'),
+            })
+
+        return Response({
+            'count': len(logs),
+            'results': logs
         })
 
     def perform_create(self, serializer):
@@ -1433,6 +1899,22 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
             qs = qs.filter(completed=completed)
         return qs
 
+    def create(self, request, *args, **kwargs):
+        # Idempotent: re-opening a clinic (e.g. Immunization) must not stack duplicate queue entries.
+        # If this patient already has an open entry for the same purpose today, return it instead.
+        patient_id = request.data.get('patient')
+        purpose = str(request.data.get('purpose') or '').strip()
+        if patient_id and purpose:
+            existing = NurseWaitingList.objects.filter(
+                patient_id=patient_id,
+                purpose__iexact=purpose,
+                completed=0,
+                created_date__date=timezone.localdate(),
+            ).order_by('-created_date').first()
+            if existing:
+                return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
         patient = serializer.validated_data.get('patient')
@@ -1448,6 +1930,33 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
+        # Auto-consolidate any split package invoice rows into a single package line
+        from django.db.models import Count
+        try:
+            split_pkg_numbers = list(Invoice.objects.filter(
+                invoice_number__icontains='-PKG-'
+            ).values('invoice_number').annotate(c=Count('id')).filter(c__gt=1).values_list('invoice_number', flat=True))
+            for num in split_pkg_numbers:
+                matching = list(Invoice.objects.filter(invoice_number=num).order_by('id'))
+                if len(matching) > 1:
+                    p_inv = matching[0]
+                    tot = sum(x.price for x in matching)
+                    p_name = 'Care Package'
+                    for x in matching:
+                        if x.product and '[' in x.product and ']' in x.product:
+                            p_name = x.product.split('[')[1].split(']')[0]
+                            break
+                        elif x.product and 'Care Package:' in x.product:
+                            p_name = x.product.replace('Care Package:', '').strip()
+                            break
+                    p_inv.product = f"Care Package: {p_name}"
+                    p_inv.qty = 1
+                    p_inv.price = tot
+                    p_inv.save()
+                    Invoice.objects.filter(invoice_number=num).exclude(id=p_inv.id).delete()
+        except Exception as ex:
+            print("Error auto-consolidating package invoices:", ex)
+
         qs = super().get_queryset()
         patient_id = self.request.query_params.get('patient', None)
         if patient_id:
@@ -2205,6 +2714,7 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
     queryset = VisitPurpose.objects.all().select_related('sponsor', 'plan', 'sponsor__category').order_by('purpose', 'sponsor__name', 'plan__plan')
     serializer_class = VisitPurposeSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['purpose', 'sponsor__name', 'sponsor__code', 'plan__plan', 'plan__code']
     ordering_fields = ['purpose', 'price', 'specialist_id', 'created_date']
@@ -2911,11 +3421,58 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
+        patient = serializer.validated_data.get('patient')
+        purpose = serializer.validated_data.get('purpose', '')
+        if patient and purpose and ('antenatal' in purpose.lower() or 'anc' in purpose.lower()):
+            gender = getattr(patient, 'gender', '') or ''
+            if str(gender).strip().lower() != 'female':
+                from rest_framework import serializers as rf_serializers
+                raise rf_serializers.ValidationError({
+                    'purpose': 'Antenatal Clinic (ANC) appointments are strictly for female patients only.'
+                })
+        # A patient may have several DIFFERENT purposes in a day (Cardiology, Endocrinology, ...),
+        # each billed separately, but never the same purpose twice on the same day.
+        arrival_date = serializer.validated_data.get('arrival_date')
+        self._ensure_no_duplicate_purpose(patient, purpose, arrival_date)
         provider = serializer.validated_data.get('provider') or user
         clinician = serializer.validated_data.get('clinician')
         if not clinician and provider:
             clinician = provider.fullname or provider.username
         serializer.save(provider=provider, clinician=clinician)
+
+    def perform_update(self, serializer):
+        inst = serializer.instance
+        patient = serializer.validated_data.get('patient', inst.patient)
+        purpose = serializer.validated_data.get('purpose', inst.purpose)
+        arrival_date = serializer.validated_data.get('arrival_date', inst.arrival_date)
+        if ('purpose' in serializer.validated_data or 'arrival_date' in serializer.validated_data) and serializer.validated_data.get('completed', inst.completed) != 2:
+            self._ensure_no_duplicate_purpose(patient, purpose, arrival_date, exclude_id=inst.id)
+        serializer.save()
+
+    @staticmethod
+    def _purpose_tokens(raw):
+        """'Cardiology, Endocrinology' -> {'cardiology', 'endocrinology'} (case/space-insensitive)."""
+        return {re.sub(r'\s+', ' ', p).strip().lower() for p in str(raw or '').split(',') if p.strip()}
+
+    def _ensure_no_duplicate_purpose(self, patient, purpose, arrival_date, exclude_id=None):
+        """Reject a purpose already booked for this patient on that day (cancelled, completed=2, ignored)."""
+        if not (patient and purpose and arrival_date):
+            return
+        new_tokens = self._purpose_tokens(purpose)
+        same_day = PatientAppointment.objects.filter(patient=patient, arrival_date=arrival_date).exclude(completed=2)
+        if exclude_id:
+            same_day = same_day.exclude(id=exclude_id)
+        booked = set()
+        for existing in same_day.values_list('purpose', flat=True):
+            booked |= self._purpose_tokens(existing)
+        clash = sorted(new_tokens & booked)
+        if clash:
+            from rest_framework import serializers as rf_serializers
+            names = ', '.join(f'"{c.title()}"' for c in clash)
+            raise rf_serializers.ValidationError({
+                'purpose': f'{names} {"is" if len(clash) == 1 else "are"} already scheduled for this patient on {arrival_date}. '
+                           'A patient can have several different purposes in a day, but not the same one twice.'
+            })
 
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel_appointment(self, request, pk=None):
@@ -2957,6 +3514,169 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
             'expired': expired_count,
         })
 
+
+
+def dispatch_care_package_items(package_id=None, patient=None, user=None, package_name='', selected_items=None):
+    """
+    Automatically routes care package bundled services to their respective clinical queues:
+    - Lab tests ('LB', 'L') -> RadiologyLab (item_type='L', billing_waiting_status=0, completed=0)
+    - Radiology scans ('RD', 'R') -> RadiologyLab (item_type='R', billing_waiting_status=0, completed=0)
+    - Pharmacy medications ('PH', 'P', 'RX') -> WrittenPrescriptions (status='pending')
+    - Clinical Services / Nursing / Procedures ('SR', 'WD') -> OtherService (waiting_status=0, completed=0)
+    """
+    from myAdmins.models import Packages, PackagesData
+    from radio_lab.models import RadiologyLab
+    from queue_operations.models import WrittenPrescriptions, OtherService
+    from django.utils import timezone
+    from users.models import User
+
+    if not patient:
+        return {'lab': 0, 'radiology': 0, 'pharmacy': 0, 'services': 0, 'items': []}
+
+    if not user:
+        user = User.objects.filter(is_active=True).first()
+
+    pkg = None
+    if package_id:
+        try:
+            pkg = Packages.objects.filter(id=package_id).first()
+        except Exception:
+            pass
+
+    if not package_name and pkg:
+        package_name = pkg.name
+    elif not package_name:
+        package_name = "Care Package"
+
+    items_to_dispatch = []
+    if selected_items and isinstance(selected_items, list):
+        items_to_dispatch = selected_items
+    elif pkg:
+        items_qs = PackagesData.objects.filter(package=pkg)
+        for it in items_qs:
+            items_to_dispatch.append({
+                'item': it.item,
+                'type': it.type,
+                'rate': float(it.rate or 0),
+            })
+
+    dispatched_summary = {
+        'lab': 0,
+        'radiology': 0,
+        'pharmacy': 0,
+        'services': 0,
+        'items': []
+    }
+
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    for it in items_to_dispatch:
+        item_name = str(it.get('item') or it.get('name') or '').strip()
+        if not item_name:
+            continue
+        type_code = str(it.get('type') or 'SR').strip().upper()
+        rate_val = it.get('rate') or 0
+
+        # 1. Laboratory Test
+        if type_code in ['LB', 'L', 'LAB']:
+            already_exists = RadiologyLab.objects.filter(
+                patient=patient,
+                item__iexact=item_name,
+                item_type='L',
+                created_date__gte=today_start,
+                completed=0
+            ).exists()
+            if not already_exists:
+                RadiologyLab.objects.create(
+                    item=item_name,
+                    item_type='L',
+                    rate=rate_val,
+                    patient=patient,
+                    category=patient.category if patient else None,
+                    plan=patient.plan if patient else None,
+                    staff=user,
+                    radiolab_waiting_status=0,
+                    doctor_waiting_status=0,
+                    billing_waiting_status=0,
+                    completed=0,
+                    comment=f"Care Package: {package_name}"
+                )
+                dispatched_summary['lab'] += 1
+                dispatched_summary['items'].append({'name': item_name, 'queue': 'Laboratory'})
+
+        # 2. Radiology Scan
+        elif type_code in ['RD', 'R', 'RAD', 'SCAN']:
+            already_exists = RadiologyLab.objects.filter(
+                patient=patient,
+                item__iexact=item_name,
+                item_type='R',
+                created_date__gte=today_start,
+                completed=0
+            ).exists()
+            if not already_exists:
+                RadiologyLab.objects.create(
+                    item=item_name,
+                    item_type='R',
+                    rate=rate_val,
+                    patient=patient,
+                    category=patient.category if patient else None,
+                    plan=patient.plan if patient else None,
+                    staff=user,
+                    radiolab_waiting_status=0,
+                    doctor_waiting_status=0,
+                    billing_waiting_status=0,
+                    completed=0,
+                    comment=f"Care Package: {package_name}"
+                )
+                dispatched_summary['radiology'] += 1
+                dispatched_summary['items'].append({'name': item_name, 'queue': 'Radiology'})
+
+        # 3. Pharmacy Medication
+        elif type_code in ['PH', 'P', 'RX', 'DRUG', 'MED']:
+            already_exists = WrittenPrescriptions.objects.filter(
+                patient=patient,
+                item__iexact=item_name,
+                created_date__gte=today_start,
+                status='pending'
+            ).exists()
+            if not already_exists:
+                WrittenPrescriptions.objects.create(
+                    item=item_name,
+                    instruction=f"Care Package: {package_name} - Dispense as prescribed",
+                    quantity=1,
+                    dosage_form="Tablet / Syrup",
+                    route="Oral",
+                    status='pending',
+                    comment=f"Care Package: {package_name}",
+                    patient=patient,
+                    provider=user
+                )
+                dispatched_summary['pharmacy'] += 1
+                dispatched_summary['items'].append({'name': item_name, 'queue': 'Pharmacy'})
+
+        # 4. Clinical Service / Nursing / Procedure / Ward
+        else:
+            already_exists = OtherService.objects.filter(
+                patient=patient,
+                purpose__iexact=item_name,
+                created_date__gte=today_start,
+                completed=0
+            ).exists()
+            if not already_exists:
+                OtherService.objects.create(
+                    patient=patient,
+                    category=patient.category if patient else None,
+                    plan=patient.plan if patient else None,
+                    provider=user,
+                    waiting_status=0,
+                    purpose=item_name,
+                    price=int(round(float(rate_val or 0))),
+                    completed=0
+                )
+                dispatched_summary['services'] += 1
+                dispatched_summary['items'].append({'name': item_name, 'queue': 'Nursing / Clinical Services'})
+
+    return dispatched_summary
 
 # Billings ViewSets
 class InvoiceViewSet(viewsets.ModelViewSet):
@@ -3544,7 +4264,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         from django.utils import timezone
         from Billings.models import TransactionUpdate, Invoice
-        from queue_operations.models import OtherService, WrittenPrescriptions, DoctorWaitingList, NurseWaitingList, PatientEncounter, VisitPurpose, RegFee, GetRegistrationFee
+        from queue_operations.models import OtherService, WrittenPrescriptions, DoctorWaitingList, NurseWaitingList, PatientEncounter, VisitPurpose, RegFee, GetRegistrationFee, ImmunizationRecord
         from radio_lab.models import RadiologyLab
         from inventory.models import PharmacyTariff
         from radio_lab.models import RadioLabInventory
@@ -3591,9 +4311,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             ).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(reg_fee_pids)
 
-            # 3. Active unbilled clinical orders created on target date
+            # 3. Active unbilled clinical orders created on target date (exclude Admin ANC Template drugs)
             rx_pids = WrittenPrescriptions.objects.filter(
-                status='pending', created_date__date=target_date
+                status='pending', is_anc_template=False, created_date__date=target_date
             ).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(rx_pids)
 
@@ -3621,6 +4341,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 completed=0, created_date__date=target_date
             ).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(tu_pids)
+
+            imm_pids = ImmunizationRecord.objects.filter(
+                billing_status='pending', administered_date=target_date
+            ).values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(imm_pids)
         else:
             # When target_date is None ("All Dates")
             appt_pids = PatientAppointment.objects.filter(
@@ -3633,7 +4358,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             ).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(reg_fee_pids)
 
-            rx_pids = WrittenPrescriptions.objects.filter(status='pending').values_list('patient_id', flat=True).distinct()
+            rx_pids = WrittenPrescriptions.objects.filter(status='pending', is_anc_template=False).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(rx_pids)
 
             lab_pids = RadiologyLab.objects.filter(billing_waiting_status=1).values_list('patient_id', flat=True).distinct()
@@ -3650,6 +4375,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
             tu_pids = TransactionUpdate.objects.filter(completed=0).values_list('patient_id', flat=True).distinct()
             unbilled_patient_ids.update(tu_pids)
+
+            imm_pids = ImmunizationRecord.objects.filter(billing_status='pending').values_list('patient_id', flat=True).distinct()
+            unbilled_patient_ids.update(imm_pids)
 
         unbilled_patient_ids.discard(None)
 
@@ -3729,8 +4457,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 parts = [p.strip() for p in str(raw_string).split(',') if p.strip()]
                 for p_text in parts:
                     clean_lower = p_text.lower()
-                    if clean_lower not in seen_purposes_lower:
-                        seen_purposes_lower.add(clean_lower)
+                    # Each DIFFERENT purpose is a separate billable visit (Cardiology, Endocrinology, ...).
+                    # Only spellings of the SAME purpose collapse: the clinic queue records
+                    # "Immunization Encounter" for the "Immunization" appointment -> one fee, not two.
+                    if 'antenatal' in clean_lower or clean_lower == 'anc' or '(anc)' in clean_lower:
+                        dedupe_p_key = 'antenatal_consultation'
+                    else:
+                        dedupe_p_key = re.sub(r'\s+encounter$', '', clean_lower).strip()
+                    if dedupe_p_key not in seen_purposes_lower:
+                        seen_purposes_lower.add(dedupe_p_key)
                         purposes_list.append({
                             'purpose': p_text,
                             'appointment_id': appt_id,
@@ -3756,18 +4491,18 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             all_purposes_arr = [p['purpose'] for p in purposes_list]
             purpose = all_purposes_str
 
-            seen_by = 'Dr. Attending Physician'
+            seen_by = 'Attending Clinician'
             clinicians = [p['clinician'] for p in purposes_list if p.get('clinician')]
             if clinicians:
                 seen_by = clinicians[0]
             elif appt and appt.clinician:
                 seen_by = appt.clinician
             elif latest_dw and latest_dw.staff:
-                seen_by = getattr(latest_dw.staff, 'fullname', None) or latest_dw.staff.get_full_name() or f"Dr. {latest_dw.staff.username}"
+                seen_by = getattr(latest_dw.staff, 'fullname', None) or latest_dw.staff.get_full_name() or latest_dw.staff.username
             elif latest_nw and latest_nw.attendant:
-                seen_by = getattr(latest_nw.attendant, 'fullname', None) or latest_nw.attendant.get_full_name() or f"Nurse {latest_nw.attendant.username}"
+                seen_by = getattr(latest_nw.attendant, 'fullname', None) or latest_nw.attendant.get_full_name() or latest_nw.attendant.username
             elif latest_enc and latest_enc.provider:
-                seen_by = getattr(latest_enc.provider, 'fullname', None) or latest_enc.provider.get_full_name() or f"Dr. {latest_enc.provider.username}"
+                seen_by = getattr(latest_enc.provider, 'fullname', None) or latest_enc.provider.get_full_name() or latest_enc.provider.username
 
             visit_date_raw = target_date or (appt.arrival_date if appt and appt.arrival_date else None) or (latest_dw.created_date.date() if latest_dw and latest_dw.created_date else None) or (latest_nw.created_date.date() if latest_nw and latest_nw.created_date else None) or (pat.created_date.date() if pat.created_date else today)
             visit_date_str = visit_date_raw.strftime('%d/%m/%Y')
@@ -3839,12 +4574,20 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     p_name_clean = p_name.strip()
                     if not p_name_clean:
                         continue
-                    if p_name_clean.lower() in seen_consult_fees_lower:
+                    p_low = p_name_clean.lower()
+                    is_anc_purpose = ('antenatal' in p_low or p_low == 'anc' or '(anc)' in p_low)
+                    dedupe_key = 'antenatal_consultation' if is_anc_purpose else p_low
+                    if dedupe_key in seen_consult_fees_lower:
                         continue
-                    seen_consult_fees_lower.add(p_name_clean.lower())
+                    seen_consult_fees_lower.add(dedupe_key)
 
-                    # Specific check: if an invoice already specifically exists for this purpose
-                    if existing_consult_invoices.filter(product__icontains=p_name_clean).exists():
+                    # Specific check: if an invoice already specifically exists for this purpose (or any ANC consult today)
+                    if existing_consult_invoices.filter(product__icontains=p_name_clean).exists() or (
+                        is_anc_purpose and (
+                            existing_consult_invoices.filter(product__icontains='antenatal').exists()
+                            or existing_consult_invoices.filter(product__icontains='anc').exists()
+                        )
+                    ):
                         matched_invoices_count += 1
                         continue
 
@@ -3910,9 +4653,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             # C. Prescriptions (Prescribed drugs from doctor)
             # -------------------------------------------------------------
             if target_date:
-                rx_items = WrittenPrescriptions.objects.filter(patient=pat, status='pending', created_date__date=target_date).order_by('created_date')
+                rx_items = WrittenPrescriptions.objects.filter(
+                    patient=pat, status='pending', is_anc_template=False, created_date__date=target_date
+                ).order_by('created_date')
             else:
-                rx_items = WrittenPrescriptions.objects.filter(patient=pat, status='pending').order_by('created_date')
+                rx_items = WrittenPrescriptions.objects.filter(
+                    patient=pat, status='pending', is_anc_template=False
+                ).order_by('created_date')
 
             enc_consultation_text = (latest_enc.comments_on_diagnosis or '') if latest_enc else ''
             enc_consult_lower = enc_consultation_text.lower()
@@ -4116,10 +4863,19 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 os_payment_option = 'Cash' if is_purse else default_payment_option
                 purse_tag = ' [Pay from your purse]' if is_purse else ''
 
+                is_pkg_os = str(os.purpose or '').startswith('Care Package:')
+                pkg_id_val = None
+                if is_pkg_os:
+                    from myAdmins.models import Packages
+                    pkg_name_clean = str(os.purpose).replace('Care Package:', '', 1).strip()
+                    pkg_obj = Packages.objects.filter(name__iexact=pkg_name_clean).first()
+                    if pkg_obj:
+                        pkg_id_val = pkg_obj.id
+
                 items.append({
                     'id': f"os_{os.id}",
-                    'service_item': f"Service: {os.purpose}{purse_tag}",
-                    'uom': 'Each',
+                    'service_item': os.purpose if is_pkg_os else f"Service: {os.purpose}{purse_tag}",
+                    'uom': 'Package' if is_pkg_os else 'Each',
                     'quantity': 1,
                     'rate': rate,
                     'discount': 0,
@@ -4129,14 +4885,130 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     'compulsory_pa_code': False,
                     'bill': True,
                     'pa_code': '',
-                    'category': 'service',
+                    'category': 'package' if is_pkg_os else 'service',
                     'original_model': 'OtherService',
                     'original_id': os.id,
+                    'package_id': pkg_id_val,
                 })
 
+            # Section F: Unsettled Care Package Invoices (e.g. standalone INV-PKG-* created before encounter-bill merge)
+            unpaid_pkg_qs = Invoice.objects.filter(
+                patient=pat,
+                original_source_model='Packages',
+                completed=0,
+            ).filter(
+                Q(invoice_number__startswith='INV-PKG-') | Q(invoice_number__startswith='CLM-PKG-')
+            )
+            if target_date:
+                unpaid_pkg_qs = unpaid_pkg_qs.filter(created_date__date=target_date)
+            for pkg_inv in unpaid_pkg_qs.order_by('-id'):
+                # If this invoice_number already has non-package encounter items, it was already merged into an encounter bill
+                if Invoice.objects.filter(patient=pat, invoice_number=pkg_inv.invoice_number).exclude(original_source_model='Packages').exists():
+                    continue
+                pkg_rate = float(pkg_inv.price or 0)
+                pkg_label = pkg_inv.product or 'Care Package'
+                items.append({
+                    'id': f'invpkg_{pkg_inv.id}',
+                    'service_item': pkg_label,
+                    'uom': 'Package',
+                    'quantity': int(pkg_inv.qty or 1),
+                    'rate': pkg_rate,
+                    'discount': float(pkg_inv.discount or 0),
+                    'total': pkg_rate,
+                    'payment_option': pkg_inv.payment_option or default_payment_option,
+                    'is_pay_from_purse': (pkg_inv.payment_option == 'Cash'),
+                    'compulsory_pa_code': False,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'package',
+                    'original_model': 'PackageInvoice',
+                    'original_id': pkg_inv.id,
+                    'package_id': pkg_inv.original_source_id,
+                    'tariff_matched': True,
+                })
+
+            # -------------------------------------------------------------
+            # G. Immunizations / Vaccines given in the Immunization Clinic
+            #    Price = patient's sponsor/plan tariff (locked at administration).
+            #    HMO-covered vaccines -> Claim (PA code required from HMO approver)
+            #    Not covered / private -> patient invoice (pay from purse)
+            # -------------------------------------------------------------
+            imm_qs = ImmunizationRecord.objects.filter(patient=pat, billing_status='pending', is_billable=True)
+            if target_date:
+                imm_qs = imm_qs.filter(administered_date=target_date)
+            already_invoiced_imm_ids = set(
+                Invoice.objects.filter(patient=pat, original_source_model='ImmunizationRecord')
+                .exclude(original_source_id__isnull=True).values_list('original_source_id', flat=True)
+            )
+            for imm in imm_qs.order_by('administered_date', 'id'):
+                if imm.id in already_invoiced_imm_ids:
+                    continue
+                rate = float(imm.fee or 0)
+                covered = (imm.payment_mode == 'covered') and is_hmo
+                imm_payment_option = 'Claim' if covered else 'Cash'
+                purse_tag = '' if covered or not is_hmo else ' [Pay from your purse]'
+                product_label = imm.tariff_name or imm.vaccine_name
+                dose_label = f" - {imm.dose_stage}" if imm.dose_stage else ''
+                items.append({
+                    'id': f"imm_{imm.id}",
+                    'service_item': f"Vaccine: {product_label}{dose_label}{purse_tag}",
+                    'uom': 'Doses',
+                    'quantity': 1,
+                    'rate': rate,
+                    'discount': 0,
+                    'total': rate,
+                    'payment_option': imm_payment_option,
+                    'is_pay_from_purse': not covered and is_hmo,
+                    'compulsory_pa_code': covered,
+                    'bill': True,
+                    'pa_code': '',
+                    'category': 'immunization',
+                    'original_model': 'ImmunizationRecord',
+                    'original_id': imm.id,
+                    'tariff_matched': bool(imm.tariff_id),
+                    'price_source': imm.price_source or '',
+                })
+
+            imm_count = len([it for it in items if it['category'] == 'immunization'])
+
+            # Vaccines given in this visit (all billing states) for the Purpose & Clinician column
+            imm_day_qs = ImmunizationRecord.objects.filter(patient=pat)
+            imm_day_qs = imm_day_qs.filter(administered_date=target_date) if target_date else imm_day_qs.filter(billing_status='pending')
+            from api.immunization_views import get_immunization_clearance
+            imm_day_recs = list(imm_day_qs.order_by('id'))
+            imm_day_clr = get_immunization_clearance(imm_day_recs)
+            immunizations_today = [
+                {
+                    'id': r.id,
+                    'vaccine_name': r.vaccine_name,
+                    'dose_stage': r.dose_stage,
+                    'administered_by': r.administered_by_name or '',
+                    'billing_status': r.billing_status,
+                    'payment_mode': r.payment_mode,
+                    'fee': float(r.fee or 0),
+                    'clearance_status': imm_day_clr[r.id]['status'],
+                    'clearance_label': imm_day_clr[r.id]['label'],
+                    'is_cleared': imm_day_clr[r.id]['cleared'],
+                    'is_administered': imm_day_clr[r.id]['administered'],
+                    'invoice_number': imm_day_clr[r.id]['invoice_number'],
+                }
+                for r in imm_day_recs
+            ]
+            vaccinated_by = list(dict.fromkeys(v['administered_by'] for v in immunizations_today if v['administered_by']))
+            if vaccinated_by:
+                vac_names = ', '.join(vaccinated_by)
+                # The person who gave the vaccines is the clinician for the immunization purpose
+                for pe in purposes_list:
+                    pl = (pe.get('purpose') or '').lower()
+                    if 'immuni' in pl or 'vaccin' in pl:
+                        pe['clinician'] = vac_names
+                # Replace placeholder clinicians ("General Pool", "Attending Clinician") with the real name
+                if not seen_by or 'general pool' in str(seen_by).lower() or seen_by == 'Attending Clinician':
+                    seen_by = vac_names
             rx_count = len([it for it in items if it['category'] == 'prescription'])
             inv_count = len([it for it in items if it['category'] == 'investigation'])
-            srv_count = len([it for it in items if it['category'] == 'service'])
+            pkg_count = len([it for it in items if it['category'] == 'package'])
+            srv_count = len([it for it in items if it['category'] in ('service', 'package')])
 
             # Query invoices generated for this patient on target date to track settlements
             if target_date:
@@ -4150,8 +5022,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     created_date__date=today
                 ).order_by('created_date')
 
+            from Billings.models import Receipt as BillingReceipt
+            settled_inv_list = list(settled_invoices_qs)
+            settled_inv_nums = [inv.invoice_number for inv in settled_inv_list if inv.invoice_number]
+            rec_map = {}
+            if settled_inv_nums:
+                for rec_obj in BillingReceipt.objects.filter(patient=pat, invoice_number__in=settled_inv_nums).order_by('-id'):
+                    if rec_obj.invoice_number and rec_obj.invoice_number not in rec_map:
+                        rec_map[rec_obj.invoice_number] = rec_obj.receipt_number
+
             settled_invoices_today = []
-            for inv in settled_invoices_qs:
+            for inv in settled_inv_list:
                 unit_p = float(inv.price or 0)
                 inv_qty = int(inv.qty or 1)
                 disc = float(inv.discount or 0)
@@ -4166,6 +5047,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     'total': inv_tot,
                     'payment_option': inv.payment_option or 'Cash',
                     'completed': bool(inv.completed),
+                    'receipt_number': rec_map.get(inv.invoice_number) if inv.completed else None,
                     'created_time': inv.created_date.strftime('%I:%M %p') if inv.created_date else '',
                 })
 
@@ -4215,8 +5097,12 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 'visit_type': visit_type,
                 'seen_by': seen_by,
                 'prescriptions_count': rx_count,
+                'immunizations_count': imm_count,
+                'immunizations_today': immunizations_today,
+                'vaccinated_by': vaccinated_by,
                 'investigations_count': inv_count,
                 'services_count': srv_count,
+                'packages_count': pkg_count,
                 'has_consultation_fee': any(it['category'] == 'consultation' for it in items),
                 'consultation_fees_count': len([it for it in items if it['category'] == 'consultation']),
                 'has_registration_fee': any(it['category'] == 'registration' for it in items),
@@ -4255,7 +5141,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         import random
         from django.db import transaction
         from Billings.models import TransactionUpdate, Receipt
-        from queue_operations.models import OtherService, WrittenPrescriptions, NurseWaitingList, GetRegistrationFee
+        from queue_operations.models import OtherService, WrittenPrescriptions, NurseWaitingList, GetRegistrationFee, ImmunizationRecord
         from radio_lab.models import RadiologyLab
         from patients.models import PatientAppointment
 
@@ -4332,6 +5218,21 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoices_to_create = []
         total_amount = 0.0
 
+        # HMO approval: vaccines covered by the HMO must carry the PA code before they can be claimed
+        if is_hmo:
+            missing_pa = [
+                str(it.get('service_item') or 'Vaccine')
+                for it in selected_items
+                if it.get('original_model') == 'ImmunizationRecord'
+                and str(it.get('payment_option') or '').strip().lower() == 'claim'
+                and not str(it.get('pa_code') or it.get('auth_code') or '').strip()
+            ]
+            if missing_pa:
+                return Response(
+                    {'error': f"HMO approval required: enter the PA code for {', '.join(missing_pa)} before generating the claim."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         with transaction.atomic():
             for item in selected_items:
                 product_name = str(item.get('service_item') or item.get('product') or '').strip()
@@ -4348,6 +5249,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 orig_model = item.get('original_model') or ''
                 orig_id = item.get('original_id')
                 label = product_name[:60]
+
+                if orig_model == 'ImmunizationRecord' and orig_id:
+                    imm_rec = ImmunizationRecord.objects.filter(id=orig_id, patient=patient).first()
+                    if not imm_rec or imm_rec.billing_status == 'billed':
+                        continue
+                    qty = 1
+                    discount = 0
+                    rate = float(imm_rec.fee or 0)
+                    item_total = rate
 
                 # Determine target document number:
                 # - For HMO patients: items marked 'Claim' go to HMO Claim (CLM-...)
@@ -4379,6 +5289,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
                 total_amount += item_total
 
+                pkg_id_item = item.get('package_id')
+                if not pkg_id_item and product_name.startswith('Care Package:'):
+                    from myAdmins.models import Packages
+                    pkg_match = Packages.objects.filter(name__iexact=product_name.replace('Care Package:', '', 1).strip()).first()
+                    if pkg_match:
+                        pkg_id_item = pkg_match.id
+
+                inv_source_model = 'Packages' if pkg_id_item else (orig_model[:50] if orig_model else None)
+                inv_source_id = int(pkg_id_item) if pkg_id_item else (int(orig_id) if isinstance(orig_id, int) and orig_id < 2147483647 else None)
+
                 invoices_to_create.append(Invoice(
                     patient=patient,
                     invoice_number=target_doc_number,
@@ -4390,8 +5310,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     category=category,
                     staff=user,
                     completed=1 if mark_as_paid else 0,
-                    original_source_model=orig_model[:50] if orig_model else None,
-                    original_source_id=int(orig_id) if isinstance(orig_id, int) and orig_id < 2147483647 else None,
+                    original_source_model=inv_source_model,
+                    original_source_id=inv_source_id,
                 ))
 
                 # Mark source records as billed!
@@ -4401,6 +5321,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     RadiologyLab.objects.filter(id=orig_id).update(billing_waiting_status=0, completed=0)
                 elif orig_model == 'OtherService' and orig_id:
                     OtherService.objects.filter(id=orig_id).update(completed=1)
+                elif orig_model == 'ImmunizationRecord' and orig_id:
+                    ImmunizationRecord.objects.filter(id=orig_id, patient=patient).update(billing_status='billed')
+                elif orig_model == 'PackageInvoice' and orig_id:
+                    Invoice.objects.filter(id=orig_id, completed=0).delete()
                 elif orig_model == 'NurseWaitingList' and orig_id:
                     NurseWaitingList.objects.filter(id=orig_id).update(completed=1)
                 elif orig_model == 'GetRegistrationFee':
@@ -4412,6 +5336,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 Invoice.objects.bulk_create(invoices_to_create)
 
                 if mark_as_paid:
+                    pkg_ids_enc = set(
+                        inv.original_source_id for inv in invoices_to_create
+                        if getattr(inv, 'original_source_model', None) == 'Packages' and inv.original_source_id
+                    )
+                    for p_id in pkg_ids_enc:
+                        try:
+                            dispatch_care_package_items(package_id=p_id, patient=patient, user=user)
+                        except Exception as ex:
+                            print(f"Error dispatching care package {p_id} during create_encounter_bill:", ex)
                     primary_pay_opt = selected_items[0].get('payment_option') or ('Claim' if is_hmo else 'Cash')
                     Receipt.objects.create(
                         patient=patient,
@@ -4591,15 +5524,35 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             if not user and invoices[0].staff:
                 user = invoices[0].staff
 
+            # Idempotency guard: if all invoices are already settled and a Receipt exists, return it instead of double-charging
+            if all(int(getattr(it, 'completed', 0) or 0) == 1 for it in invoices):
+                existing_receipt = Receipt.objects.filter(invoice_number=inv_num).order_by('-id').first()
+                if existing_receipt:
+                    return Response({
+                        'status': 'success',
+                        'already_settled': True,
+                        'receipt_number': existing_receipt.receipt_number,
+                        'invoice_number': inv_num,
+                        'patient_name': f'{patient.surname} {patient.first_name}' if patient else 'Patient',
+                        'hospital_number': patient.hospital_number if patient else '',
+                        'total_amount': float(existing_receipt.total_price or 0),
+                        'payment_type': existing_receipt.payment_type or payment_type,
+                        'message': f'Invoice #{inv_num} is already settled (Receipt #{existing_receipt.receipt_number}).',
+                    }, status=status.HTTP_200_OK)
+
             # Calculate total
             total_calc = sum(float(it.price or 0) * int(it.qty or 1) * (1 - (float(it.discount or 0) / 100.0)) for it in invoices)
             final_amount = float(amount_paid) if amount_paid is not None else total_calc
 
-            # Mark invoices as completed
+            # Mark invoices as completed; only update item price when settling a single-item invoice
             if invoice_numbers:
-                Invoice.objects.filter(invoice_number__in=invoice_numbers).update(completed=1, payment_option=payment_type)
+                qs_upd = Invoice.objects.filter(invoice_number__in=invoice_numbers)
             else:
-                Invoice.objects.filter(id=invoice_id).update(completed=1, payment_option=payment_type)
+                qs_upd = Invoice.objects.filter(id=invoice_id)
+            if len(invoices) == 1 and amount_paid is not None:
+                qs_upd.update(completed=1, payment_option=payment_type, price=int(round(final_amount)))
+            else:
+                qs_upd.update(completed=1, payment_option=payment_type)
 
             receipt_number = f"REC-{random.randint(10000, 99999)}"
             receipt = Receipt.objects.create(
@@ -4621,6 +5574,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 except Exception:
                     pass
 
+            # If any settled invoices were billed from a care package, dispatch their items to clinical queues now
+            pkg_ids = set(
+                inv.original_source_id for inv in invoices
+                if getattr(inv, 'original_source_model', None) == 'Packages' and inv.original_source_id
+            )
+            for p_id in pkg_ids:
+                try:
+                    dispatch_care_package_items(package_id=p_id, patient=patient, user=user)
+                except Exception as ex:
+                    print(f"Error dispatching care package {p_id} during receipt issuance:", ex)
+
         return Response({
             'status': 'success',
             'receipt_number': receipt_number,
@@ -4640,8 +5604,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         marking them as completed=1 so that OPD pharmacy and clinical departments
         can clear and dispense medications or services to the patient.
         """
+        import random
         from django.db import transaction
-        from Billings.models import TransactionUpdate, Invoice
+        from Billings.models import TransactionUpdate, Invoice, Receipt
 
         invoice_numbers = request.data.get('invoice_numbers')
         invoice_number = request.data.get('invoice_number') or request.data.get('claim_number')
@@ -4671,17 +5636,58 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             else:
                 Invoice.objects.filter(id=invoice_id).update(completed=1)
 
+            approving_user = request.user if request.user.is_authenticated else None
+            if not approving_user and request.data.get('staff_id'):
+                try:
+                    from users.models import User
+                    approving_user = User.objects.filter(id=request.data.get('staff_id')).first()
+                except Exception:
+                    pass
+            if not approving_user and invoices:
+                approving_user = invoices[0].staff
+
+            total_calc = sum(float(it.price or 0) * int(it.qty or 1) * (1 - (float(it.discount or 0) / 100.0)) for it in invoices)
+            existing_rec = Receipt.objects.filter(invoice_number=inv_num).order_by('-id').first()
+            if existing_rec:
+                receipt_number = existing_rec.receipt_number
+            else:
+                receipt_number = f'REC-{random.randint(10000, 99999)}'
+                Receipt.objects.create(
+                    patient=patient,
+                    invoice_number=inv_num,
+                    receipt_number=receipt_number,
+                    remarks=f'HMO Claim Approved for {len(invoices)} item(s) on {inv_num}',
+                    total_price=int(round(total_calc)),
+                    category=invoices[0].category or (patient.category if patient else None),
+                    payment_type='HMO Claim',
+                    staff=approving_user,
+                )
+
             if patient:
                 try:
                     tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
+                    if not existing_rec:
+                        tu.receipt_given = (tu.receipt_given or 0) + 1
                     tu.completed = 1
                     tu.updated_date = timezone.now()
                     tu.save()
                 except Exception:
                     pass
 
+            # If any approved claim invoices were billed from a care package, dispatch their items to clinical queues now
+            pkg_ids_hmo = set(
+                inv.original_source_id for inv in invoices
+                if getattr(inv, 'original_source_model', None) == 'Packages' and inv.original_source_id
+            )
+            for p_id in pkg_ids_hmo:
+                try:
+                    dispatch_care_package_items(package_id=p_id, patient=patient, user=invoices[0].staff if invoices else None)
+                except Exception as ex:
+                    print(f"Error dispatching care package {p_id} during HMO claim approval:", ex)
+
         return Response({
             'status': 'success',
+            'receipt_number': receipt_number,
             'invoice_number': inv_num,
             'claim_number': inv_num,
             'patient_name': f"{patient.surname} {patient.first_name}" if patient else 'Patient',
@@ -4690,6 +5696,238 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             'items_approved': len(invoices),
             'message': f"HMO Claim #{inv_num} ({len(invoices)} items) successfully approved! Prescriptions and services are now cleared for dispensing."
         }, status=status.HTTP_200_OK)
+
+
+
+    @action(detail=False, methods=['post'], url_path='bill-package')
+    def bill_package(self, request):
+        """
+        Billing unit action to select and bill a care package (e.g. ANC-PRIVATE-VIP) to a patient.
+        Routes bundled items to appropriate clinical queues (Laboratory, Radiology, Pharmacy, Services)
+        upon payment settlement or HMO approval.
+        """
+        import random
+        from django.db import transaction
+        from Billings.models import Invoice, Receipt, TransactionUpdate
+        from patients.models import PatientProfile
+        from myAdmins.models import Packages, PackagesData
+        from users.models import User
+
+        patient_id = request.data.get('patient_id') or request.data.get('patient')
+        package_id = request.data.get('package_id') or request.data.get('package')
+        payment_status = (request.data.get('payment_status') or 'paid').strip().lower()  # 'paid', 'hmo_approved', 'pending'
+        payment_method = request.data.get('payment_method') or ('HMO' if payment_status == 'hmo_approved' else 'Cash')
+        custom_total = request.data.get('custom_total') or request.data.get('custom_price')
+        selected_items = request.data.get('items') or request.data.get('selected_items') or []
+        remarks = request.data.get('remarks') or ''
+        staff_id = request.data.get('staff_id')
+
+        if not patient_id:
+            return Response({'error': 'Patient selection is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not package_id:
+            return Response({'error': 'Care Package selection is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            patient = PatientProfile.objects.select_related('sponsor', 'plan', 'category').get(id=patient_id)
+        except PatientProfile.DoesNotExist:
+            return Response({'error': 'Patient record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            package = Packages.objects.get(id=package_id)
+        except Packages.DoesNotExist:
+            return Response({'error': 'Care package not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+        if not user and staff_id:
+            user = User.objects.filter(id=staff_id).first()
+        if not user:
+            user = User.objects.filter(is_active=True).first()
+
+        # If items not passed, load from PackagesData
+        if not selected_items:
+            pkg_data_qs = PackagesData.objects.filter(package=package).order_by('id')
+            selected_items = [{
+                'item': it.item,
+                'type': it.type,
+                'rate': float(it.rate or 0)
+            } for it in pkg_data_qs]
+
+        if not selected_items:
+            return Response({'error': f'Care package "{package.name}" contains no bundled items.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        cat_str = (patient.category.category if getattr(patient, 'category', None) and getattr(patient.category, 'category', None) else '').lower()
+        spon_str = (patient.sponsor.name if getattr(patient, 'sponsor', None) and getattr(patient.sponsor, 'name', None) else '').lower()
+        patient_is_hmo = (
+            any(k in cat_str or k in spon_str for k in ['hmo', 'nhis', 'insurance', 'retainer', 'corporate'])
+            and ('private' not in cat_str and 'cash' not in cat_str and 'self' not in cat_str)
+        )
+        is_hmo = (
+            (payment_status == 'hmo_approved')
+            or (payment_method.upper() in ['HMO', 'CLAIM'])
+            or (payment_status == 'pending' and patient_is_hmo)
+        )
+        if is_hmo and payment_status == 'pending':
+            payment_method = 'Claim'
+        is_paid = (payment_status == 'paid')
+        is_approved = (payment_status == 'hmo_approved')
+        is_completed = 1 if (is_paid or is_approved) else 0
+
+        # Generate unique invoice or claim number
+        doc_prefix = 'CLM' if is_hmo else 'INV'
+        rand_num = random.randint(10000, 99999)
+        doc_number = f"{doc_prefix}-PKG-{rand_num}"
+
+        # Calculate item rates & totals
+        total_calc = sum(float(it.get('rate') or 0) for it in selected_items)
+        if custom_total is not None and str(custom_total).strip():
+            try:
+                final_total = float(custom_total)
+            except Exception:
+                final_total = total_calc
+        else:
+            final_total = total_calc
+
+        add_to_encounter_bill = bool(request.data.get('add_to_encounter_bill', False))
+        if add_to_encounter_bill:
+            from queue_operations.models import OtherService
+            OtherService.objects.create(
+                patient=patient,
+                category=patient.category,
+                plan=patient.plan,
+                provider=user,
+                waiting_status=1,
+                purpose=f"Care Package: {package.name}"[:150],
+                price=int(round(final_total)),
+                completed=0,
+            )
+            return Response({
+                'status': 'success',
+                'added_to_encounter_bill': True,
+                'package_id': package.id,
+                'package_name': package.name,
+                'patient_id': patient.id,
+                'patient_name': patient.get_full_name(),
+                'hospital_number': patient.hospital_number or 'N/A',
+                'total_amount': final_total,
+                'message': f"Care Package '{package.name}' (₦{final_total:,.2f}) added to {patient.get_full_name()}'s bill in Encounters Billing Queue!",
+            }, status=status.HTTP_201_CREATED)
+
+        now_dt = timezone.now()
+
+        invoices_to_create = []
+        with transaction.atomic():
+            # Fix any legacy null created_date invoices
+            Invoice.objects.filter(created_date__isnull=True).update(created_date=now_dt)
+
+            # Consolidate any legacy package invoice with multiple split items into a single package line
+            pkg_inv_numbers = list(Invoice.objects.filter(invoice_number__icontains='-PKG-', original_source_model='Packages').values_list('invoice_number', flat=True).distinct())
+            for old_num in pkg_inv_numbers:
+                old_qs = list(Invoice.objects.filter(invoice_number=old_num).order_by('id'))
+                if len(old_qs) > 1:
+                    primary_inv = old_qs[0]
+                    total_p = sum(x.price for x in old_qs)
+                    # Extract package name from product if available
+                    p_name = package.name
+                    if primary_inv.product and '[' in primary_inv.product and ']' in primary_inv.product:
+                        m = primary_inv.product.split('[')[1].split(']')[0]
+                        if m: p_name = m
+                    primary_inv.product = f"Care Package: {p_name}"
+                    primary_inv.qty = 1
+                    primary_inv.price = total_p
+                    primary_inv.save()
+                    Invoice.objects.filter(invoice_number=old_num).exclude(id=primary_inv.id).delete()
+
+            # Create just ONE clean invoice line for the Care Package itself with its total price
+            inv = Invoice(
+                patient=patient,
+                invoice_number=doc_number,
+                product=f"Care Package: {package.name}",
+                qty=1,
+                price=int(round(final_total)),
+                discount=0,
+                payment_option=payment_method,
+                category=patient.category,
+                staff=user,
+                completed=is_completed,
+                original_source_model='Packages',
+                original_source_id=package.id,
+                created_date=now_dt,
+            )
+            inv.save()
+            invoices_to_create = [inv]
+
+            # If paid immediately, generate official Receipt
+            receipt_number = None
+            if is_paid:
+                receipt_number = f"REC-PKG-{random.randint(10000, 99999)}"
+                Receipt.objects.create(
+                    patient=patient,
+                    invoice_number=doc_number,
+                    receipt_number=receipt_number,
+                    remarks=remarks or f"Payment settled for Care Package: {package.name}",
+                    total_price=int(round(final_total)),
+                    category=patient.category,
+                    payment_type=payment_method,
+                    staff=user,
+                )
+
+            # Update TransactionUpdate ledger
+            try:
+                tu = TransactionUpdate.objects.filter(patient=patient, completed=0).order_by('-id').first()
+                if not tu:
+                    tu = TransactionUpdate(patient=patient, completed=0)
+                tu.invoice_ids = str(doc_number)[:20]
+                tu.invoice_raised = (tu.invoice_raised or 0) + int(round(final_total))
+                tu.total_invoiced_items = (tu.total_invoiced_items or 0) + len(invoices_to_create)
+                if is_paid:
+                    tu.receipt_given = (tu.receipt_given or 0) + 1
+                if is_approved:
+                    tu.completed = 1
+                if user:
+                    tu.staff = user
+                tu.updated_date = timezone.now()
+                tu.save()
+            except Exception as ex:
+                print("Error updating TransactionUpdate in bill_package:", ex)
+
+            # Dispatch items to clinical queues immediately if settled (paid or HMO approved)
+            dispatched = None
+            if is_completed:
+                dispatched = dispatch_care_package_items(
+                    package_id=package.id,
+                    patient=patient,
+                    user=user,
+                    package_name=package.name,
+                    selected_items=selected_items
+                )
+
+        msg = (
+            f"Care Package '{package.name}' successfully billed to {patient.get_full_name()} "
+            f"(₦{final_total:,.2f}). "
+        )
+        if is_paid:
+            msg += f"Receipt #{receipt_number} issued and items dispatched to clinical queues!"
+        elif is_approved:
+            msg += "HMO coverage approved and items dispatched to clinical queues!"
+        else:
+            msg += f"Invoice #{doc_number} generated. Items will be dispatched upon cashier payment or HMO approval."
+
+        return Response({
+            'status': 'success',
+            'package_id': package.id,
+            'package_name': package.name,
+            'patient_id': patient.id,
+            'patient_name': patient.get_full_name(),
+            'hospital_number': patient.hospital_number or 'N/A',
+            'invoice_number': doc_number,
+            'receipt_number': receipt_number,
+            'payment_status': payment_status,
+            'payment_method': payment_method,
+            'total_amount': final_total,
+            'items_count': len(invoices_to_create),
+            'dispatched_summary': dispatched,
+            'message': msg
+        }, status=status.HTTP_201_CREATED)
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):
@@ -4798,16 +6036,1533 @@ class BedAllocationViewSet(viewsets.ModelViewSet):
 
 # ANC ViewSets
 class ANCRegistrationViewSet(viewsets.ModelViewSet):
-    queryset = ANCRegistration.objects.all().select_related('patient', 'created_by').order_by('-visit_date')
+    queryset = ANCRegistration.objects.all().select_related('patient', 'created_by', 'antenatal_visit').order_by('-visit_date')
     serializer_class = ANCRegistrationSerializer
     pagination_class = StandardResultsSetPagination
     permission_classes = [permissions.AllowAny]
     filter_backends = [filters.SearchFilter]
     search_fields = ['patient__surname', 'patient__first_name', 'patient__hospital_number']
 
+    def get_queryset(self):
+        # Auto-end any active ANC journeys reaching 52+ weeks
+        from ANC.models import AntenatalVisit
+        AntenatalVisit.auto_end_all_expired_journeys()
+
+        # Antenatal care (ANC) is strictly for female patients only
+        qs = super().get_queryset().filter(patient__gender__iexact='Female')
+        status_filter = self.request.query_params.get('status', 'active')
+        if status_filter and status_filter != 'all':
+            qs = qs.filter(status=status_filter)
+        return qs
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(created_by=user)
+        patient = serializer.validated_data.get('patient')
+        if patient:
+            gender = getattr(patient, 'gender', '') or ''
+            if str(gender).strip().lower() != 'female':
+                from rest_framework import serializers as rf_serializers
+                raise rf_serializers.ValidationError({
+                    'patient': 'Antenatal care (ANC) is strictly for female patients only.'
+                })
+        active_visit = self._get_or_create_active_visit(patient) if patient else None
+        serializer.save(created_by=user, antenatal_visit=active_visit, status='active')
+
+    def _get_or_create_active_visit(self, patient):
+        """Return the patient's active AntenatalVisit or start a new numbered ANC Journey."""
+        from datetime import date
+        from django.db.models import Max
+        from rest_framework import serializers as rf_serializers
+
+        if patient:
+            gender = getattr(patient, 'gender', '') or ''
+            if str(gender).strip().lower() != 'female':
+                raise rf_serializers.ValidationError({
+                    'patient': 'Antenatal care (ANC) is strictly for female patients only.'
+                })
+
+        active_visit = AntenatalVisit.get_active_for_patient(patient)
+        if active_visit:
+            return active_visit
+
+        existing_qs = AntenatalVisit.objects.filter(patient=patient)
+        has_past = existing_qs.filter(status=AntenatalVisit.STATUS_COMPLETED).exists()
+        max_num = existing_qs.aggregate(Max('journey_number'))['journey_number__max'] or 0
+        next_num = max(max_num, existing_qs.count()) + 1
+
+        new_visit = AntenatalVisit.objects.create(
+            patient=patient,
+            visit_date=date.today(),
+            status=AntenatalVisit.STATUS_ACTIVE,
+            journey_number=next_num,
+        )
+
+        # Reset prophylaxis flags when beginning a brand-new pregnancy after a prior closed journey
+        if has_past:
+            anc_details = ANCDetails.objects.filter(patient=patient).first()
+            if anc_details:
+                reset_fields = [
+                    'syphilis_test_done', 'syphilis_positive', 'syphilis_treated',
+                    'hepatitis_b_test_done', 'hepatitis_b_positive', 'hepatitis_b_referred',
+                    'hepatitis_c_test_done', 'hepatitis_c_positive', 'hepatitis_c_referred',
+                    'severe_anaemia', 'proteinuria', 'received_tt', 'family_planning_counseled',
+                    'received_llin', 'malaria_ipt1', 'malaria_ipt2', 'malaria_ipt3',
+                    'maternal_nutrition_counseled', 'haematinics_received',
+                ]
+                for fname in reset_fields:
+                    setattr(anc_details, fname, 'No')
+                anc_details.save(update_fields=reset_fields)
+
+        return new_visit
+
+    def _serialize_journey_summary(self, visit):
+        """Build structured metadata for an AntenatalVisit journey episode."""
+        if not visit:
+            return None
+        from ANC.models import Examination
+        from datetime import date, timedelta
+
+        preg = getattr(visit, 'current_pregnancy', None)
+        lmp = preg.last_menstrual_period if preg else None
+        edd = preg.expected_date_of_delivery if preg else None
+        if lmp and not edd:
+            edd = lmp + timedelta(days=280)
+
+        ga_weeks = None
+        if lmp:
+            ref_date = visit.outcome_date if (visit.status == AntenatalVisit.STATUS_COMPLETED and visit.outcome_date) else date.today()
+            ga_weeks = max(0, (ref_date - lmp).days // 7)
+        elif preg and preg.gestational_age_weeks is not None:
+            ga_weeks = preg.gestational_age_weeks
+
+        return {
+            'id': visit.id,
+            'journey_number': visit.journey_number or 1,
+            'status': visit.status,
+            'status_display': visit.get_status_display(),
+            'started_date': str(visit.visit_date) if visit.visit_date else None,
+            'booking_completed': visit.has_completed_booking(),
+            'booking_completed_at': visit.booking_completed_at.isoformat() if visit.booking_completed_at else None,
+            'lmp': str(lmp) if lmp else None,
+            'edd': str(edd) if edd else None,
+            'gestational_age_weeks': ga_weeks,
+            'outcome': visit.outcome,
+            'outcome_display': visit.get_outcome_display() if visit.outcome else None,
+            'outcome_date': str(visit.outcome_date) if visit.outcome_date else None,
+            'outcome_notes': visit.outcome_notes or '',
+            'ended_at': visit.ended_at.isoformat() if visit.ended_at else None,
+            'examinations_count': Examination.objects.filter(antenatal_visit=visit).count(),
+        }
+
+    @action(detail=False, methods=['get'], url_path='journeys-list')
+    def journeys_list(self, request):
+        """
+        Admin endpoint to list all ANC Journeys with patient demographic, gestational,
+        and outcome metadata. Supports filtering by status ('active', 'completed', 'all')
+        and searching by patient name, hospital number, or phone.
+        """
+        from django.db.models import Q
+        from ANC.models import AntenatalVisit, Examination
+
+        # Auto-complete any active journeys that have reached 52+ weeks
+        AntenatalVisit.auto_end_all_expired_journeys()
+
+        status_filter = request.query_params.get('status', 'active')
+        search_query = (request.query_params.get('search') or '').strip()
+
+        qs = AntenatalVisit.objects.filter(
+            patient__gender__iexact='Female'
+        ).select_related(
+            'patient', 'patient__sponsor', 'patient__plan', 'current_pregnancy', 'ended_by'
+        ).order_by('-visit_date', '-id')
+
+        if status_filter in (AntenatalVisit.STATUS_ACTIVE, AntenatalVisit.STATUS_COMPLETED):
+            qs = qs.filter(status=status_filter)
+
+        if search_query:
+            qs = qs.filter(
+                Q(patient__surname__icontains=search_query) |
+                Q(patient__first_name__icontains=search_query) |
+                Q(patient__hospital_number__icontains=search_query) |
+                Q(patient__phone_number__icontains=search_query)
+            )
+
+        active_count = AntenatalVisit.objects.filter(patient__gender__iexact='Female', status=AntenatalVisit.STATUS_ACTIVE).count()
+        completed_count = AntenatalVisit.objects.filter(patient__gender__iexact='Female', status=AntenatalVisit.STATUS_COMPLETED).count()
+
+        from datetime import date, timedelta
+        journeys_data = []
+        for visit in qs[:150]:
+            pat = visit.patient
+            if not pat:
+                continue
+            preg = getattr(visit, 'current_pregnancy', None)
+            lmp = preg.last_menstrual_period if preg else None
+            edd = preg.expected_date_of_delivery if preg else None
+
+            if lmp and not edd:
+                edd = lmp + timedelta(days=280)
+
+            ga_weeks = None
+            if lmp:
+                ref_date = visit.outcome_date if (visit.status == AntenatalVisit.STATUS_COMPLETED and visit.outcome_date) else date.today()
+                ga_weeks = max(0, (ref_date - lmp).days // 7)
+            elif preg and preg.gestational_age_weeks is not None:
+                ga_weeks = preg.gestational_age_weeks
+
+            ended_by_name = None
+            if visit.ended_by:
+                ended_by_name = getattr(visit.ended_by, 'fullname', '') or getattr(visit.ended_by, 'username', '')
+
+            journeys_data.append({
+                'id': visit.id,
+                'patient_id': pat.id,
+                'patient_name': f"{pat.surname} {pat.first_name}",
+                'hospital_number': pat.hospital_number,
+                'phone_number': pat.phone_number or 'N/A',
+                'gender': getattr(pat, 'gender', 'Female') or 'Female',
+                'age': pat.get_age if hasattr(pat, 'get_age') and pat.get_age is not None else '',
+                'sponsor': getattr(pat.sponsor, 'sponsor', getattr(pat.sponsor, 'name', str(pat.sponsor))) if pat.sponsor else 'Self-Pay / Cash',
+                'plan': getattr(pat.plan, 'plan', getattr(pat.plan, 'name', str(pat.plan))) if pat.plan else 'Standard',
+                'journey_number': visit.journey_number or 1,
+                'status': visit.status,
+                'status_display': visit.get_status_display(),
+                'started_date': str(visit.visit_date) if visit.visit_date else None,
+                'booking_completed': visit.has_completed_booking(),
+                'lmp': str(lmp) if lmp else None,
+                'edd': str(edd) if edd else None,
+                'gestational_age_weeks': ga_weeks,
+                'examinations_count': Examination.objects.filter(antenatal_visit=visit).count(),
+                'outcome': visit.outcome,
+                'outcome_display': visit.get_outcome_display() if visit.outcome else None,
+                'outcome_date': str(visit.outcome_date) if visit.outcome_date else None,
+                'outcome_notes': visit.outcome_notes or '',
+                'ended_at': visit.ended_at.isoformat() if visit.ended_at else None,
+                'ended_by_name': ended_by_name,
+            })
+
+        return Response({
+            'journeys': journeys_data,
+            'total_active_count': active_count,
+            'total_completed_count': completed_count,
+            'outcome_choices': [{'value': k, 'label': v} for k, v in AntenatalVisit.OUTCOME_CHOICES],
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='journey-status')
+    def journey_status(self, request):
+        """
+        Return the patient's current Antenatal Journey state and historical journeys.
+        Used by UI encounter menus to route cleanly to First Consultation or Follow-up Consultation.
+        """
+        from django.shortcuts import get_object_or_404
+        from patients.models import PatientProfile
+
+        patient_id = request.query_params.get('patient') or request.query_params.get('patient_id')
+        if not patient_id:
+            return Response({'detail': 'Patient ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = get_object_or_404(PatientProfile, id=patient_id)
+        gender = getattr(patient, 'gender', '') or ''
+        if str(gender).strip().lower() != 'female':
+            return Response({
+                'detail': 'Antenatal care (ANC) is strictly for female patients only.',
+                'is_eligible': False,
+                'gender': gender,
+            }, status=status.HTTP_400_BAD_REQUEST)
+        active_visit = AntenatalVisit.get_active_for_patient(patient)
+        booking_completed = active_visit.has_completed_booking() if active_visit else False
+        completed_visits = AntenatalVisit.objects.filter(
+            patient=patient,
+            status=AntenatalVisit.STATUS_COMPLETED,
+        ).select_related('current_pregnancy').order_by('-outcome_date', '-visit_date', '-id')
+
+        return Response({
+            'patient_id': patient.id,
+            'has_active_journey': bool(active_visit),
+            'booking_completed': booking_completed,
+            'next_step': 'follow_up' if (active_visit and booking_completed) else 'booking',
+            'active_journey': self._serialize_journey_summary(active_visit),
+            'past_journeys': [self._serialize_journey_summary(v) for v in completed_visits],
+            'outcome_choices': [{'value': k, 'label': v} for k, v in AntenatalVisit.OUTCOME_CHOICES],
+        })
+
+    @action(detail=False, methods=['post'], url_path='end-journey')
+    def end_journey(self, request):
+        """
+        Complete / close an active Antenatal Journey (e.g., Live Birth Delivery, Miscarriage, Stillbirth).
+        Once ended, scheduling the patient for ANC again starts a brand-new ANC Journey.
+        """
+        from datetime import datetime, date
+        from django.db.models import Q
+        from django.shortcuts import get_object_or_404
+        from patients.models import PatientProfile
+
+        data = request.data
+        patient_id = data.get('patient_id') or data.get('patient')
+        if not patient_id:
+            return Response({'detail': 'patient_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = get_object_or_404(PatientProfile, id=patient_id)
+        visit_id = data.get('visit_id')
+        visit = None
+        if visit_id:
+            visit = AntenatalVisit.objects.filter(
+                id=visit_id,
+                patient=patient,
+                status=AntenatalVisit.STATUS_ACTIVE,
+            ).first()
+        if not visit:
+            visit = AntenatalVisit.get_active_for_patient(patient)
+
+        if not visit:
+            return Response(
+                {'detail': 'No active antenatal journey found for this patient.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_outcomes = dict(AntenatalVisit.OUTCOME_CHOICES)
+        outcome = (data.get('outcome') or '').strip()
+        if outcome not in valid_outcomes:
+            return Response(
+                {'detail': f"Invalid outcome. Must be one of: {', '.join(valid_outcomes.keys())}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_date = data.get('outcome_date')
+        parsed_date = date.today()
+        if raw_date:
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y'):
+                try:
+                    parsed_date = datetime.strptime(str(raw_date).strip(), fmt).date()
+                    break
+                except (ValueError, TypeError):
+                    pass
+
+        outcome_notes = (data.get('outcome_notes') or '').strip()
+        current_user = request.user if request.user.is_authenticated else None
+        if not current_user:
+            from django.contrib.auth import get_user_model
+            current_user = get_user_model().objects.filter(is_active=True).first()
+
+        visit.status = AntenatalVisit.STATUS_COMPLETED
+        visit.outcome = outcome
+        visit.outcome_date = parsed_date
+        visit.outcome_notes = outcome_notes
+        visit.ended_at = timezone.now()
+        visit.ended_by = current_user
+        visit.save()
+
+        ANCRegistration.objects.filter(
+            Q(antenatal_visit=visit) | Q(patient=patient, status='active')
+        ).update(status='completed')
+
+        # Record closing clinical encounter in patient Case Note audit trail
+        PatientEncounter.objects.create(
+            patient=patient,
+            provider=current_user,
+            chief_complaint=f"Antenatal Journey #{visit.journey_number} Completed",
+            history_of_present_illness=f"Outcome Date: {parsed_date}. {outcome_notes}".strip(),
+            diagnosis=f"ANC Outcome: {valid_outcomes[outcome]}",
+            comments_on_diagnosis=outcome_notes or f"Antenatal care episode closed ({valid_outcomes[outcome]}).",
+        )
+
+        return Response({
+            'success': True,
+            'message': f"Antenatal Journey #{visit.journey_number} ended ({valid_outcomes[outcome]}).",
+            'journey': self._serialize_journey_summary(visit),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get', 'post'], url_path='first-consultation')
+    def first_consultation(self, request):
+        """
+        Enterprise First Antenatal Consultation & Booking API
+        GET: Retrieves booking data across all 4 stages for a patient
+        POST: Persists or updates Obstetric History, Current Pregnancy, General Medical, and Tests
+        """
+        from datetime import datetime, date, timedelta
+        from django.shortcuts import get_object_or_404
+        from patients.models import PatientProfile, PatientAppointment
+
+        def parse_date_safe(val):
+            if not val:
+                return None
+            if isinstance(val, (date, datetime)):
+                return val if isinstance(val, date) else val.date()
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d'):
+                try:
+                    return datetime.strptime(str(val).strip(), fmt).date()
+                except (ValueError, TypeError):
+                    pass
+            return None
+
+        # -----------------------------
+        # GET: Fetch Booking Details
+        # -----------------------------
+        if request.method == 'GET':
+            patient_id = request.query_params.get('patient') or request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({'detail': 'Patient ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            patient = get_object_or_404(PatientProfile, id=patient_id)
+            
+            # Fetch active ANC Journey or initiate a new one
+            visit = self._get_or_create_active_visit(patient)
+            past_completed_visits = AntenatalVisit.objects.filter(
+                patient=patient,
+                status=AntenatalVisit.STATUS_COMPLETED,
+            )
+
+            # Load related models strictly for this active ANC Journey
+            obs = getattr(visit, 'obstetric_history', None)
+            preg = getattr(visit, 'current_pregnancy', None)
+            med = getattr(visit, 'general_medical', None)
+            tests = getattr(visit, 'tests', None)
+            anc_reg = ANCRegistration.objects.filter(
+                antenatal_visit=visit
+            ).order_by('-visit_date', '-id').first() or ANCRegistration.objects.filter(
+                patient=patient,
+                status='active',
+            ).order_by('-visit_date', '-id').first()
+
+            had_prior_pregnancy = past_completed_visits.exists()
+            had_prior_miscarriage = past_completed_visits.filter(outcome='miscarriage').exists()
+            had_prior_stillbirth = past_completed_visits.filter(outcome='stillbirth').exists()
+
+            # Format patient age
+            patient_age = None
+            if hasattr(patient, 'get_age') and callable(patient.get_age):
+                patient_age = patient.get_age()
+            elif hasattr(patient, 'age'):
+                patient_age = patient.age
+
+            pat_title = getattr(patient, 'title', '') or ''
+            patient_data = {
+                'id': patient.id,
+                'name': f"{pat_title} {patient.surname} {patient.other_name or ''} {patient.first_name}".replace('  ', ' ').strip(),
+                'hospital_number': patient.hospital_number,
+                'age': patient_age,
+                'gender': patient.gender,
+                'dob': str(patient.dob) if patient.dob else None,
+                'phone_number': patient.phone_number,
+                'category': (getattr(patient.category, 'category', None) or str(patient.category)) if patient.category else None,
+                'plan': (getattr(patient.plan, 'plan', None) or str(patient.plan)) if patient.plan else None,
+                'sponsor': patient.sponsor.name if patient.sponsor else None,
+            }
+
+            visit_data = {
+                'id': visit.id,
+                'visit_date': str(visit.visit_date),
+                'visit_time': timezone.now().strftime("%H:%M"),
+            }
+
+            # Map Stage 1: Obstetric History
+            obstetric_data = {
+                'is_first_pregnancy': getattr(obs, 'is_first_pregnancy', 'No' if had_prior_pregnancy else 'No'),
+                'history_spontaneous_abortions': getattr(obs, 'history_spontaneous_abortions', 'Yes' if had_prior_miscarriage else 'No'),
+                'birthweight_gt_4500g': getattr(obs, 'birthweight_gt_4500g', 'No'),
+                'previous_caesarean_section': getattr(obs, 'previous_caesarean_section', 'No'),
+                'previous_surgery_reproductive_tract': getattr(obs, 'previous_surgery_reproductive_tract', 'N/A'),
+                'age_gt_40_years': getattr(obs, 'age_gt_40_years', 'Yes' if (patient_age and patient_age > 40) else 'No'),
+                'vaginal_bleeding': getattr(obs, 'vaginal_bleeding', 'No'),
+                'diastolic_bp_gt_90': getattr(obs, 'diastolic_bp_gt_90', 'No'),
+                'family_history_twins': getattr(obs, 'family_history_twins', 'No'),
+                'previous_stillbirth_neonatal_loss': getattr(obs, 'previous_stillbirth_neonatal_loss', 'Yes' if had_prior_stillbirth else 'No'),
+                'birthweight_lt_2500g': getattr(obs, 'birthweight_lt_2500g', 'No'),
+                'last_pregnancy_hospital_admission': getattr(obs, 'last_pregnancy_hospital_admission', 'No'),
+                'multiple_pregnancy': getattr(obs, 'multiple_pregnancy', 'No'),
+                'age_lt_16_years': getattr(obs, 'age_lt_16_years', 'Yes' if (patient_age and patient_age < 16) else 'No'),
+                'isoimmunization_rh': getattr(obs, 'isoimmunization_rh', 'No'),
+                'pelvic_mass': getattr(obs, 'pelvic_mass', 'No'),
+                'insulin_dependent_diabetes': getattr(obs, 'insulin_dependent_diabetes', 'No'),
+            }
+
+            # Map Stage 2: Current Pregnancy
+            current_preg_data = {
+                'last_menstrual_period': str(preg.last_menstrual_period) if preg and preg.last_menstrual_period else (str(anc_reg.last_menstrual_period) if anc_reg and anc_reg.last_menstrual_period else ''),
+                'expected_date_of_delivery': str(preg.expected_date_of_delivery) if preg and preg.expected_date_of_delivery else (str(anc_reg.expected_delivery_date) if anc_reg and anc_reg.expected_delivery_date else ''),
+                'gestational_age_weeks': preg.gestational_age_weeks if preg and preg.gestational_age_weeks is not None else (anc_reg.gestational_age_weeks if anc_reg else ''),
+                'number_of_foetus': preg.number_of_foetus if preg and preg.number_of_foetus else (anc_reg.number_of_foetus if anc_reg else 1),
+                'gestational_period_from_ultrasound': bool(preg.gestational_period_from_ultrasound) if preg else False,
+                'bleeding': getattr(preg, 'bleeding', 'No'),
+                'vomiting': getattr(preg, 'vomiting', 'No'),
+                'oedema': getattr(preg, 'oedema', 'No'),
+                'placenta_previa': getattr(preg, 'placenta_previa', 'No'),
+                'blurred_vision': getattr(preg, 'blurred_vision', 'No'),
+                'breathlessness': getattr(preg, 'breathlessness', 'No'),
+                'discharge': getattr(preg, 'discharge', 'No'),
+                'history_of_present_pregnancy': getattr(preg, 'history_of_present_pregnancy', '') or '',
+            }
+
+            # Map Stage 3: General Medical
+            general_med_data = {
+                'known_substance_abuse': getattr(med, 'known_substance_abuse', 'No'),
+                'severe_anaemia': getattr(med, 'severe_anaemia', 'No'),
+                'sickle_cell_disease': getattr(med, 'sickle_cell_disease', 'No'),
+                'hypertension': getattr(med, 'hypertension', 'No'),
+                'diabetes_mellitus': getattr(med, 'diabetes_mellitus', 'No'),
+                'cardiac_disease': getattr(med, 'cardiac_disease', 'No'),
+                'chronic_cough_tuberculosis': getattr(med, 'chronic_cough_tuberculosis', 'No'),
+                'breast_cancer': getattr(med, 'breast_cancer', 'No'),
+                'liver_disease_jaundice': getattr(med, 'liver_disease_jaundice', 'No'),
+                'gall_bladder_disease': getattr(med, 'gall_bladder_disease', 'No'),
+                'thyroid_disease': getattr(med, 'thyroid_disease', 'No'),
+                'renal_disease': getattr(med, 'renal_disease', 'No'),
+                'epilepsy': getattr(med, 'epilepsy', 'No'),
+                'peptic_ulcer_disease': getattr(med, 'peptic_ulcer_disease', 'No'),
+                'asthma': getattr(med, 'asthma', 'No'),
+                'others_medical_history': getattr(med, 'others_medical_history', 'No') or 'No',
+                'family_history': getattr(med, 'family_history', '') or '',
+            }
+
+            # Map Stage 4: Tests
+            tests_data = {
+                'vdrl': getattr(tests, 'vdrl', 'Awaiting Result'),
+                'hiv': getattr(tests, 'hiv', 'Awaiting Result'),
+                'blood_group': getattr(tests, 'blood_group', 'Awaiting Result'),
+                'genotype': getattr(tests, 'genotype', 'Awaiting Result'),
+                'hepatitis_b': getattr(tests, 'hepatitis_b', 'Awaiting Result'),
+                'hepatitis_c': getattr(tests, 'hepatitis_c', 'Negative'),
+                'rhesus_factor': getattr(tests, 'rhesus_factor', 'Awaiting Result'),
+                'hb': str(tests.hb) if tests and tests.hb is not None else '',
+                'urine_protein': getattr(tests, 'urine_protein', 'Negative'),
+                'urine_glucose': getattr(tests, 'urine_glucose', 'Awaiting Result'),
+                'pregnancy_test': getattr(tests, 'pregnancy_test', 'Awaiting Result'),
+            }
+
+            return Response({
+                'patient': patient_data,
+                'visit': visit_data,
+                'journey': self._serialize_journey_summary(visit),
+                'past_journeys_count': past_completed_visits.count(),
+                'current_stage': anc_reg.current_stage if anc_reg else 1,
+                'completed': visit.has_completed_booking(),
+                'obstetric_history': obstetric_data,
+                'current_pregnancy': current_preg_data,
+                'general_medical': general_med_data,
+                'tests': tests_data,
+                'stages_completed': {
+                    'stage_1': obs is not None,
+                    'stage_2': preg is not None,
+                    'stage_3': med is not None,
+                    'stage_4': tests is not None,
+                }
+            })
+
+        # -----------------------------
+        # POST: Persist Booking Data
+        # -----------------------------
+        data = request.data
+        patient_id = data.get('patient_id') or data.get('patient')
+        if not patient_id:
+            return Response({'detail': 'patient_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = get_object_or_404(PatientProfile, id=patient_id)
+        current_user = request.user if request.user.is_authenticated else None
+        if not current_user:
+            from django.contrib.auth import get_user_model
+            current_user = get_user_model().objects.filter(is_active=True).first()
+
+        # Active ANC Journey Visit instance (never mutate a completed past journey)
+        visit_id = data.get('visit_id')
+        visit = None
+        if visit_id:
+            try:
+                visit = AntenatalVisit.objects.filter(
+                    id=int(visit_id),
+                    patient=patient,
+                    status=AntenatalVisit.STATUS_ACTIVE,
+                ).first()
+            except (ValueError, TypeError):
+                visit = None
+        if not visit:
+            visit = self._get_or_create_active_visit(patient)
+
+        # Stage 1: Obstetric History
+        obs_payload = data.get('obstetric_history')
+        if obs_payload is not None:
+            obs, _ = ObstetricHistory.objects.get_or_create(visit=visit)
+            obs.is_first_pregnancy = obs_payload.get('is_first_pregnancy', obs.is_first_pregnancy)
+            obs.history_spontaneous_abortions = obs_payload.get('history_spontaneous_abortions', obs.history_spontaneous_abortions)
+            obs.birthweight_gt_4500g = obs_payload.get('birthweight_gt_4500g', obs.birthweight_gt_4500g)
+            obs.previous_caesarean_section = obs_payload.get('previous_caesarean_section', obs.previous_caesarean_section)
+            obs.previous_surgery_reproductive_tract = obs_payload.get('previous_surgery_reproductive_tract', obs.previous_surgery_reproductive_tract)
+            obs.age_gt_40_years = obs_payload.get('age_gt_40_years', obs.age_gt_40_years)
+            obs.vaginal_bleeding = obs_payload.get('vaginal_bleeding', obs.vaginal_bleeding)
+            obs.diastolic_bp_gt_90 = obs_payload.get('diastolic_bp_gt_90', obs.diastolic_bp_gt_90)
+            obs.family_history_twins = obs_payload.get('family_history_twins', obs.family_history_twins)
+            obs.previous_stillbirth_neonatal_loss = obs_payload.get('previous_stillbirth_neonatal_loss', obs.previous_stillbirth_neonatal_loss)
+            obs.birthweight_lt_2500g = obs_payload.get('birthweight_lt_2500g', obs.birthweight_lt_2500g)
+            obs.last_pregnancy_hospital_admission = obs_payload.get('last_pregnancy_hospital_admission', obs.last_pregnancy_hospital_admission)
+            obs.multiple_pregnancy = obs_payload.get('multiple_pregnancy', obs.multiple_pregnancy)
+            obs.age_lt_16_years = obs_payload.get('age_lt_16_years', obs.age_lt_16_years)
+            obs.isoimmunization_rh = obs_payload.get('isoimmunization_rh', obs.isoimmunization_rh)
+            obs.pelvic_mass = obs_payload.get('pelvic_mass', obs.pelvic_mass)
+            obs.insulin_dependent_diabetes = obs_payload.get('insulin_dependent_diabetes', obs.insulin_dependent_diabetes)
+            if current_user:
+                obs.staff = current_user
+            obs.save()
+
+        # Stage 2: Current Pregnancy
+        preg_payload = data.get('current_pregnancy')
+        parsed_lmp = None
+        parsed_edd = None
+        calc_ga = None
+        if preg_payload is not None:
+            preg, _ = CurrentPregnancy.objects.get_or_create(visit=visit)
+            parsed_lmp = parse_date_safe(preg_payload.get('last_menstrual_period'))
+            preg.last_menstrual_period = parsed_lmp
+
+            # Gestational age & EDD calculation
+            from_us = bool(preg_payload.get('gestational_period_from_ultrasound'))
+            preg.gestational_period_from_ultrasound = from_us
+            
+            if parsed_lmp:
+                if not from_us or not preg_payload.get('expected_date_of_delivery'):
+                    parsed_edd = parsed_lmp + timedelta(days=280)
+                    preg.expected_date_of_delivery = parsed_edd
+                else:
+                    parsed_edd = parse_date_safe(preg_payload.get('expected_date_of_delivery'))
+                    preg.expected_date_of_delivery = parsed_edd
+                
+                if not from_us or preg_payload.get('gestational_age_weeks') in ('', None):
+                    delta_days = (date.today() - parsed_lmp).days
+                    calc_ga = max(0, delta_days // 7)
+                    preg.gestational_age_weeks = calc_ga
+                else:
+                    try:
+                        preg.gestational_age_weeks = int(preg_payload.get('gestational_age_weeks'))
+                        calc_ga = preg.gestational_age_weeks
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                if preg_payload.get('expected_date_of_delivery'):
+                    preg.expected_date_of_delivery = parse_date_safe(preg_payload.get('expected_date_of_delivery'))
+                if preg_payload.get('gestational_age_weeks') not in ('', None):
+                    try:
+                        preg.gestational_age_weeks = int(preg_payload.get('gestational_age_weeks'))
+                    except (ValueError, TypeError):
+                        pass
+
+            try:
+                preg.number_of_foetus = int(preg_payload.get('number_of_foetus') or 1)
+            except (ValueError, TypeError):
+                preg.number_of_foetus = 1
+
+            preg.bleeding = preg_payload.get('bleeding', preg.bleeding)
+            preg.vomiting = preg_payload.get('vomiting', preg.vomiting)
+            preg.oedema = preg_payload.get('oedema', preg.oedema)
+            preg.placenta_previa = preg_payload.get('placenta_previa', preg.placenta_previa)
+            preg.blurred_vision = preg_payload.get('blurred_vision', preg.blurred_vision)
+            preg.breathlessness = preg_payload.get('breathlessness', preg.breathlessness)
+            preg.discharge = preg_payload.get('discharge', preg.discharge)
+            preg.history_of_present_pregnancy = preg_payload.get('history_of_present_pregnancy', preg.history_of_present_pregnancy)
+            if current_user:
+                preg.staff = current_user
+            preg.save()
+
+        # Stage 3: General Medical
+        med_payload = data.get('general_medical')
+        if med_payload is not None:
+            med, _ = GeneralMedical.objects.get_or_create(visit=visit)
+            med.known_substance_abuse = med_payload.get('known_substance_abuse', med.known_substance_abuse)
+            med.severe_anaemia = med_payload.get('severe_anaemia', med.severe_anaemia)
+            med.sickle_cell_disease = med_payload.get('sickle_cell_disease', med.sickle_cell_disease)
+            med.hypertension = med_payload.get('hypertension', med.hypertension)
+            med.diabetes_mellitus = med_payload.get('diabetes_mellitus', med.diabetes_mellitus)
+            med.cardiac_disease = med_payload.get('cardiac_disease', med.cardiac_disease)
+            med.chronic_cough_tuberculosis = med_payload.get('chronic_cough_tuberculosis', med.chronic_cough_tuberculosis)
+            med.breast_cancer = med_payload.get('breast_cancer', med.breast_cancer)
+            med.liver_disease_jaundice = med_payload.get('liver_disease_jaundice', med.liver_disease_jaundice)
+            med.gall_bladder_disease = med_payload.get('gall_bladder_disease', med.gall_bladder_disease)
+            med.thyroid_disease = med_payload.get('thyroid_disease', med.thyroid_disease)
+            med.renal_disease = med_payload.get('renal_disease', med.renal_disease)
+            med.epilepsy = med_payload.get('epilepsy', med.epilepsy)
+            med.peptic_ulcer_disease = med_payload.get('peptic_ulcer_disease', med.peptic_ulcer_disease)
+            med.asthma = med_payload.get('asthma', med.asthma)
+            med.others_medical_history = med_payload.get('others_medical_history', med.others_medical_history)
+            med.family_history = med_payload.get('family_history', med.family_history)
+            if current_user:
+                med.staff = current_user
+            med.save()
+
+        # Stage 4: Tests
+        tests_payload = data.get('tests')
+        if tests_payload is not None:
+            tests, _ = LabTests.objects.get_or_create(visit=visit)
+            tests.vdrl = tests_payload.get('vdrl', tests.vdrl)
+            tests.hiv = tests_payload.get('hiv', tests.hiv)
+            tests.blood_group = tests_payload.get('blood_group', tests.blood_group)
+            tests.genotype = tests_payload.get('genotype', tests.genotype)
+            tests.hepatitis_b = tests_payload.get('hepatitis_b', tests.hepatitis_b)
+            tests.hepatitis_c = tests_payload.get('hepatitis_c', tests.hepatitis_c)
+            tests.rhesus_factor = tests_payload.get('rhesus_factor', tests.rhesus_factor)
+            
+            hb_val = tests_payload.get('hb')
+            if hb_val not in ('', None):
+                try:
+                    import re
+                    clean_hb = re.sub(r'[^\d.]', '', str(hb_val))
+                    if clean_hb:
+                        val = float(clean_hb)
+                        tests.hb = min(val, 99.99)
+                    else:
+                        tests.hb = None
+                except (ValueError, TypeError):
+                    tests.hb = None
+            else:
+                tests.hb = None
+
+            tests.urine_protein = tests_payload.get('urine_protein', tests.urine_protein)
+            tests.urine_glucose = tests_payload.get('urine_glucose', tests.urine_glucose)
+            tests.pregnancy_test = tests_payload.get('pregnancy_test', tests.pregnancy_test)
+            if current_user:
+                tests.staff = current_user
+            tests.save()
+
+        # Sync with ANCRegistration for this active ANC Journey
+        anc_reg = ANCRegistration.objects.filter(
+            antenatal_visit=visit
+        ).order_by('-visit_date', '-id').first() or ANCRegistration.objects.filter(
+            patient=patient,
+            status='active',
+        ).order_by('-visit_date', '-id').first()
+        if not anc_reg:
+            anc_reg = ANCRegistration.objects.create(
+                patient=patient,
+                antenatal_visit=visit,
+                status='active',
+            )
+        else:
+            anc_reg.antenatal_visit = visit
+            anc_reg.status = 'active' 
+        if parsed_lmp:
+            anc_reg.last_menstrual_period = parsed_lmp
+        if parsed_edd:
+            anc_reg.expected_delivery_date = parsed_edd
+        if calc_ga is not None:
+            anc_reg.gestational_age_weeks = calc_ga
+        if preg_payload:
+            try:
+                anc_reg.number_of_foetus = int(preg_payload.get('number_of_foetus') or 1)
+            except (ValueError, TypeError):
+                pass
+            anc_reg.bleeding = (preg_payload.get('bleeding') == 'Yes')
+            anc_reg.vomiting = (preg_payload.get('vomiting') == 'Yes')
+            anc_reg.oedema = (preg_payload.get('oedema') == 'Yes')
+            anc_reg.placenta_previa = (preg_payload.get('placenta_previa') == 'Yes')
+            anc_reg.blurred_vision = (preg_payload.get('blurred_vision') == 'Yes')
+            anc_reg.breathlessness = (preg_payload.get('breathlessness') == 'Yes')
+            anc_reg.discharge = (preg_payload.get('discharge') == 'Yes')
+
+        curr_stage = data.get('current_stage')
+        if curr_stage:
+            try:
+                anc_reg.current_stage = int(curr_stage)
+            except (ValueError, TypeError):
+                pass
+
+        action_type = data.get('action', 'save')
+        if action_type in ('submit', 'submit_and_schedule'):
+            anc_reg.completed = True
+            visit.booking_completed = True
+            if not visit.booking_completed_at:
+                visit.booking_completed_at = timezone.now()
+            visit.save(update_fields=['booking_completed', 'booking_completed_at'])
+        elif action_type == 'suspend':
+            anc_reg.completed = False
+
+        if current_user:
+            anc_reg.created_by = current_user
+        anc_reg.save()
+
+        # Schedule Follow-up Appointment if requested
+        sched = data.get('schedule_appointment')
+        created_appt_id = None
+        if sched and sched.get('date'):
+            sched_date = parse_date_safe(sched.get('date'))
+            if sched_date:
+                arrival_time = sched.get('time') or "09:00"
+                if len(str(arrival_time)) == 5:
+                    arrival_time = f"{arrival_time}:00"
+                
+                clinician_name = "ANC Clinic"
+                if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
+                    clinician_name = current_user.fullname
+                elif current_user:
+                    clinician_name = current_user.username
+
+                appt = PatientAppointment.objects.create(
+                    patient=patient,
+                    provider=current_user,
+                    clinician=clinician_name,
+                    purpose="Antenatal Clinic (ANC)",
+                    visit_type="Follow-up",
+                    arrival_date=sched_date,
+                    arrival_time=arrival_time,
+                    comment=sched.get('comment') or f"Scheduled ANC follow-up review for week {sched.get('anc_weeks', '')}".strip(),
+                    anc_weeks=str(sched.get('anc_weeks') or '')
+                )
+                created_appt_id = appt.id
+
+        return Response({
+            'success': True,
+            'message': 'Antenatal consultation recorded successfully.',
+            'visit_id': visit.id,
+            'journey_number': visit.journey_number,
+            'booking_completed': visit.has_completed_booking(),
+            'completed': anc_reg.completed,
+            'journey': self._serialize_journey_summary(visit),
+            'appointment_id': created_appt_id
+        }, status=status.HTTP_200_OK)
+
+    def _is_admin_user(self, user):
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+            return True
+        dept_name = (getattr(getattr(user, 'department', None), 'department', '') or '').lower()
+        if any(k in dept_name for k in ['admin', 'cmd']):
+            return True
+        try:
+            role_name = (UserSerializer(user).data.get('role_name') or '').lower()
+            if any(k in role_name for k in ['admin', 'cmd']):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _get_default_anc_templates(self):
+        return [
+            {
+                "id": "tpl_routine_anc_std",
+                "name": "Routine ANC Prophylaxis (Standard WHO / FMOH)",
+                "category": "Standard Obstetric Protocol",
+                "description": "Standard daily prophylactic regimen for pregnancy maintenance (Iron, Folate, Calcium, Vitamin C).",
+                "is_default": True,
+                "medications": [
+                    {
+                        "drug": "Ferrous Sulphate 200mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "200mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (200mg)",
+                        "frequency": "Once daily (od)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 30,
+                        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Take after meals",
+                        "comment": "Iron supplement"
+                    },
+                    {
+                        "drug": "Folic Acid 5mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "5mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (5mg)",
+                        "frequency": "Once daily (od)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 30,
+                        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s)",
+                        "comment": "Neural tube defect prevention"
+                    },
+                    {
+                        "drug": "Calcium Carbonate + Vit D3",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "500mg/200IU",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab",
+                        "frequency": "Once daily (od)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 30,
+                        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Take 2 hours apart from iron",
+                        "comment": "Maternal bone & foetal skeleton development"
+                    },
+                    {
+                        "drug": "Vitamin C (Ascorbic Acid) 100mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "100mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (100mg)",
+                        "frequency": "Once daily (od)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 30,
+                        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Enhances iron absorption",
+                        "comment": "Antioxidant & iron co-factor"
+                    }
+                ]
+            },
+            {
+                "id": "tpl_iptp_malaria",
+                "name": "Malaria IPTp-SP Prophylaxis (From 16 Weeks)",
+                "category": "Standard Obstetric Protocol",
+                "description": "Intermittent Preventive Treatment of malaria in pregnancy with Sulfadoxine-Pyrimethamine.",
+                "is_default": True,
+                "medications": [
+                    {
+                        "drug": "Sulfadoxine-Pyrimethamine (IPTp)",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "500/25mg",
+                        "dose_qty": "3",
+                        "dose_unit": "tab",
+                        "dosage": "3 tab stat",
+                        "frequency": "Stat / Single dose",
+                        "duration": "1",
+                        "duration_unit": "Day(s)",
+                        "quantity": 3,
+                        "instruction": "3 tab via Oral, Stat / Single dose - Directly Observed Therapy (DOT) with water",
+                        "comment": "Intermittent Preventive Treatment for Malaria"
+                    }
+                ]
+            },
+            {
+                "id": "tpl_maternal_anaemia",
+                "name": "Maternal Anaemia Management Regimen",
+                "category": "Standard Obstetric Protocol",
+                "description": "Therapeutic iron supplementation and hematinic therapy for antenatal anaemia (PCV < 30%).",
+                "is_default": True,
+                "medications": [
+                    {
+                        "drug": "Ferrous Fumarate / Sulphate 200mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "200mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (200mg)",
+                        "frequency": "Twice daily (bd)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 60,
+                        "instruction": "1 tab via Oral, Twice daily (bd) for 30 Day(s) - Take after meals",
+                        "comment": "Therapeutic iron dosing for anaemia"
+                    },
+                    {
+                        "drug": "Folic Acid 5mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "5mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (5mg)",
+                        "frequency": "Once daily (od)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 30,
+                        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s)",
+                        "comment": "Red blood cell synthesis"
+                    },
+                    {
+                        "drug": "Vitamin C (Ascorbic Acid) 100mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "100mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (100mg)",
+                        "frequency": "Twice daily (bd)",
+                        "duration": "30",
+                        "duration_unit": "Day(s)",
+                        "quantity": 60,
+                        "instruction": "1 tab via Oral, Twice daily (bd) for 30 Day(s) - Take together with iron",
+                        "comment": "Iron absorption enhancer"
+                    }
+                ]
+            },
+            {
+                "id": "tpl_hyperemesis_gravidarum",
+                "name": "Nausea & Hyperemesis Gravidarum Support Pack",
+                "category": "Standard Obstetric Protocol",
+                "description": "Safe antiemetic and hydration management for severe early pregnancy morning sickness.",
+                "is_default": True,
+                "medications": [
+                    {
+                        "drug": "Pyridoxine (Vitamin B6) 25mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "25mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab",
+                        "frequency": "Three times daily (tds)",
+                        "duration": "7",
+                        "duration_unit": "Day(s)",
+                        "quantity": 21,
+                        "instruction": "1 tab via Oral, Three times daily (tds) for 7 Day(s)",
+                        "comment": "First-line pregnancy antiemetic"
+                    },
+                    {
+                        "drug": "Promethazine 25mg",
+                        "dosage_form": "Tablet",
+                        "route": "Oral",
+                        "strength": "25mg",
+                        "dose_qty": "1",
+                        "dose_unit": "tab",
+                        "dosage": "1 tab (25mg)",
+                        "frequency": "Every night (nocte)",
+                        "duration": "5",
+                        "duration_unit": "Day(s)",
+                        "quantity": 5,
+                        "instruction": "1 tab via Oral at bedtime (nocte) for 5 Day(s) if nausea persists",
+                        "comment": "Antiemetic / Sedative for severe nausea"
+                    },
+                    {
+                        "drug": "Oral Rehydration Salts (ORS)",
+                        "dosage_form": "Sachet",
+                        "route": "Oral",
+                        "strength": "Standard",
+                        "dose_qty": "1",
+                        "dose_unit": "sachet",
+                        "dosage": "1 sachet in 1L water",
+                        "frequency": "Once daily (od)",
+                        "duration": "3",
+                        "duration_unit": "Day(s)",
+                        "quantity": 3,
+                        "instruction": "Dissolve 1 sachet in 1 litre of clean drinking water, sip throughout day",
+                        "comment": "Electrolyte and fluid replenishment"
+                    }
+                ]
+            }
+        ]
+
+    def _anc_templates_path(self):
+        import os
+        from django.conf import settings
+        return os.path.join(settings.BASE_DIR, 'anc_medication_templates.json')
+
+    def _load_anc_templates(self):
+        import os, json
+        path = self._anc_templates_path()
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+            except Exception:
+                pass
+        defaults = self._get_default_anc_templates()
+        self._save_anc_templates(defaults)
+        return defaults
+
+    def _save_anc_templates(self, templates):
+        import json
+        try:
+            with open(self._anc_templates_path(), 'w', encoding='utf-8') as f:
+                json.dump(templates, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception:
+            return False
+
+    @action(detail=False, methods=['get', 'post', 'delete'], url_path='medication-templates')
+    def medication_templates(self, request):
+        """
+        Enterprise Antenatal Medication Templates API
+        GET: Returns Admin-configured ANC medication templates for clinical selection
+        POST: Admin-only create/update ANC medication template
+        DELETE: Admin-only delete ANC medication template
+        """
+        import uuid
+
+        if request.method == 'GET':
+            templates = self._load_anc_templates()
+            return Response({
+                'templates': templates,
+                'can_manage': self._is_admin_user(request.user),
+            }, status=status.HTTP_200_OK)
+
+        if not self._is_admin_user(request.user):
+            return Response(
+                {'detail': 'Administrator access is required to create, edit, or delete ANC medication templates.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if request.method == 'POST':
+            payload = request.data
+            name = (payload.get('name') or '').strip()
+            if not name:
+                return Response({'error': 'Template name is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            medications = payload.get('medications') or []
+            if not isinstance(medications, list) or len(medications) == 0:
+                return Response({'error': 'At least one medication is required in the template'}, status=status.HTTP_400_BAD_REQUEST)
+
+            template_id = payload.get('id') or f"anc_tpl_{uuid.uuid4().hex[:8]}"
+            templates = self._load_anc_templates()
+
+            tpl_record = {
+                'id': template_id,
+                'name': name,
+                'category': payload.get('category') or 'Admin ANC Protocol',
+                'description': payload.get('description') or '',
+                'is_default': False,
+                'medications': medications,
+            }
+
+            updated = False
+            for i, t in enumerate(templates):
+                if t.get('id') == template_id:
+                    templates[i] = tpl_record
+                    updated = True
+                    break
+
+            if not updated:
+                templates.insert(0, tpl_record)
+
+            self._save_anc_templates(templates)
+            return Response({
+                'success': True,
+                'message': 'ANC medication template saved successfully.',
+                'template': tpl_record,
+            }, status=status.HTTP_201_CREATED)
+
+        elif request.method == 'DELETE':
+            template_id = request.query_params.get('id') or request.data.get('id')
+            if not template_id:
+                return Response({'error': 'Template ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            templates = self._load_anc_templates()
+            filtered = [t for t in templates if t.get('id') != template_id]
+            self._save_anc_templates(filtered)
+            return Response({'success': True, 'message': 'Template deleted successfully.'}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get', 'post'], url_path='follow-up')
+    def follow_up(self, request):
+        """
+        Enterprise Antenatal Follow-up Encounter API
+        GET: Retrieves patient follow-up profile, booking biometrics (LMP, EDD, current GA),
+             previous examinations history, investigations/treatments, and triage vitals.
+        POST: Records routine clinical review, danger signs screening, delivery plan,
+              HPI, physical examination, diagnosis, treatments & prophylaxis, and referral.
+        """
+        from datetime import datetime, date, timedelta
+        from django.shortcuts import get_object_or_404
+        from patients.models import PatientProfile, PatientAppointment
+        from ANC.models import ANCDetails, Examination, AntenatalVisit, CurrentPregnancy, ANCRegistration
+        from queue_operations.models import DoctorWaitingList, NurseWaitingList, WrittenPrescriptions
+        from IPD.models import AdmissionTable
+
+        def parse_date_safe(val):
+            if not val:
+                return None
+            if isinstance(val, (date, datetime)):
+                return val if isinstance(val, date) else val.date()
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d'):
+                try:
+                    return datetime.strptime(str(val).strip(), fmt).date()
+                except (ValueError, TypeError):
+                    pass
+            return None
+
+        # ---------------------------------------------
+        # GET: Fetch Follow-up Data & Previous History
+        # ---------------------------------------------
+        if request.method == 'GET':
+            patient_id = request.query_params.get('patient') or request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({'detail': 'Patient ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            patient = get_object_or_404(PatientProfile, id=patient_id)
+
+            # Patient age
+            patient_age = None
+            if hasattr(patient, 'get_age') and callable(patient.get_age):
+                patient_age = patient.get_age()
+            elif hasattr(patient, 'age'):
+                patient_age = patient.age
+
+            pat_title = getattr(patient, 'title', '') or ''
+            patient_data = {
+                'id': patient.id,
+                'name': f"{pat_title} {patient.surname} {patient.other_name or ''} {patient.first_name}".replace('  ', ' ').strip(),
+                'hospital_number': patient.hospital_number,
+                'age': patient_age,
+                'gender': patient.gender,
+                'category': (getattr(patient.category, 'category', None) or str(patient.category)) if patient.category else None,
+                'plan': (getattr(patient.plan, 'plan', None) or str(patient.plan)) if patient.plan else None,
+                'sponsor': patient.sponsor.name if patient.sponsor else None,
+                'phone_number': patient.phone_number,
+            }
+
+            # Booking & Biometrics (scoped strictly to the active ANC Journey)
+            active_visit = AntenatalVisit.get_active_for_patient(patient)
+            past_completed_visits = AntenatalVisit.objects.filter(
+                patient=patient,
+                status=AntenatalVisit.STATUS_COMPLETED,
+            ).select_related('current_pregnancy').order_by('-outcome_date', '-visit_date', '-id')
+
+            preg = getattr(active_visit, 'current_pregnancy', None) if active_visit else None
+            anc_reg = None
+            if active_visit:
+                anc_reg = ANCRegistration.objects.filter(
+                    antenatal_visit=active_visit
+                ).order_by('-id').first() or ANCRegistration.objects.filter(
+                    patient=patient,
+                    status='active',
+                ).order_by('-id').first()
+
+            lmp_date = preg.last_menstrual_period if preg and preg.last_menstrual_period else (anc_reg.last_menstrual_period if anc_reg else None)
+            edd_date = preg.expected_date_of_delivery if preg and preg.expected_date_of_delivery else (anc_reg.expected_delivery_date if anc_reg else None)
+            
+            # If LMP is present but EDD is not stored, calculate EDD (Naegele's rule: LMP + 280 days)
+            if lmp_date and not edd_date:
+                edd_date = lmp_date + timedelta(days=280)
+
+            calc_weeks = 0
+            calc_days = 0
+            if lmp_date:
+                today = date.today()
+                diff_days = (today - lmp_date).days
+                if diff_days >= 0:
+                    calc_weeks = max(0, diff_days // 7)
+                    calc_days = diff_days % 7
+            elif preg and preg.gestational_age_weeks is not None:
+                calc_weeks = preg.gestational_age_weeks
+            elif anc_reg and anc_reg.gestational_age_weeks is not None:
+                calc_weeks = anc_reg.gestational_age_weeks
+
+            # Format dates nicely (e.g. "1 Aug 2026", "14 Jul 2027")
+            lmp_formatted = f"{lmp_date.day} {lmp_date.strftime('%b %Y')}" if lmp_date else ""
+            edd_formatted = f"{edd_date.day} {edd_date.strftime('%b %Y')}" if edd_date else ""
+
+            booking_info = {
+                'lmp': str(lmp_date) if lmp_date else '',
+                'lmp_formatted': lmp_formatted,
+                'edd': str(edd_date) if edd_date else '',
+                'edd_formatted': edd_formatted,
+                'gestational_age_weeks': calc_weeks,
+                'gestational_age_days': calc_days,
+                'number_of_foetus': preg.number_of_foetus if preg and preg.number_of_foetus else (anc_reg.number_of_foetus if anc_reg else 1),
+                'first_consultation_completed': active_visit.has_completed_booking() if active_visit else False,
+                'has_booking_record': bool(lmp_date or edd_date),
+            }
+
+            # ANC Details (Investigations & Treatment Profile)
+            anc_details = ANCDetails.objects.filter(patient=patient).first()
+            investigations_data = {
+                'syphilis_test_done': getattr(anc_details, 'syphilis_test_done', 'No') or 'No',
+                'syphilis_positive': getattr(anc_details, 'syphilis_positive', 'No') or 'No',
+                'syphilis_treated': getattr(anc_details, 'syphilis_treated', 'No') or 'No',
+                'hepatitis_b_test_done': getattr(anc_details, 'hepatitis_b_test_done', 'No') or 'No',
+                'hepatitis_b_positive': getattr(anc_details, 'hepatitis_b_positive', 'No') or 'No',
+                'hepatitis_b_referred': getattr(anc_details, 'hepatitis_b_referred', 'No') or 'No',
+                'hepatitis_c_test_done': getattr(anc_details, 'hepatitis_c_test_done', 'No') or 'No',
+                'hepatitis_c_positive': getattr(anc_details, 'hepatitis_c_positive', 'No') or 'No',
+                'hepatitis_c_referred': getattr(anc_details, 'hepatitis_c_referred', 'No') or 'No',
+                'severe_anaemia': getattr(anc_details, 'severe_anaemia', 'No') or 'No',
+                'proteinuria': getattr(anc_details, 'proteinuria', 'No') or 'No',
+            }
+
+            treatment_data = {
+                'received_tt': getattr(anc_details, 'received_tt', 'No') or 'No',
+                'malaria_ipt1': getattr(anc_details, 'malaria_ipt1', 'No') or 'No',
+                'malaria_ipt2': getattr(anc_details, 'malaria_ipt2', 'No') or 'No',
+                'malaria_ipt3': getattr(anc_details, 'malaria_ipt3', 'No') or 'No',
+                'malaria_ipt4': 'No',
+                'counseled_family_planning': getattr(anc_details, 'family_planning_counseled', 'No') or 'No',
+                'counseled_maternal_nutrition': getattr(anc_details, 'maternal_nutrition_counseled', 'No') or 'No',
+                'counseled_fgm': 'No',
+                'receiving_llin': getattr(anc_details, 'received_llin', 'No') or 'No',
+                'receiving_haematinics': getattr(anc_details, 'haematinics_received', 'No') or 'No',
+            }
+
+            # Latest Examination & History (scoped to current active ANC Journey)
+            from django.db.models import Q
+            if active_visit:
+                if past_completed_visits.exists():
+                    past_exams = Examination.objects.filter(
+                        antenatal_visit=active_visit
+                    ).order_by('-created_date')[:15]
+                else:
+                    past_exams = Examination.objects.filter(patient=patient).filter(
+                        Q(antenatal_visit=active_visit) | Q(antenatal_visit__isnull=True)
+                    ).order_by('-created_date')[:15]
+            else:
+                past_exams = Examination.objects.none()
+            latest_exam = past_exams.first()
+
+            latest_exam_data = None
+            if latest_exam:
+                latest_exam_data = {
+                    'id': latest_exam.id,
+                    'weight': latest_exam.weight or '',
+                    'bp': latest_exam.bp or '',
+                    'temperature': latest_exam.temperature or '',
+                    'pulse_rate': latest_exam.pulse_rate or '',
+                    'pvc': latest_exam.pvc or '',
+                    'oedema': latest_exam.oedema or 'No',
+                    'urine_protein': latest_exam.urine_protein or 'Negative',
+                    'urine_sugar': latest_exam.urine_sugar or 'Negative',
+                    'foetal_heart': latest_exam.foetal_heart or 'Foetal heart heard(FHH)',
+                    'foetal_heart_rate': latest_exam.foetal_heart_rate or '',
+                    'foetal_presentation': latest_exam.foetal_presentation or 'N/A',
+                    'foetal_movement': latest_exam.foetal_movement or 'Foetal movement felt (FMF)',
+                    'position': latest_exam.position or 'N/A',
+                    'relationship_of_pp_to_brim': latest_exam.relationship_of_pp_to_brim or 'N/A',
+                    'condition_of_vagina': latest_exam.condition_of_vagina or 'Normal',
+                    'comment': latest_exam.comment or '',
+                    'anc_weeks': latest_exam.anc_weeks or '',
+                    'date': latest_exam.created_date.strftime('%Y-%m-%d') if latest_exam.created_date else ''
+                }
+
+            history_list = []
+            for ex in past_exams:
+                history_list.append({
+                    'id': ex.id,
+                    'date': ex.created_date.strftime('%d-%m-%Y %H:%M') if ex.created_date else '',
+                    'anc_weeks': ex.anc_weeks or '-',
+                    'weight': ex.weight or '-',
+                    'bp': ex.bp or '-',
+                    'foetal_heart_rate': ex.foetal_heart_rate or '-',
+                    'foetal_presentation': ex.foetal_presentation or '-',
+                    'urine_protein': ex.urine_protein or '-',
+                    'oedema': ex.oedema or 'No',
+                    'comment': ex.comment or ''
+                })
+
+            # Latest Triage Vitals
+            triage_vitals = None
+            recent_vitals = DoctorWaitingList.objects.filter(patient=patient).order_by('-id').first()
+            if recent_vitals:
+                triage_vitals = {
+                    'bp': getattr(recent_vitals, 'bp', '') or '',
+                    'temperature': str(recent_vitals.temperature) if recent_vitals.temperature is not None else '',
+                    'weight': str(recent_vitals.weight) if recent_vitals.weight is not None else '',
+                    'pulse_rate': str(recent_vitals.pulse) if recent_vitals.pulse is not None else '',
+                    'time': recent_vitals.created_date.strftime('%d %b, %H:%M') if hasattr(recent_vitals, 'created_date') and recent_vitals.created_date else ''
+                }
+
+            return Response({
+                'patient': patient_data,
+                'booking': booking_info,
+                'journey': self._serialize_journey_summary(active_visit),
+                'past_journeys': [self._serialize_journey_summary(v) for v in past_completed_visits],
+                'outcome_choices': [{'value': k, 'label': v} for k, v in AntenatalVisit.OUTCOME_CHOICES],
+                'investigations': investigations_data,
+                'treatment': treatment_data,
+                'latest_examination': latest_exam_data,
+                'examinations_history': history_list,
+                'triage_vitals': triage_vitals,
+                'examination_date': str(date.today()),
+            })
+
+        # ---------------------------------------------
+        # POST: Record Follow-up Clinical Consultation
+        # ---------------------------------------------
+        data = request.data
+        patient_id = data.get('patient_id') or data.get('patient')
+        if not patient_id:
+            return Response({'detail': 'patient_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = get_object_or_404(PatientProfile, id=patient_id)
+        current_user = request.user if request.user.is_authenticated else None
+        if not current_user:
+            from django.contrib.auth import get_user_model
+            current_user = get_user_model().objects.filter(is_active=True).first()
+
+        exam_payload = data.get('examination', {})
+        inv_payload = data.get('investigations', {})
+        treat_payload = data.get('treatment', {})
+        action_type = data.get('action', 'process')
+
+        # 1. Create Examination record linked to active ANC Journey
+        active_visit = self._get_or_create_active_visit(patient)
+        exam = Examination.objects.create(
+            patient=patient,
+            antenatal_visit=active_visit,
+            category=patient.category,
+            plan=patient.plan,
+            staff=current_user,
+            anc_weeks=str(data.get('gestation_age') or ''),
+            weight=exam_payload.get('weight'),
+            bp=exam_payload.get('bp'),
+            temperature=exam_payload.get('temperature'),
+            pulse_rate=exam_payload.get('pulse_rate'),
+            pvc=exam_payload.get('pcv') or exam_payload.get('pvc'),
+            oedema=exam_payload.get('oedema', 'No') or 'No',
+            urine_protein=exam_payload.get('urine_protein', 'Negative') or 'Negative',
+            urine_sugar=exam_payload.get('urine_sugar', 'Negative') or 'Negative',
+            foetal_heart=exam_payload.get('foetal_heart', 'Foetal heart heard(FHH)') or 'Foetal heart heard(FHH)',
+            foetal_heart_rate=exam_payload.get('foetal_heart_rate'),
+            foetal_presentation=exam_payload.get('foetal_presentation', 'N/A') or 'N/A',
+            foetal_movement=exam_payload.get('foetal_movement', 'Foetal movement felt (FMF)') or 'Foetal movement felt (FMF)',
+            position=exam_payload.get('position', 'N/A') or 'N/A',
+            relationship_of_pp_to_brim=exam_payload.get('relationship_of_pp_to_brim', 'N/A') or 'N/A',
+            condition_of_vagina=exam_payload.get('condition_of_vagina', 'Normal') or 'Normal',
+            comment=data.get('remarks') or exam_payload.get('comment') or ''
+        )
+
+        # Auto-complete ANC Journey if recorded gestation age reaches or exceeds 52 weeks
+        import re
+        ga_str = str(data.get('gestation_age') or '')
+        ga_match = re.search(r'\d+', ga_str)
+        entered_week_num = int(ga_match.group()) if ga_match else None
+        if entered_week_num is not None and entered_week_num >= 52 and active_visit:
+            active_visit.check_and_auto_end_if_expired()
+
+        # 2. Update ANCDetails
+        anc_details, _ = ANCDetails.objects.get_or_create(patient=patient)
+        if inv_payload:
+            anc_details.syphilis_test_done = inv_payload.get('syphilis_test_done', anc_details.syphilis_test_done)
+            anc_details.syphilis_positive = inv_payload.get('syphilis_positive', anc_details.syphilis_positive)
+            anc_details.syphilis_treated = inv_payload.get('syphilis_treated', anc_details.syphilis_treated)
+            anc_details.hepatitis_b_test_done = inv_payload.get('hepatitis_b_test_done', anc_details.hepatitis_b_test_done)
+            anc_details.hepatitis_b_positive = inv_payload.get('hepatitis_b_positive', anc_details.hepatitis_b_positive)
+            anc_details.hepatitis_b_referred = inv_payload.get('hepatitis_b_referred', anc_details.hepatitis_b_referred)
+            anc_details.hepatitis_c_test_done = inv_payload.get('hepatitis_c_test_done', anc_details.hepatitis_c_test_done)
+            anc_details.hepatitis_c_positive = inv_payload.get('hepatitis_c_positive', anc_details.hepatitis_c_positive)
+            anc_details.hepatitis_c_referred = inv_payload.get('hepatitis_c_referred', anc_details.hepatitis_c_referred)
+            anc_details.severe_anaemia = inv_payload.get('severe_anaemia', anc_details.severe_anaemia)
+            anc_details.proteinuria = inv_payload.get('proteinuria', anc_details.proteinuria)
+
+        if treat_payload:
+            anc_details.received_tt = treat_payload.get('received_tt', anc_details.received_tt)
+            anc_details.malaria_ipt1 = treat_payload.get('malaria_ipt1', anc_details.malaria_ipt1)
+            anc_details.malaria_ipt2 = treat_payload.get('malaria_ipt2', anc_details.malaria_ipt2)
+            anc_details.malaria_ipt3 = treat_payload.get('malaria_ipt3', anc_details.malaria_ipt3)
+            anc_details.family_planning_counseled = treat_payload.get('counseled_family_planning', anc_details.family_planning_counseled)
+            anc_details.maternal_nutrition_counseled = treat_payload.get('counseled_maternal_nutrition', anc_details.maternal_nutrition_counseled)
+            anc_details.received_llin = treat_payload.get('receiving_llin', anc_details.received_llin)
+            anc_details.haematinics_received = treat_payload.get('receiving_haematinics', anc_details.haematinics_received)
+
+        if current_user:
+            anc_details.staff = current_user
+        anc_details.save()
+
+        # 3. Prescriptions / Routine Prophylaxis
+        #    Admin ANC Template drugs -> is_anc_template=True (exempt from billing, cleared for Pharmacy)
+        #    Doctor-added extra drugs   -> is_anc_template=False (billed and locked in Pharmacy until payment/HMO approval)
+        prescriptions = treat_payload.get('prescriptions', [])
+        if isinstance(prescriptions, list) and len(prescriptions) > 0 and current_user:
+            templates_by_id = {t.get('id'): t for t in self._load_anc_templates() if t.get('id')}
+            for p in prescriptions:
+                if isinstance(p, dict):
+                    drug_name = str(p.get('drug') or p.get('item') or '').strip()
+                    if drug_name:
+                        tpl_id = p.get('anc_template_id') or p.get('template_id')
+                        wants_tpl = bool(p.get('is_anc_template') or p.get('from_anc_template'))
+                        verified_tpl_name = None
+                        if wants_tpl and tpl_id and tpl_id in templates_by_id:
+                            tpl_obj = templates_by_id[tpl_id]
+                            tpl_drugs = {
+                                str(m.get('drug') or '').strip().lower()
+                                for m in (tpl_obj.get('medications') or [])
+                                if m.get('drug')
+                            }
+                            if drug_name.lower() in tpl_drugs:
+                                verified_tpl_name = tpl_obj.get('name') or 'ANC Template'
+
+                        WrittenPrescriptions.objects.create(
+                            patient=patient,
+                            provider=current_user,
+                            item=drug_name,
+                            dosage_form=p.get('dosage_form') or 'Tablet',
+                            route=p.get('route') or 'Oral',
+                            strength=p.get('strength') or '',
+                            dose_qty=str(p.get('dose_qty') or p.get('dosage') or '1'),
+                            dose_unit=p.get('dose_unit') or 'tab',
+                            frequency=p.get('frequency') or 'Once daily (od)',
+                            duration=str(p.get('duration_val') or p.get('duration') or '30'),
+                            duration_unit=p.get('duration_unit') or 'Day(s)',
+                            dispense_unit=p.get('dispense_unit') or 'Pieces',
+                            dispense_quantity=int(p.get('dispense_quantity') or p.get('quantity') or 30),
+                            quantity=int(p.get('quantity') or p.get('dispense_quantity') or 30),
+                            dispense_detail=p.get('dispense_detail') or '',
+                            comment=p.get('comment') or (f"ANC Template: {verified_tpl_name}" if verified_tpl_name else 'Prescribed in ANC Follow-up'),
+                            instruction=p.get('instruction') or f"{p.get('dosage', '1 tab')} via {p.get('route', 'Oral')}, {p.get('frequency', 'daily')} for {p.get('duration', '30 days')}",
+                            status="pending",
+                            is_anc_template=bool(verified_tpl_name),
+                            anc_template_name=verified_tpl_name,
+                        )
+                elif isinstance(p, str) and p.strip():
+                    WrittenPrescriptions.objects.create(
+                        patient=patient,
+                        provider=current_user,
+                        item=str(p).strip(),
+                        instruction="Routine ANC prophylaxis daily as prescribed",
+                        quantity=30,
+                        status="pending"
+                    )
+
+        # 4. Schedule Follow-up Appointment if requested
+        sched = data.get('schedule_appointment')
+        created_appt_id = None
+        if sched and sched.get('date'):
+            sched_date = parse_date_safe(sched.get('date'))
+            if sched_date:
+                arrival_time = sched.get('time') or "09:00"
+                if len(str(arrival_time)) == 5:
+                    arrival_time = f"{arrival_time}:00"
+                
+                clinician_name = "ANC Clinic"
+                if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
+                    clinician_name = current_user.fullname
+                elif current_user:
+                    clinician_name = current_user.username
+
+                appt = PatientAppointment.objects.create(
+                    patient=patient,
+                    provider=current_user,
+                    clinician=clinician_name,
+                    purpose="Antenatal Clinic (ANC)",
+                    visit_type="Follow-up",
+                    arrival_date=sched_date,
+                    arrival_time=arrival_time,
+                    comment=sched.get('comment') or f"ANC follow-up review for {sched.get('anc_weeks', '')}".strip(),
+                    anc_weeks=str(sched.get('anc_weeks') or '')
+                )
+                created_appt_id = appt.id
+
+        # 5. Handle Ward Admission if requested
+        admitted = False
+        if action_type == 'admit' and current_user:
+            AdmissionTable.objects.create(
+                patient=patient,
+                doctor_admitted=current_user,
+                nurse_admit_status=0
+            )
+            admitted = True
+
+        # 6. Record Clinical Diagnosis & Patient Encounter (ICD-11 WHO standard)
+        diag_payload = data.get('diagnosis', {})
+        diag_title = (diag_payload.get('title') or diag_payload.get('name') or '').strip()
+        diag_code = (diag_payload.get('icd11_code') or diag_payload.get('code') or '').strip()
+        diag_comment = (diag_payload.get('comment') or '').strip()
+
+        final_diag = f"{diag_title} [ICD-11: {diag_code}]".strip() if diag_code else diag_title
+
+        encounter_obj = None
+        if final_diag or data.get('presenting_complaints') or data.get('history_present_illness'):
+            complaints = data.get('presenting_complaints', [])
+            cc_str = ", ".join(complaints) if isinstance(complaints, list) else str(complaints or '')
+            encounter_obj = PatientEncounter.objects.create(
+                patient=patient,
+                provider=current_user,
+                chief_complaint=cc_str or "Routine Antenatal Follow-up Review",
+                history_of_present_illness=data.get('history_present_illness') or '',
+                diagnosis=final_diag or "Normal Pregnancy Follow-up",
+                comments_on_diagnosis=diag_comment or data.get('remarks') or ''
+            )
+
+        return Response({
+            'success': True,
+            'message': 'Antenatal follow-up encounter recorded successfully.',
+            'examination_id': exam.id,
+            'appointment_id': created_appt_id,
+            'admitted': admitted,
+            'encounter_id': encounter_obj.id if encounter_obj else None
+        }, status=status.HTTP_200_OK)
 
 
 # Pharmacy ViewSets
@@ -5178,13 +7933,13 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         is_pay_from_purse = '[pay from your purse]' in (prescription.comment or '').lower() or '[pay from your purse]' in (prescription.instruction or '').lower()
         is_hmo = (not is_pay_from_purse) and any(k in cat_name or k in spon_name for k in ['hmo', 'nhis', 'insurance', 'retainer'])
 
-        # Check billing clearance in Invoice table
+        # Check billing clearance in Invoice table (Admin ANC Template drugs are exempt from billing)
         invoice = Invoice.objects.filter(
             original_source_model='WrittenPrescriptions',
             original_source_id=prescription.id
         ).order_by('-id').first()
 
-        is_cleared = bool(invoice and invoice.completed == 1)
+        is_cleared = bool(getattr(prescription, 'is_anc_template', False)) or bool(invoice and invoice.completed == 1)
 
         if not is_cleared:
             if is_hmo:
@@ -5487,8 +8242,9 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                 rx_is_hmo = (not is_pay_from_purse) and pat_is_hmo
                 inv = invoices_map.get(rx.id)
 
-                # Item is cleared ONLY if dispensed or completed=1 in Invoice (billing approved / paid)
-                is_cleared = (rx.status == 'dispensed') or (rx.id in cleared_rx_ids)
+                # Item is cleared if dispensed, part of an Admin ANC Template (no billing), or Invoice completed=1
+                rx_is_anc_tpl = bool(getattr(rx, 'is_anc_template', False))
+                is_cleared = (rx.status == 'dispensed') or rx_is_anc_tpl or (rx.id in cleared_rx_ids)
                 if is_cleared:
                     has_cleared_item = True
 
@@ -5500,7 +8256,11 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                 else:
                     pending_dispense_count += 1
                     if is_cleared:
-                        if rx_is_hmo:
+                        if rx_is_anc_tpl:
+                            payment_status = f"ANC Template ({rx.anc_template_name or 'Standard'})"
+                            clearance_status_text = 'ANC Template (No Billing Required)'
+                            clearance_badge_type = 'info'
+                        elif rx_is_hmo:
                             payment_status = 'HMO Claim Approved'
                             clearance_status_text = 'HMO Claim Approved'
                             clearance_badge_type = 'emerald'
@@ -5553,6 +8313,8 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                     'is_hmo': rx_is_hmo,
                     'clearance_type': 'hmo_claim' if rx_is_hmo else 'private_payment',
                     'is_pay_from_purse': is_pay_from_purse,
+                    'is_anc_template': rx_is_anc_tpl,
+                    'anc_template_name': getattr(rx, 'anc_template_name', '') or '',
                     'invoice_number': inv.invoice_number if inv else None,
                     'invoice_completed': inv.completed if inv else None,
                     'is_cleared': is_cleared,
@@ -5943,6 +8705,14 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             changes.append(f"UoM: '{prod.minimum_UoM}' -> '{clean_uom}'")
             prod.minimum_UoM = clean_uom
 
+        # 3b. Drug Category (vaccine, tablet, injection, ...)
+        if 'category' in request.data:
+            from inventory.categories import normalize_category, CATEGORY_LABELS
+            new_cat = normalize_category(request.data.get('category'))
+            if new_cat and new_cat != prod.category:
+                changes.append(f"Category: '{CATEGORY_LABELS.get(prod.category, prod.category or '-')}' -> '{CATEGORY_LABELS[new_cat]}'")
+                prod.category = new_cat
+
         # 4. Low Stock Alert Threshold
         new_thresh = request.data.get('low_stock_threshold')
         if new_thresh is not None and str(new_thresh).strip() != '':
@@ -6056,11 +8826,14 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             PharmacyStore.objects.filter(is_central=True).first() or PharmacyStore.objects.first()
         )
 
-        file_format = (request.query_params.get('format') or 'xlsx').lower()
+        # 'file_format' avoids DRF's reserved ?format= renderer override (which returns 404 for xlsx/csv)
+        file_format = (request.query_params.get('file_format') or request.query_params.get('format') or 'xlsx').lower()
         category = (request.query_params.get('category') or 'all').lower()
 
         # Query all products in database
         products_qs = Product.objects.all().order_by('product_name')
+        from inventory.categories import normalize_category, infer_product_category, CATEGORY_LABELS
+        category_code = '' if category == 'all' else normalize_category(category)
 
         # Stock map for current on-hand quantities
         stock_map = {}
@@ -6073,22 +8846,15 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             name = p.product_name or ''
             uom = p.minimum_UoM or 'tablets'
 
-            # Apply category filter if requested
-            if category == 'tablets' and not (uom == 'tablets' or 'tab' in name.lower()):
-                continue
-            elif category == 'capsules' and not (uom == 'capsules' or 'cap' in name.lower()):
-                continue
-            elif category == 'injections' and not (uom in ['vial', 'ampoules', 'syringes'] or any(k in name.lower() for k in ['inj', 'vial', 'ampoule', 'infusion'])):
-                continue
-            elif category == 'syrups' and not (uom in ['bottles', 'mls', 'tins'] or any(k in name.lower() for k in ['syrup', 'suspension', 'liquid'])):
-                continue
-            elif category == 'ointments' and not (uom in ['tubes', 'tins'] or any(k in name.lower() for k in ['ointment', 'cream', 'gel'])):
+            # Apply drug category filter if requested
+            if category_code and (p.category or infer_product_category(name, uom)) != category_code:
                 continue
 
             current_stock = stock_map.get(p.id, p.stock or 0)
             items_data.append({
                 'Medication_Name': name,
                 'Dosage_Type_UOM': uom,
+                'Category': CATEGORY_LABELS.get(p.category or infer_product_category(name, uom), 'Others'),
                 'Current_In_Stock': current_stock,
                 'Quantity_Received': '',
                 'Batch_Number': '',
@@ -6100,7 +8866,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         for i in range(1, 6):
             items_data.append({
                 'Medication_Name': f"[Enter New Medication {i} Name if not listed]",
-                'Dosage_Type_UOM': category if category != 'all' else 'tablets',
+                'Dosage_Type_UOM': 'tablets',
+                'Category': CATEGORY_LABELS.get(category_code, ''),
                 'Current_In_Stock': 0,
                 'Quantity_Received': '',
                 'Batch_Number': '',
@@ -6112,11 +8879,12 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             response = HttpResponse(content_type='text/csv')
             response['Content-Disposition'] = 'attachment; filename="Vendor_Receiving_Template_ALL.csv"'
             writer = csv.writer(response)
-            writer.writerow(['Medication_Name', 'Dosage_Type_UOM', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost'])
+            writer.writerow(['Medication_Name', 'Dosage_Type_UOM', 'Category', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost'])
             for item in items_data:
                 writer.writerow([
                     item['Medication_Name'],
                     item['Dosage_Type_UOM'],
+                    item['Category'],
                     item['Current_In_Stock'],
                     item['Quantity_Received'],
                     item['Batch_Number'],
@@ -6131,7 +8899,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         ws.title = "GRN_Receiving_Template"
         ws.views.sheetView[0].showGridLines = True
 
-        headers = ['Medication_Name', 'Dosage_Type_UOM', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost']
+        headers = ['Medication_Name', 'Dosage_Type_UOM', 'Category', 'Current_In_Stock', 'Quantity_Received', 'Batch_Number', 'Expiry_Date', 'Unit_Cost']
         ws.append(headers)
 
         header_fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
@@ -6155,6 +8923,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             ws.append([
                 item['Medication_Name'],
                 item['Dosage_Type_UOM'],
+                item['Category'],
                 item['Current_In_Stock'],
                 item['Quantity_Received'],
                 item['Batch_Number'],
@@ -6164,14 +8933,14 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             for col_num in range(1, len(headers) + 1):
                 c = ws.cell(row=row_idx, column=col_num)
                 c.border = thin_border
-                if col_num in (3, 4, 7):
+                if col_num in (4, 5, 8):
                     c.alignment = Alignment(horizontal="right")
-                elif col_num in (2, 5, 6):
+                elif col_num in (2, 6, 7):
                     c.alignment = Alignment(horizontal="center")
                 else:
                     c.alignment = Alignment(horizontal="left")
 
-        widths = {'A': 42, 'B': 18, 'C': 18, 'D': 20, 'E': 18, 'F': 16, 'G': 16}
+        widths = {'A': 42, 'B': 18, 'C': 26, 'D': 18, 'E': 20, 'F': 18, 'G': 16, 'H': 16}
         for col, width in widths.items():
             ws.column_dimensions[col].width = width
 
@@ -6262,7 +9031,12 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     continue
                 name = str(name).strip()
 
-                uom = str(clean.get('dosage_type_uom') or clean.get('uom') or clean.get('unit') or 'tablets').strip() or 'tablets'
+                uom = str(clean.get('dosage_type_uom') or clean.get('uom') or clean.get('unit') or '').strip()
+                from inventory.categories import normalize_category as _norm_cat, infer_dosage_uom as _infer_uom
+                row_category = _norm_cat(clean.get('category') or clean.get('drug_category'))
+                if not uom:
+                    # No dosage type in the sheet: derive it (vaccine -> vial, cream -> tubes, ...)
+                    uom = _infer_uom(row_category, name)
                 
                 qty_raw = clean.get('quantity_received') or clean.get('quantity') or clean.get('current_in_stock') or clean.get('qty') or 1
                 try:
@@ -6291,6 +9065,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                         product_name=name,
                         product_id=sku,
                         minimum_UoM=uom.lower()[:22],
+                        category=row_category,
                         price=cost,
                         stock=0,
                         low_stock_threshold=10,
@@ -6298,9 +9073,15 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     )
                     created_prods += 1
                 else:
+                    update_fields = []
                     if cost > 0 and (prod.price == 0 or prod.price is None):
                         prod.price = cost
-                        prod.save(update_fields=['price'])
+                        update_fields.append('price')
+                    if row_category and row_category != prod.category:
+                        prod.category = row_category
+                        update_fields.append('category')
+                    if update_fields:
+                        prod.save(update_fields=update_fields)
                     updated_prods += 1
 
                 # 2. StoreStock

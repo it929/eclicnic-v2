@@ -485,7 +485,7 @@
                     <div class="detail-item"><span class="detail-label">Gestational Age (Current):</span> <span id="current-ga">{{ current_gestational_age_weeks|default:"N/A" }}</span> weeks</div>
                     <div class="detail-item"><span class="detail-label">Expected Date of Delivery (EDD):</span> <span id="edd-display">{{ pregnancy_instance.calculate_edd|date:"F j, Y"|default:"N/A" }}</span></div>
                     <div class="detail-item"><span class="detail-label">Number of Foetus:</span> <span id="number_of_foetus-display">{{ pregnancy_instance.number_of_foetus|default:"N/A" }} ({% if pregnancy_instance.number_of_foetus > 1 %}Babies{% else %}Baby{% endif %})</span></div>  
-                    <div class="detail-item"><span class="detail-label">Recorded by:</span> <span class="highlight">Dr. {{ pregnancy_instance.staff.fullname}}</span></div>
+                    <div class="detail-item"><span class="detail-label">Recorded by:</span> <span class="highlight">{{ pregnancy_instance.staff.fullname}}</span></div>
                 </div>
                 <a href="#" class="btn btn-secondary" data-toggle="modal" data-target="#vitalSignModal" style="text-decoration: none; margin: 0px 10px; float: right;">ANC Examinations</a>
                 <a href="#" class="btn btn-secondary" data-toggle="modal" data-target="#appointmentsModal" style="text-decoration: none; margin: 0px 10px; float: right;">Create Appointments <i class="fa fa-bell"></i></a>

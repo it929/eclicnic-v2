@@ -294,19 +294,7 @@ class PatientEncounter(models.Model):
         if not self.patient:
             return ""
 
-        antenatal_visit = AntenatalVisit.objects.filter(
-            patient=self.patient
-        ).select_related('current_pregnancy').first()
-        if antenatal_visit:
-            pregnancy_instance = getattr(
-                antenatal_visit,
-                'current_pregnancy',
-                None
-            )
-            if pregnancy_instance and pregnancy_instance.last_menstrual_period:
-                gest_age = pregnancy_instance.calculate_gestational_age()
-                return f"week {gest_age}"
-        return ""
+        return AntenatalVisit.get_active_anc_weeks_label(self.patient)
     def save(self, *args, **kwargs):
         
         self.anc_weeks = self.calculate_anc_weeks()
@@ -408,19 +396,7 @@ class OtherService(models.Model):
         if not self.patient:
             return ""
 
-        antenatal_visit = AntenatalVisit.objects.filter(
-            patient=self.patient
-        ).select_related('current_pregnancy').first()
-        if antenatal_visit:
-            pregnancy_instance = getattr(
-                antenatal_visit,
-                'current_pregnancy',
-                None
-            )
-            if pregnancy_instance and pregnancy_instance.last_menstrual_period:
-                gest_age = pregnancy_instance.calculate_gestational_age()
-                return f"week {gest_age}"
-        return ""
+        return AntenatalVisit.get_active_anc_weeks_label(self.patient)
 
     def __str__(self):
         return f'{self.patient.surname} {self.patient.other_name} {self.patient.first_name} ---  {self.created_date}'
@@ -451,6 +427,8 @@ class WrittenPrescriptions(models.Model):
     status = models.CharField(max_length=30, default='pending')
     dispensed_at = models.DateTimeField(null=True, blank=True)
     dispensed_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='dispensed_prescriptions')
+    is_anc_template = models.BooleanField(default=False, db_index=True)
+    anc_template_name = models.CharField(max_length=150, null=True, blank=True)
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
     provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
     created_date = models.DateTimeField(auto_now_add=True)
@@ -476,3 +454,142 @@ class ConsultationDraft(models.Model):
     def __str__(self):
         return f"Consultation Draft for {self.patient} ({self.updated_at})"
 
+
+class ImmunizationRecord(models.Model):
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='immunizations')
+    appointment = models.ForeignKey('patients.PatientAppointment', on_delete=models.SET_NULL, null=True, blank=True)
+    vaccine_name = models.CharField(max_length=200)
+    vaccine_code = models.CharField(max_length=50, blank=True, null=True)
+    dose_stage = models.CharField(max_length=50, default='1st Dose')  # e.g. 'Birth Dose', '1st Dose', '2nd Dose', '3rd Dose', 'Booster'
+    schedule_stage = models.CharField(max_length=50, blank=True, null=True)  # e.g. 'At Birth', '6 Weeks', '10 Weeks', '14 Weeks', '9 Months', etc.
+    route = models.CharField(max_length=50, default='Intramuscular')  # Oral, Intramuscular, Subcutaneous, Intradermal
+    site = models.CharField(max_length=100, default='Left Anterolateral Thigh')  # Left Deltoid, Right Deltoid, Left Thigh, Right Thigh, Oral
+    batch_number = models.CharField(max_length=100, blank=True, null=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    manufacturer = models.CharField(max_length=150, blank=True, null=True)
+    administered_date = models.DateField(default=timezone.now)
+    administered_time = models.TimeField(null=True, blank=True)
+    administered_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True)
+    administered_by_name = models.CharField(max_length=150, blank=True, null=True)
+    next_due_date = models.DateField(null=True, blank=True)
+    fee = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    is_billable = models.BooleanField(default=False)
+    payment_mode = models.CharField(max_length=50, default='free')  # 'free', 'covered', 'pay_from_purse', 'cash'
+
+    # Pricing & billing trail (price always comes from the sponsor/plan PharmacyTariff)
+    BILLING_STATUS_CHOICES = [
+        ('not_billable', 'Not Billable (Free EPI)'),
+        ('pending', 'Awaiting Billing / HMO Approval'),
+        ('billed', 'Billed'),
+    ]
+    tariff_id = models.PositiveIntegerField(null=True, blank=True)
+    tariff_name = models.CharField(max_length=200, blank=True, null=True)
+    price_source = models.CharField(max_length=20, blank=True, null=True)  # 'plan' | 'sponsor' | 'general'
+    billing_status = models.CharField(max_length=20, choices=BILLING_STATUS_CHOICES, default='not_billable', db_index=True)
+
+    # Two-step workflow for billable vaccines:
+    #   1. authorized (PIN) -> sent to billing
+    #   2. after payment / HMO approval the nurse confirms the injection with their PIN
+    # Free EPI vaccines are confirmed at authorization.
+    authorized_by_name = models.CharField(max_length=150, blank=True, null=True)
+    administration_confirmed = models.BooleanField(default=False, db_index=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    notes = models.TextField(blank=True, null=True)
+    aefi_reported = models.BooleanField(default=False)
+    aefi_notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-administered_date', '-id']
+
+    def __str__(self):
+        return f"{self.vaccine_name} ({self.dose_stage}) for {self.patient}"
+
+
+
+class ImmunizationDrugRecord(models.Model):
+    """
+    Immunization clinic daily drug / vaccine register against the Central Medical Store (CMS).
+
+    Lifecycle (one row per drug requested):
+        requested       nurse asks CMS for a quantity (expected patients noted)
+        issued          CMS issues with PIN -> central stock is deducted; this is "received from CMS"
+        return_pending  nurse records usage and sends the unused balance back (PIN)
+        closed          CMS receives the return with PIN -> central stock is credited back
+                        (also closed directly when nothing is returned)
+        rejected / cancelled
+    """
+    STATUS_CHOICES = [
+        ('requested', 'Requested from Central Store'),
+        ('issued', 'Issued / Received from Central Store'),
+        ('return_pending', 'Return Awaiting Central Store'),
+        ('closed', 'Closed / Reconciled'),
+        ('rejected', 'Rejected by Central Store'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    reference_number = models.CharField(max_length=40, unique=True, db_index=True)
+    record_date = models.DateField(default=timezone.localdate, db_index=True)
+    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, related_name='immunization_drug_records')
+    product_name = models.CharField(max_length=200)
+    central_store = models.ForeignKey('inventory.PharmacyStore', on_delete=models.SET_NULL, null=True, blank=True, related_name='immunization_drug_records')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='requested', db_index=True)
+
+    # 1. Request (nurse)
+    quantity_requested = models.PositiveIntegerField()
+    expected_patients = models.PositiveIntegerField(default=0)
+    request_notes = models.TextField(blank=True, default='')
+    requested_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='imm_drug_requests')
+    requested_by_name = models.CharField(max_length=150, blank=True, default='')
+    requested_at = models.DateTimeField(auto_now_add=True)
+
+    # 2. Issue (Central Store, PIN) = quantity received by the clinic
+    quantity_issued = models.PositiveIntegerField(default=0)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    expiry_date = models.DateField(null=True, blank=True)
+    issued_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='imm_drug_issues')
+    issued_by_name = models.CharField(max_length=150, blank=True, default='')
+    issued_at = models.DateTimeField(null=True, blank=True)
+    store_notes = models.TextField(blank=True, default='')
+
+    # 3. Usage (nurse)
+    quantity_used = models.PositiveIntegerField(default=0)
+    patients_served = models.PositiveIntegerField(default=0)
+    usage_notes = models.TextField(blank=True, default='')
+
+    # 4. Return to Central Store (nurse, PIN)
+    quantity_returned = models.PositiveIntegerField(default=0)
+    returned_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='imm_drug_returns')
+    returned_by_name = models.CharField(max_length=150, blank=True, default='')
+    returned_at = models.DateTimeField(null=True, blank=True)
+
+    # 5. Return received by Central Store (PIN) -> central stock credited
+    quantity_return_received = models.PositiveIntegerField(default=0)
+    return_received_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='imm_drug_return_receipts')
+    return_received_by_name = models.CharField(max_length=150, blank=True, default='')
+    return_received_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-record_date', '-id']
+
+    def __str__(self):
+        return f"{self.reference_number} {self.product_name} ({self.get_status_display()})"
+
+    @property
+    def unaccounted(self):
+        """Issued quantity not used and not returned (wastage / open-vial loss / missing)."""
+        if self.status in ('requested', 'rejected', 'cancelled'):
+            return 0
+        return max(0, int(self.quantity_issued) - int(self.quantity_used) - int(self.quantity_returned))
+
+    @property
+    def on_hand(self):
+        """Still held by the clinic while the record is open."""
+        if self.status != 'issued':
+            return 0
+        return max(0, int(self.quantity_issued) - int(self.quantity_used))

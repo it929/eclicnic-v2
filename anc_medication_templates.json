@@ -1,0 +1,203 @@
+[
+  {
+    "id": "tpl_routine_anc_std",
+    "name": "Routine ANC Prophylaxis (Standard WHO / FMOH)",
+    "category": "Standard Obstetric Protocol",
+    "description": "Standard daily prophylactic regimen for pregnancy maintenance (Iron, Folate, Calcium, Vitamin C).",
+    "is_default": true,
+    "medications": [
+      {
+        "drug": "Ferrous Sulphate 200mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "200mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (200mg)",
+        "frequency": "Once daily (od)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 30,
+        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Take after meals",
+        "comment": "Iron supplement"
+      },
+      {
+        "drug": "Folic Acid 5mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "5mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (5mg)",
+        "frequency": "Once daily (od)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 30,
+        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s)",
+        "comment": "Neural tube defect prevention"
+      },
+      {
+        "drug": "Calcium Carbonate + Vit D3",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "500mg/200IU",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab",
+        "frequency": "Once daily (od)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 30,
+        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Take 2 hours apart from iron",
+        "comment": "Maternal bone & foetal skeleton development"
+      },
+      {
+        "drug": "Vitamin C (Ascorbic Acid) 100mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "100mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (100mg)",
+        "frequency": "Once daily (od)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 30,
+        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s) - Enhances iron absorption",
+        "comment": "Antioxidant & iron co-factor"
+      }
+    ]
+  },
+  {
+    "id": "tpl_iptp_malaria",
+    "name": "Malaria IPTp-SP Prophylaxis (From 16 Weeks)",
+    "category": "Standard Obstetric Protocol",
+    "description": "Intermittent Preventive Treatment of malaria in pregnancy with Sulfadoxine-Pyrimethamine.",
+    "is_default": true,
+    "medications": [
+      {
+        "drug": "Sulfadoxine-Pyrimethamine (IPTp)",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "500/25mg",
+        "dose_qty": "3",
+        "dose_unit": "tab",
+        "dosage": "3 tab stat",
+        "frequency": "Stat / Single dose",
+        "duration": "1",
+        "duration_unit": "Day(s)",
+        "quantity": 3,
+        "instruction": "3 tab via Oral, Stat / Single dose - Directly Observed Therapy (DOT) with water",
+        "comment": "Intermittent Preventive Treatment for Malaria"
+      }
+    ]
+  },
+  {
+    "id": "tpl_maternal_anaemia",
+    "name": "Maternal Anaemia Management Regimen",
+    "category": "Standard Obstetric Protocol",
+    "description": "Therapeutic iron supplementation and hematinic therapy for antenatal anaemia (PCV < 30%).",
+    "is_default": true,
+    "medications": [
+      {
+        "drug": "Ferrous Fumarate / Sulphate 200mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "200mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (200mg)",
+        "frequency": "Twice daily (bd)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 60,
+        "instruction": "1 tab via Oral, Twice daily (bd) for 30 Day(s) - Take after meals",
+        "comment": "Therapeutic iron dosing for anaemia"
+      },
+      {
+        "drug": "Folic Acid 5mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "5mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (5mg)",
+        "frequency": "Once daily (od)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 30,
+        "instruction": "1 tab via Oral, Once daily (od) for 30 Day(s)",
+        "comment": "Red blood cell synthesis"
+      },
+      {
+        "drug": "Vitamin C (Ascorbic Acid) 100mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "100mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (100mg)",
+        "frequency": "Twice daily (bd)",
+        "duration": "30",
+        "duration_unit": "Day(s)",
+        "quantity": 60,
+        "instruction": "1 tab via Oral, Twice daily (bd) for 30 Day(s) - Take together with iron",
+        "comment": "Iron absorption enhancer"
+      }
+    ]
+  },
+  {
+    "id": "tpl_hyperemesis_gravidarum",
+    "name": "Nausea & Hyperemesis Gravidarum Support Pack",
+    "category": "Standard Obstetric Protocol",
+    "description": "Safe antiemetic and hydration management for severe early pregnancy morning sickness.",
+    "is_default": true,
+    "medications": [
+      {
+        "drug": "Pyridoxine (Vitamin B6) 25mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "25mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab",
+        "frequency": "Three times daily (tds)",
+        "duration": "7",
+        "duration_unit": "Day(s)",
+        "quantity": 21,
+        "instruction": "1 tab via Oral, Three times daily (tds) for 7 Day(s)",
+        "comment": "First-line pregnancy antiemetic"
+      },
+      {
+        "drug": "Promethazine 25mg",
+        "dosage_form": "Tablet",
+        "route": "Oral",
+        "strength": "25mg",
+        "dose_qty": "1",
+        "dose_unit": "tab",
+        "dosage": "1 tab (25mg)",
+        "frequency": "Every night (nocte)",
+        "duration": "5",
+        "duration_unit": "Day(s)",
+        "quantity": 5,
+        "instruction": "1 tab via Oral at bedtime (nocte) for 5 Day(s) if nausea persists",
+        "comment": "Antiemetic / Sedative for severe nausea"
+      },
+      {
+        "drug": "Oral Rehydration Salts (ORS)",
+        "dosage_form": "Sachet",
+        "route": "Oral",
+        "strength": "Standard",
+        "dose_qty": "1",
+        "dose_unit": "sachet",
+        "dosage": "1 sachet in 1L water",
+        "frequency": "Once daily (od)",
+        "duration": "3",
+        "duration_unit": "Day(s)",
+        "quantity": 3,
+        "instruction": "Dissolve 1 sachet in 1 litre of clean drinking water, sip throughout day",
+        "comment": "Electrolyte and fluid replenishment"
+      }
+    ]
+  }
+]
