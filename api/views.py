@@ -1967,61 +1967,14 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        pin_code = request.data.get('pin_code')
-        if pin_code is None or str(pin_code).strip() == '':
-            return Response(
-                {'detail': 'Security PIN is required to authorize recording vitals.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        pin_str = str(pin_code).strip()
-        if not pin_str.isdigit():
-            return Response(
-                {'detail': 'Invalid security PIN format. PIN must be numeric.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        pin_int = int(pin_str)
-        if pin_int == 0:
-            return Response(
-                {'detail': 'PIN 0000 is invalid. Please enter your valid security PIN.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Identify the attending staff member attempting this clinical authorization
-        authorizing_staff = None
-        if request.user and request.user.is_authenticated:
-            authorizing_staff = request.user
-        elif request.data.get('staff_id'):
-            try:
-                authorizing_staff = User.objects.filter(id=request.data.get('staff_id'), is_active=True).first()
-            except Exception:
-                pass
-        elif request.data.get('staff_username'):
-            authorizing_staff = User.objects.filter(
-                username__iexact=str(request.data.get('staff_username')).strip(),
-                is_active=True
-            ).first()
+        # Vitals need no PIN: the logged-in nurse is recorded as `staff`. The nurse comes only from the
+        # authenticated session (never from a staff_id in the request), so nobody can record under another name.
+        authorizing_staff = request.user if (request.user and request.user.is_authenticated) else None
 
         if not authorizing_staff:
             return Response(
-                {'detail': 'Authentication required. Please log in as an attending staff member to authorize vitals.'},
+                {'detail': 'Please log in to record vital signs.'},
                 status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        # Check if the attending staff member has a security PIN configured
-        if not authorizing_staff.has_pin:
-            staff_name = getattr(authorizing_staff, 'fullname', '') or authorizing_staff.username
-            return Response(
-                {'detail': f'Staff member "{staff_name}" has no security PIN configured. Please set your 4-digit PIN in Profile Settings before authorizing vitals.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Strictly verify that the entered PIN matches the attending staff member's own PIN
-        if not authorizing_staff.check_pin(pin_str):
-            return Response(
-                {'detail': 'Incorrect Security PIN. Authorization denied.'},
-                status=status.HTTP_400_BAD_REQUEST
             )
 
         serializer = self.get_serializer(data=request.data)
@@ -7725,9 +7678,9 @@ class InventoryProductViewSet(viewsets.ModelViewSet):
         product_id = serializer.validated_data.get('product_id')
         if not product_id or not str(product_id).strip():
             from inventory.utils import get_next_isl_sku
-            serializer.save(staff=staff, product_id=get_next_isl_sku())
+            serializer.save(staff=staff, product_id=get_next_isl_sku(), stock=0)
         else:
-            serializer.save(staff=staff)
+            serializer.save(staff=staff, stock=0)
 
 
 class InventoryTransactionViewSet(viewsets.ModelViewSet):
@@ -7961,140 +7914,100 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                         'detail': f"Dispense Blocked: {prescription.item} has not been billed yet. Patient must be billed and clear payment at Cashier before dispensing."
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-        qty_to_deduct = prescription.dispense_quantity or prescription.quantity or 1
-        stock_deducted = 0
-        remaining_stock = None
-        store_name = 'OPD Pharmacy'
+        from django.db import transaction
+        from inventory.stock_service import issue, resolve_product, availability, to_pieces, StockError
 
-        # Resolve active dispensing pharmacy branch
+        try:
+            qty_to_deduct = to_pieces(prescription.dispense_quantity or prescription.quantity,
+                                      f"Dispense quantity for {prescription.item}")
+        except StockError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve the dispensing pharmacy branch
         store_id = request.data.get('store_id') or request.query_params.get('store_id')
         target_store = None
         if store_id:
             try:
-                target_store = PharmacyStore.objects.filter(id=int(store_id)).first()
+                target_store = PharmacyStore.objects.filter(id=int(store_id), is_active=True).first()
             except (ValueError, TypeError):
-                pass
+                target_store = None
+            if not target_store:
+                return Response({'detail': 'The selected pharmacy was not found or is inactive.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            target_store = PharmacyStore.objects.filter(store_type='opd_pharmacy', is_active=True).first()
         if not target_store:
-            target_store = PharmacyStore.objects.filter(store_type='opd_pharmacy', is_active=True).first() or \
-                           PharmacyStore.objects.filter(is_active=True).first()
-
-        if target_store:
-            store_name = target_store.name
-
-        # 1. Match Product in Hospital Catalog
-        product = Product.objects.filter(product_name__iexact=prescription.item).first()
-        if not product and prescription.item:
-            first_word = prescription.item.split()[0]
-            product = Product.objects.filter(product_name__icontains=first_word).first()
-
-        # 2. Strict Stock Validation: Must have sufficient stock in branch to dispense
-        available_stock = 0
-        store_stock = None
-        if target_store and product:
-            store_stock = StoreStock.objects.filter(store=target_store, product=product).first()
-            if store_stock:
-                available_stock = store_stock.stock
-
-        matching_drug = None
-        if available_stock <= 0:
-            matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
-            if not matching_drug and prescription.item:
-                matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
-            if matching_drug:
-                available_stock = max(available_stock, matching_drug.stock)
-
-        if available_stock < qty_to_deduct:
+            return Response({'detail': 'Select the dispensing pharmacy first.'}, status=status.HTTP_400_BAD_REQUEST)
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, target_store, 'dispense')
+        if denied:
+            return denied
+        if target_store.is_central:
             return Response({
-                'detail': f"Dispense Blocked: Insufficient shelf stock for {prescription.item} at {store_name}. Available stock is {available_stock} (needs {qty_to_deduct}). The pharmacy must restock or request a stock requisition before dispensing this medication."
+                'detail': f"{target_store.name} does not dispense to patients. Dispense from a pharmacy branch "
+                          f"(request the stock from the Central Store first)."
             }, status=status.HTTP_400_BAD_REQUEST)
+        store_name = target_store.name
 
-        # 3. Mark as dispensed once stock is verified
+        # Match the prescription to exactly ONE catalogue item - never guess
+        override_id = request.data.get('product_id')
+        if override_id:
+            product = Product.objects.filter(pk=override_id).first()
+            if not product:
+                return Response({'detail': 'The selected catalogue item was not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            product, candidates = resolve_product(prescription.item)
+            if not product:
+                return Response({
+                    'detail': f"'{prescription.item}' does not match exactly one drug in the inventory catalogue. "
+                              f"Choose the exact item being dispensed so the right stock is deducted.",
+                    'code': 'product_unresolved',
+                    'candidates': candidates,
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         user = request.user if request.user.is_authenticated else None
-        prescription.status = 'dispensed'
-        prescription.dispensed_at = timezone.now()
-        if user and user.is_authenticated:
-            prescription.dispensed_by = user
-        prescription.save()
+        pat_str = (f"{patient.surname} {patient.first_name} (#{patient.hospital_number})" if patient else "patient")
 
-        # 4. Deduct from StoreStock (Branch Shelf Inventory)
-        if target_store and product:
-            store_stock, _ = StoreStock.objects.get_or_create(store=target_store, product=product, defaults={'stock': 0})
-            if store_stock:
-                orig_stock = store_stock.stock
-                store_stock.stock = max(0, orig_stock - qty_to_deduct)
-                store_stock.save(update_fields=['stock', 'updated_date'])
-                stock_deducted = qty_to_deduct
-                remaining_stock = store_stock.stock
-
-                # Decrement FEFO batches if any exist
-                needed = qty_to_deduct
-                for batch in store_stock.batches.filter(quantity__gt=0).order_by('expiry_date'):
-                    if needed <= 0:
-                        break
-                    take = min(batch.quantity, needed)
-                    batch.quantity -= take
-                    batch.save(update_fields=['quantity'])
-                    needed -= take
-
-        # 3. Capture in Central Inventory Transaction Ledger
-        if product:
-            pat_str = f"Patient: {patient.surname} {patient.first_name} (#{patient.hospital_number})" if patient else "Prescription Dispense"
-            dest_label = f"{pat_str} via {store_name}"[:30]
-            try:
-                Transaction.objects.create(
-                    product=product,
-                    quantity=qty_to_deduct,
-                    price=product.price,
-                    transaction_type='DISPENSE',
-                    destination=dest_label,
-                    staff=user
-                )
-            except Exception as e:
-                logger.warning(f"Error logging Transaction: {e}")
-
-        # 4. Fallback / Sync OpdDrugs and OpdDrugsUpdate
-        matching_drug = OpdDrugs.objects.filter(product_name__iexact=prescription.item).first()
-        if not matching_drug and prescription.item:
-            matching_drug = OpdDrugs.objects.filter(product_name__icontains=prescription.item.split()[0]).first()
-        if matching_drug:
-            matching_drug.stock = max(0, matching_drug.stock - qty_to_deduct)
-            matching_drug.save(update_fields=['stock', 'status'])
-            if remaining_stock is None:
-                remaining_stock = matching_drug.stock
-                stock_deducted = qty_to_deduct
-            try:
-                OpdDrugsUpdate.objects.create(
-                    product=matching_drug,
-                    quantity=qty_to_deduct,
-                    price=matching_drug.price,
-                    transaction_type='DISPENSE',
-                    destination=f"Patient: {patient.hospital_number}" if patient else "OPD Dispense",
-                    staff=user
-                )
-            except Exception as e:
-                logger.warning(f"Error logging OpdDrugsUpdate: {e}")
-
-        # 5. Capture in AdministerDrugs for patient clinical chart & case notes
         try:
-            AdministerDrugs.objects.create(
-                item=prescription.item,
-                quantity=qty_to_deduct,
-                rate=product.price if product else (matching_drug.price if matching_drug else 0),
-                total=((product.price if product else (matching_drug.price if matching_drug else 0)) * qty_to_deduct),
-                patient=patient,
-                staff=user
-            )
-        except Exception as e:
-            logger.warning(f"Error recording AdministerDrugs: {e}")
+            with transaction.atomic():
+                rx = WrittenPrescriptions.objects.select_for_update().get(pk=prescription.pk)
+                if rx.status == 'dispensed':
+                    raise StockError('Medication has already been dispensed.')
+                taken = issue(
+                    target_store, product, qty_to_deduct, movement_type='DISPENSE',
+                    reference=f"RX-{rx.id}", notes=f"Dispensed to {pat_str}", user=user,
+                )
+                rx.status = 'dispensed'
+                rx.dispensed_at = timezone.now()
+                if user:
+                    rx.dispensed_by = user
+                rx.save()
 
+                Transaction.objects.create(
+                    product=product, quantity=qty_to_deduct, price=product.price,
+                    transaction_type='DISPENSE', destination=f"{pat_str} via {store_name}"[:30], staff=user,
+                )
+                AdministerDrugs.objects.create(
+                    item=prescription.item, quantity=qty_to_deduct, rate=product.price,
+                    total=product.price * qty_to_deduct, patient=patient, staff=user,
+                )
+        except StockError as e:
+            av = availability(target_store, product)
+            return Response({'detail': str(e), 'available': av['usable'], 'expired': av['expired']},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        remaining_stock = StoreStock.objects.filter(store=target_store, product=product).values_list('stock', flat=True).first() or 0
+        prescription.refresh_from_db()
         serializer = self.get_serializer(prescription)
         return Response({
             'success': True,
             'prescription': serializer.data,
-            'stock_deducted': stock_deducted,
+            'stock_deducted': qty_to_deduct,
             'remaining_stock': remaining_stock,
             'store_name': store_name,
-            'drug_name': product.product_name if product else (matching_drug.product_name if matching_drug else prescription.item),
+            'drug_name': product.product_name,
+            'batches': [{'batch_number': t['batch_number'] or 'unbatched',
+                         'expiry_date': t['expiry_date'].isoformat() if t['expiry_date'] else None,
+                         'quantity': t['quantity']} for t in taken],
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='queue')
@@ -8189,35 +8102,21 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         all_store_stocks = []
         if target_store:
             all_store_stocks = list(StoreStock.objects.filter(store=target_store).select_related('product'))
-        all_opd_drugs = list(OpdDrugs.objects.all())
+        from inventory.stock_service import resolve_product
+        stock_by_product = {ss.product_id: ss.stock for ss in all_store_stocks}
+        _catalogue = list(Product.objects.values_list('id', 'product_name'))
+        _resolved = {}
 
         def get_pharmacy_stock_for_item(item_name):
+            """Shelf pieces of the ONE catalogue item this prescription maps to (0 if ambiguous)."""
             if not item_name:
                 return 0
-            clean_item = item_name.strip().lower()
-            # 1. Exact match on Product.product_name
-            for ss in all_store_stocks:
-                if ss.product and ss.product.product_name.strip().lower() == clean_item:
-                    return ss.stock
-            # 2. Token match (e.g. "Ibuprofen" in "Ibuprofen 400mg Tablet")
-            first_token = clean_item.split()[0] if clean_item.split() else ''
-            if first_token:
-                for ss in all_store_stocks:
-                    if ss.product:
-                        p_clean = ss.product.product_name.strip().lower()
-                        if first_token in p_clean or p_clean in clean_item:
-                            return ss.stock
-            # 3. Fallback to OpdDrugs
-            for od in all_opd_drugs:
-                if od.product_name and od.product_name.strip().lower() == clean_item:
-                    return od.stock
-            if first_token:
-                for od in all_opd_drugs:
-                    if od.product_name:
-                        o_clean = od.product_name.strip().lower()
-                        if first_token in o_clean or o_clean in clean_item:
-                            return od.stock
-            return 0
+            key = item_name.strip().lower()
+            if key not in _resolved:
+                prod, _ = resolve_product(item_name, catalogue=_catalogue)
+                _resolved[key] = prod.id if prod else None
+            pid = _resolved[key]
+            return stock_by_product.get(pid, 0) if pid else 0
 
         patient_list = []
         for patient_id, rx_items in patient_groups.items():
@@ -8406,7 +8305,7 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
     Manage physical or logical pharmacies and store locations.
     Allows hospital admin to dynamically create and configure pharmacies/stores.
     """
-    queryset = PharmacyStore.objects.all().select_related('in_charge').order_by('-is_central', 'name')
+    queryset = PharmacyStore.objects.all().select_related('in_charge').prefetch_related('departments').order_by('-is_central', 'name')
     serializer_class = PharmacyStoreSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
@@ -8447,8 +8346,27 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
             pass
         return super().list(request, *args, **kwargs)
 
+    def _admin_only(self, request):
+        from inventory.permissions import is_admin
+        if not is_admin(request.user):
+            return Response({'error': 'Only an administrator can create, edit or delete pharmacies and stores, '
+                                      'or change which departments can use them.', 'code': 'admin_only'},
+                            status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def create(self, request, *args, **kwargs):
+        return self._admin_only(request) or super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        return self._admin_only(request) or super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self._admin_only(request) or super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        return self._admin_only(request) or super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
         serializer.save()
 
     @action(detail=True, methods=['get'], url_path='stock')
@@ -8457,6 +8375,10 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
         List all inventory stock records held by this specific pharmacy or store.
         """
         store = self.get_object()
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, store, 'view stock')
+        if denied:
+            return denied
         qs = StoreStock.objects.filter(store=store).select_related('product', 'store').prefetch_related('batches')
         search = request.query_params.get('search', '').strip()
         if search:
@@ -8476,12 +8398,101 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
         """
         High level multi-store summary showing all pharmacies, their item counts, and valuation.
         """
-        stores = PharmacyStore.objects.filter(is_active=True).prefetch_related('stocks__product')
+        from inventory.permissions import scope_to_user_stores
+        stores = scope_to_user_stores(PharmacyStore.objects.filter(is_active=True), request.user, 'id').prefetch_related('stocks__product')
         result = []
         for s in stores:
             serializer = self.get_serializer(s)
             result.append(serializer.data)
         return Response(result, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Stock ledger helpers (all quantities are whole pieces)
+# ---------------------------------------------------------------------------
+def _staff_display(u):
+    if not u:
+        return 'Unknown'
+    return (f"{u.first_name} {u.last_name}".strip() or getattr(u, 'fullname', '') or u.username)
+
+
+def _pin_staff(request, purpose):
+    """Resolve the staff member from their security PIN -> (user, None) or (None, error Response)."""
+    pin = request.data.get('pin') or request.data.get('security_pin')
+    if not pin or not str(pin).strip():
+        return None, Response({'error': f'Staff Security PIN is required to {purpose}.'}, status=status.HTTP_400_BAD_REQUEST)
+    raw = str(pin).strip()
+    u = request.user
+    if u and u.is_authenticated and getattr(u, 'has_pin', False) and u.check_pin(raw):
+        return u, None
+    for cand in User.objects.filter(is_active=True):
+        if getattr(cand, 'has_pin', False) and cand.check_pin(raw):
+            return cand, None
+    return None, Response(
+        {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _pin_store_staff(request, store, purpose):
+    """
+    Identify WHO is acting from their security PIN alone (shared pharmacy computers):
+    the PIN is matched only against active staff who may work in `store` (department
+    assigned to it, or an administrator). -> (user, None) or (None, error Response).
+    A PIN shared by two such staff is refused rather than guessed.
+    """
+    from inventory.permissions import can_use_store
+    if not (request.user and request.user.is_authenticated):
+        return None, Response({'error': f'Please sign in to {purpose}.'}, status=status.HTTP_401_UNAUTHORIZED)
+    pin = str(request.data.get('pin') or '').strip()
+    if not pin:
+        return None, Response({'error': f'Enter the PIN of the staff member who will {purpose}.', 'code': 'pin_required'},
+                              status=status.HTTP_400_BAD_REQUEST)
+    matches = [u for u in User.objects.filter(is_active=True).exclude(pin__isnull=True).exclude(pin__in=['', '0'])
+               .select_related('department')
+               if can_use_store(u, store) and u.check_pin(pin)]
+    if len(matches) == 1:
+        return matches[0], None
+    if not matches:
+        return None, Response({'error': f'PIN not recognised for any staff of {store.name}.', 'code': 'pin_invalid'},
+                              status=status.HTTP_400_BAD_REQUEST)
+    return None, Response({'error': f'This PIN is shared by {len(matches)} staff of {store.name}, so the receiver cannot be '
+                                    f'identified. Each of them should set a different PIN in Profile Settings.',
+                           'code': 'pin_ambiguous'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _dispatch_lines(transfer, source, dest, product, qty, user, notes='', batch_number=None):
+    """Issue ``qty`` pieces FEFO from ``source`` and write one transfer line per lot taken."""
+    from inventory.stock_service import issue
+    taken = issue(source, product, qty, movement_type='TRANSFER_OUT', reference=transfer.transfer_number,
+                  notes=f"Dispatched to {dest.name}", user=user, batch_number=batch_number or None)
+    for t in taken:
+        StockTransferItem.objects.create(
+            transfer=transfer, product=product, quantity_sent=t['quantity'], quantity_received=0,
+            batch_number=t['batch_number'], expiry_date=t['expiry_date'], notes=(notes or '')[:200],
+        )
+    return len(taken)
+
+
+def _grn_pieces(itm, line_no, product):
+    """
+    Pieces on a GRN line. Either `quantity` (pieces) or `packs` x `pack_size`.
+    Remembers the pack size on the product for next time.
+    """
+    from inventory.stock_service import to_pieces, StockError
+    label = f"Line {line_no} ({product.product_name})"
+    packs, pack_size = itm.get('packs'), itm.get('pack_size')
+    if packs not in (None, '') and pack_size not in (None, ''):
+        n_packs = to_pieces(packs, f'{label} packs')
+        size = to_pieces(pack_size, f'{label} pieces per pack')
+        pieces = n_packs * size
+        given = itm.get('quantity') or itm.get('quantity_received')
+        if given not in (None, '') and to_pieces(given, f'{label} quantity') != pieces:
+            raise StockError(f'{label}: {n_packs} packs x {size} = {pieces} pcs, but quantity says {given}.')
+        if product.unit != size:
+            Product.objects.filter(pk=product.pk).update(unit=size)
+        return pieces
+    return to_pieces(itm.get('quantity') or itm.get('quantity_received'), f'{label} quantity (pieces)')
 
 
 class StoreStockViewSet(viewsets.ModelViewSet):
@@ -8492,6 +8503,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
     serializer_class = StoreStockSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -8517,6 +8529,9 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
             qs = qs.filter(store_id=store_id)
+        # Only the stores assigned to the user's department (admins: all)
+        from inventory.permissions import scope_to_user_stores
+        qs = scope_to_user_stores(qs, self.request.user, 'store')
         product_id = self.request.query_params.get('product', None)
         if product_id:
             qs = qs.filter(product_id=product_id)
@@ -8542,40 +8557,21 @@ class StoreStockViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='adjust')
     def adjust_stock(self, request):
         """
-        Manual stock-taking adjustment with mandatory staff security PIN verification.
-        Captures who performed the adjustment for audit compliance and records a StockMovement entry.
+        Physical stock count with mandatory staff PIN. The counted pieces become the
+        shelf figure; the variance is booked as an ADJUSTMENT movement and taken from
+        (or added to) the stock lots so batch quantities stay correct.
         """
-        pin = request.data.get('pin') or request.data.get('security_pin')
-        if not pin or str(pin).strip() == '':
-            return Response(
-                {'error': 'Staff Security PIN is required to authorize physical stock adjustment.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        from django.db import transaction
+        from inventory.stock_service import set_count, to_pieces, StockError
 
-        raw_pin = str(pin).strip()
-        staff_user = None
-
-        # 1. Verify against current session user
-        if request.user and request.user.is_authenticated and hasattr(request.user, 'check_pin') and getattr(request.user, 'has_pin', False) and request.user.check_pin(raw_pin):
-            staff_user = request.user
-        else:
-            # 2. Match against active staff users by PIN
-            for u in User.objects.filter(is_active=True):
-                if hasattr(u, 'check_pin') and getattr(u, 'has_pin', False) and u.check_pin(raw_pin):
-                    staff_user = u
-                    break
-
-        if not staff_user:
-            return Response(
-                {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        staff_user, err = _pin_staff(request, 'authorize a physical stock count')
+        if err:
+            return err
 
         store_id = request.data.get('store_id')
         product_id = request.data.get('product_id')
         new_stock = request.data.get('new_stock')
-        reason = request.data.get('reason', 'Physical count adjustment')
-
+        reason = (request.data.get('reason') or 'Physical count adjustment').strip()
         if store_id is None or product_id is None or new_stock is None:
             return Response({'error': 'store_id, product_id, and new_stock are required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -8583,43 +8579,33 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         product = Product.objects.filter(id=product_id).first()
         if not store or not product:
             return Response({'error': 'Store or Product not found'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(staff_user, store, 'count stock')
+        if denied:
+            return denied
 
-        store_stock, _ = StoreStock.objects.get_or_create(store=store, product=product, defaults={'stock': 0})
-        old_stock = store_stock.stock
-        store_stock.stock = max(0, int(new_stock))
-        store_stock.save()
-
-        # Update central product stock if adjusting central warehouse
-        if store.is_central or getattr(store, 'store_type', '') == 'central_store':
-            product.stock = store_stock.stock
-            product.staff = staff_user
-            product.save(update_fields=['stock', 'staff'])
-        else:
-            product.staff = staff_user
-            product.save(update_fields=['staff'])
-
-        delta = store_stock.stock - old_stock
-        editor_display = (
-            f"{staff_user.first_name} {staff_user.last_name}".strip()
-            or getattr(staff_user, 'full_name', '')
-            or staff_user.username
-        )
-        notes_str = f"Adjusted by {editor_display} (PIN Verified). Reason: {reason} | Variance: {'+' if delta > 0 else ''}{delta} units (from {old_stock} to {store_stock.stock})"
-
-        StockMovement.objects.create(
-            store=store,
-            product=product,
-            movement_type='ADJUSTMENT',
-            quantity=delta,
-            balance_after=store_stock.stock,
-            reference_number=f"ADJ-{timezone.now().strftime('%Y%m%d%H%M%S')}",
-            notes=notes_str,
-            performed_by=staff_user
-        )
+        editor_display = _staff_display(staff_user)
+        try:
+            counted = to_pieces(new_stock, 'Counted quantity', allow_zero=True)
+            with transaction.atomic():
+                before = StoreStock.objects.filter(store=store, product=product).values_list('stock', flat=True).first() or 0
+                store_stock, delta = set_count(
+                    store, product, counted,
+                    reference=f"ADJ-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+                    notes=(f"Count by {editor_display} (PIN). Reason: {reason} | "
+                           f"{before} -> {counted} pcs ({'+' if counted - before > 0 else ''}{counted - before})"),
+                    user=staff_user,
+                    batch_number=request.data.get('batch_number') or None,
+                )
+                Product.objects.filter(pk=product.pk).update(staff=staff_user)
+        except StockError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({
             'success': True,
-            'message': f"Stock adjusted successfully to {store_stock.stock} units by {editor_display} (PIN Verified).",
+            'message': (f"Stock count saved: {store_stock.stock} pcs ({'+' if delta > 0 else ''}{delta}) "
+                        f"by {editor_display} (PIN Verified)." if delta else
+                        f"Count matches the shelf ({store_stock.stock} pcs) - no change made."),
             'editor_name': editor_display,
             'store_stock': StoreStockSerializer(store_stock).data,
             'delta': delta,
@@ -8667,6 +8653,10 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         store_stock = StoreStock.objects.filter(id=target_id).select_related('store', 'product').first()
         if not store_stock:
             return Response({'error': 'Stock record not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(staff_user, store_stock.store, 'edit stock items')
+        if denied:
+            return denied
 
         prod = store_stock.product
         changes = []
@@ -8725,74 +8715,74 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
 
-        # 5. Batch Number & Expiry Date
-        new_batch = request.data.get('batch_number')
-        if new_batch is not None:
-            clean_b = str(new_batch).strip()
-            if clean_b != (store_stock.batch_number or ''):
-                changes.append(f"Batch: '{store_stock.batch_number}' -> '{clean_b}'")
-                store_stock.batch_number = clean_b
-
-        new_expiry = request.data.get('expiry_date')
-        if new_expiry is not None:
-            clean_exp = str(new_expiry).strip()[:10] if str(new_expiry).strip() else None
-            if clean_exp != str(store_stock.expiry_date or ''):
-                changes.append(f"Expiry: '{store_stock.expiry_date}' -> '{clean_exp}'")
-                store_stock.expiry_date = clean_exp
-                prod.expiry_date = clean_exp
-
-        # 6. Stock Count
-        new_stock_raw = request.data.get('stock')
-        delta = 0
-        if new_stock_raw is not None and str(new_stock_raw).strip() != '':
-            try:
-                new_s = max(0, int(new_stock_raw))
-                old_s = store_stock.stock or 0
-                if new_s != old_s:
-                    delta = new_s - old_s
-                    changes.append(f"Stock: {old_s} -> {new_s} ({delta:+d})")
-                    store_stock.stock = new_s
-                    prod.stock = new_s
-            except Exception:
-                pass
-
-        # Save updates with staff tracking
-        prod.staff = staff_user
-        prod.save()
-        store_stock.save()
-
-        # Update or record batch
-        if store_stock.batch_number:
-            StoreStockBatch.objects.update_or_create(
-                store=store_stock.store,
-                product=prod,
-                batch_number=store_stock.batch_number,
-                defaults={
-                    'quantity': store_stock.stock,
-                    'expiry_date': store_stock.expiry_date,
-                    'store_stock': store_stock
-                }
-            )
-
-        # Audit movement record
-        editor_display = staff_user.fullname or staff_user.username
-        change_desc = "; ".join(changes) if changes else "Medication details verified"
-        user_notes = request.data.get('notes') or request.data.get('reason') or ''
-        notes_str = f"Edited by {editor_display} (PIN Verified). Changes: {change_desc}"
-        if user_notes:
-            notes_str += f" | Notes: {user_notes}"
-        movement_type = 'ADJUSTMENT' if delta != 0 else 'MODIFICATION'
-
-        StockMovement.objects.create(
-            store=store_stock.store,
-            product=prod,
-            movement_type=movement_type,
-            quantity=delta,
-            balance_after=store_stock.stock,
-            reference_number=f"EDIT-{timezone.now().strftime('%Y%m%d%H%M%S')}",
-            notes=notes_str,
-            performed_by=staff_user
+        # 5/6. Stock count and lot details go through the stock ledger
+        from django.db import transaction
+        from inventory.stock_service import (
+            set_count, to_pieces, StockError, UNBATCHED, _refresh_primary, _parse_expiry, _mirror_product,
         )
+        new_batch = request.data.get('batch_number')
+        new_expiry = request.data.get('expiry_date')
+        new_stock_raw = request.data.get('stock')
+        editor_display = staff_user.fullname or staff_user.username
+        user_notes = request.data.get('notes') or request.data.get('reason') or ''
+        delta = 0
+        try:
+            with transaction.atomic():
+                prod.staff = staff_user
+                prod.save()
+                store_stock.save()
+                if new_stock_raw is not None and str(new_stock_raw).strip() != '':
+                    counted = to_pieces(new_stock_raw, 'Stock', allow_zero=True)
+                    before = store_stock.stock
+                    store_stock, delta = set_count(
+                        store_stock.store, prod, counted,
+                        reference=f"EDIT-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+                        notes=f"Edited by {editor_display} (PIN Verified). Stock {before} -> {counted} pcs"
+                              + (f" | Notes: {user_notes}" if user_notes else ''),
+                        user=staff_user,
+                    )
+                    if delta:
+                        changes.append(f"Stock: {before} -> {store_stock.stock} ({delta:+d})")
+                store_stock = StoreStock.objects.select_for_update().select_related('store').get(pk=store_stock.pk)
+                lot = StoreStockBatch.objects.filter(
+                    store=store_stock.store, product=prod,
+                    batch_number=(store_stock.batch_number or UNBATCHED),
+                ).first()
+                if new_batch is not None:
+                    clean_b = str(new_batch).strip()[:50]
+                    if clean_b and clean_b != (store_stock.batch_number or ''):
+                        if lot is None:
+                            raise StockError('There is no stock lot to rename yet - receive stock first.')
+                        if StoreStockBatch.objects.filter(store=store_stock.store, product=prod, batch_number=clean_b).exists():
+                            raise StockError(f'Batch {clean_b} already exists for this item. Use a stock count to move pieces between batches.')
+                        changes.append(f"Batch: '{store_stock.batch_number or 'unbatched'}' -> '{clean_b}'")
+                        lot.batch_number = clean_b
+                        lot.save()
+                if new_expiry is not None:
+                    clean_exp = _parse_expiry(str(new_expiry).strip()[:10] or None)
+                    if clean_exp != store_stock.expiry_date:
+                        if lot is None:
+                            raise StockError('There is no stock lot to date yet - receive stock first.')
+                        changes.append(f"Expiry ({lot.batch_number}): '{lot.expiry_date}' -> '{clean_exp}'")
+                        lot.expiry_date = clean_exp
+                        lot.save()
+                _refresh_primary(store_stock)
+                store_stock.save()
+                if store_stock.store.is_central:
+                    _mirror_product(prod)
+                if delta == 0:
+                    change_desc = "; ".join(changes) if changes else "Medication details verified"
+                    notes_str = f"Edited by {editor_display} (PIN Verified). Changes: {change_desc}"
+                    if user_notes:
+                        notes_str += f" | Notes: {user_notes}"
+                    StockMovement.objects.create(
+                        store=store_stock.store, product=prod, movement_type='MODIFICATION', quantity=0,
+                        balance_after=store_stock.stock,
+                        reference_number=f"EDIT-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+                        notes=notes_str[:255], performed_by=staff_user,
+                    )
+        except StockError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({
             'success': True,
@@ -8802,6 +8792,34 @@ class StoreStockViewSet(viewsets.ModelViewSet):
             'changes': changes,
             'store_stock': StoreStockSerializer(store_stock).data
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='integrity')
+    def integrity(self, request):
+        """
+        Read-only stock ledger audit: lots vs shelf, Product.stock vs Central Store,
+        shelf vs last ledger balance, expired pieces still on shelves.
+        """
+        from inventory.stock_service import integrity_report
+        return Response(integrity_report(limit=int(request.query_params.get('limit', 25) or 25)))
+
+    @action(detail=False, methods=['post'], url_path='integrity/repair')
+    def integrity_repair(self, request):
+        """
+        PIN-verified book-keeping repair. Never changes how many pieces a store holds -
+        only realigns lots, the Central mirror and the movement ledger to the shelf.
+        """
+        from django.db import transaction
+        from inventory.stock_service import integrity_report, repair
+        staff_user, err = _pin_staff(request, 'run the stock ledger repair')
+        if err:
+            return err
+        from inventory.permissions import central_store_denied
+        denied = central_store_denied(staff_user, 'reconcile the stock ledger')
+        if denied:
+            return denied
+        with transaction.atomic():
+            fixed = repair(user=staff_user)
+        return Response({'success': True, 'fixed': fixed, 'report': integrity_report(limit=10)})
 
     @action(detail=False, methods=['post'], url_path='edit-item')
     def edit_item(self, request):
@@ -8975,6 +8993,10 @@ class StoreStockViewSet(viewsets.ModelViewSet):
 
         if not store:
             return Response({'error': 'Target store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, store, 'receive stock')
+        if denied:
+            return denied
 
         raw_rows = []
         uploaded_file = request.FILES.get('file')
@@ -9014,6 +9036,9 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         updated_prods = 0
         stocked_count = 0
         total_units = 0
+        skipped_rows = 0
+        row_errors = []
+        from inventory.stock_service import receive as ledger_receive, to_pieces, StockError
 
         with transaction.atomic():
             for idx, row in enumerate(raw_rows, start=1):
@@ -9038,13 +9063,22 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     # No dosage type in the sheet: derive it (vaccine -> vial, cream -> tubes, ...)
                     uom = _infer_uom(row_category, name)
                 
-                qty_raw = clean.get('quantity_received') or clean.get('quantity') or clean.get('current_in_stock') or clean.get('qty') or 1
+                # Only the delivered quantity counts. "Current_In_Stock" is what is ALREADY on the
+                # shelf - adding it again would double the stock.
+                qty_raw = None
+                for key in ('quantity_received', 'quantity', 'qty', 'pieces'):
+                    v = clean.get(key)
+                    if v is not None and str(v).strip() not in ('', 'nan', 'None'):
+                        qty_raw = v
+                        break
+                if qty_raw is None:
+                    skipped_rows += 1
+                    continue
                 try:
-                    qty = int(float(str(qty_raw).replace(',', '').strip()))
-                    if qty <= 0:
-                        qty = 1
-                except Exception:
-                    qty = 1
+                    qty = to_pieces(qty_raw, f"Row {idx + 1} ({name}) Quantity_Received")
+                except StockError as e:
+                    row_errors.append(str(e))
+                    continue
 
                 batch_num = str(clean.get('batch_number') or clean.get('batch') or clean.get('lot') or '').strip()
                 expiry = clean.get('expiry_date') or clean.get('expiry') or None
@@ -9084,71 +9118,55 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                         prod.save(update_fields=update_fields)
                     updated_prods += 1
 
-                # 2. StoreStock
-                store_stock, _ = StoreStock.objects.get_or_create(
-                    store=store,
-                    product=prod,
-                    defaults={'stock': 0, 'low_stock_threshold': 10}
-                )
-                store_stock.stock = (store_stock.stock or 0) + qty
-                if batch_num:
-                    store_stock.batch_number = batch_num
-                if expiry:
-                    store_stock.expiry_date = expiry
-                store_stock.save()
-
-                # 3. StoreStockBatch (FEFO lot tracking)
-                if batch_num:
-                    batch_obj, _ = StoreStockBatch.objects.get_or_create(
-                        store=store,
-                        product=prod,
-                        batch_number=batch_num,
-                        defaults={
-                            'quantity': 0,
-                            'expiry_date': expiry,
-                            'store_stock': store_stock
-                        }
+                # 2-5. Shelf stock, FEFO lot, Central mirror and PURCHASE_GRN audit - one ledger call
+                try:
+                    ledger_receive(
+                        store, prod, qty, movement_type='PURCHASE_GRN', reference=grn_ref,
+                        notes=f"Bulk intake: {qty} pcs (Batch: {batch_num or 'N/A'})", user=staff,
+                        batch_number=batch_num, expiry_date=expiry,
                     )
-                    batch_obj.quantity = (batch_obj.quantity or 0) + qty
-                    if expiry:
-                        batch_obj.expiry_date = expiry
-                    batch_obj.store_stock = store_stock
-                    batch_obj.save()
+                except StockError as e:
+                    row_errors.append(f"Row {idx + 1} ({name}): {e}")
+                    continue
 
-                # 4. Product global stock
-                prod.stock = store_stock.stock
-                prod.save(update_fields=['stock'])
-
-                # 5. StockMovement audit
-                StockMovement.objects.create(
-                    store=store,
-                    product=prod,
-                    movement_type='PURCHASE_GRN',
-                    quantity=qty,
-                    balance_after=store_stock.stock,
-                    reference_number=grn_ref,
-                    notes=f"Bulk inventory intake: {qty} units (Batch: {batch_num or 'N/A'})",
-                    performed_by=staff
-                )
-
-                # 6. PharmacyTariff
-                PharmacyTariff.objects.update_or_create(
-                    product_name=prod.product_name,
-                    sponsor=None,
-                    plan=None,
-                    defaults={
-                        'product_id': prod.product_id,
-                        'rate': cost if cost > 0 else Decimal('500.00'),
-                        'staff': staff
-                    }
-                )
+                # 6. General tariff - only overwrite the price when the sheet gives one
+                tariff = PharmacyTariff.objects.filter(product_name=prod.product_name, sponsor=None, plan=None).first()
+                if tariff is None:
+                    PharmacyTariff.objects.create(
+                        product_name=prod.product_name, product_id=prod.product_id, sponsor=None, plan=None,
+                        rate=cost if cost > 0 else Decimal('500.00'), staff=staff,
+                    )
+                elif cost > 0 and tariff.rate != cost:
+                    tariff.rate = cost
+                    tariff.staff = staff
+                    tariff.save()
 
                 stocked_count += 1
                 total_units += qty
 
+            if row_errors:
+                # All-or-nothing: a sheet with bad rows imports nothing, so it can be fixed and re-uploaded
+                transaction.set_rollback(True)
+
+        if row_errors:
+            return Response({
+                'error': f"Nothing was imported - {len(row_errors)} row(s) need fixing: " + ' | '.join(row_errors[:8])
+                         + (' ...' if len(row_errors) > 8 else ''),
+                'row_errors': row_errors,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if stocked_count == 0:
+            return Response({
+                'error': 'No row had a Quantity_Received value - nothing was stocked. Fill Quantity_Received '
+                         '(in pieces) for the items delivered.',
+                'skipped_rows': skipped_rows,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         return Response({
             'success': True,
-            'message': f"Successfully imported and stocked {stocked_count} medical items ({total_units:,} units) into {store.name}!",
+            'skipped_rows': skipped_rows,
+            'message': f"Successfully stocked {stocked_count} medical items ({total_units:,} pcs) into {store.name}!"
+                       + (f" {skipped_rows} row(s) with no Quantity_Received were skipped." if skipped_rows else ''),
             'stocked_count': stocked_count,
             'total_units': total_units,
             'created_products': created_prods,
@@ -9181,6 +9199,10 @@ class StoreStockViewSet(viewsets.ModelViewSet):
 
         if not store:
             return Response({'error': 'Target store / Central Medical Store not found'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, store, 'receive stock')
+        if denied:
+            return denied
 
         if not items_data:
             return Response({'error': 'At least one medication item must be received'}, status=status.HTTP_400_BAD_REQUEST)
@@ -9202,84 +9224,25 @@ class StoreStockViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                for itm in items_data:
+                from inventory.stock_service import receive as ledger_receive
+                audit_notes = f"Received from {vendor_name}" + (f" - {notes}" if notes else '')
+                for n, itm in enumerate(items_data, start=1):
                     prod_id = itm.get('product_id') or itm.get('product')
-                    qty = int(itm.get('quantity') or itm.get('quantity_received') or 0)
-                    if not prod_id or qty <= 0:
+                    if not prod_id:
                         continue
-
                     product = Product.objects.filter(id=prod_id).first()
                     if not product:
-                        continue
-
-                    batch_num = (itm.get('batch_number') or '').strip()
-                    expiry = itm.get('expiry_date') or None
-
-                    store_stock, _ = StoreStock.objects.get_or_create(
-                        store=store,
-                        product=product,
-                        defaults={'stock': 0}
+                        raise ValueError(f"Line {n}: medication #{prod_id} was not found in the catalogue.")
+                    pieces = _grn_pieces(itm, n, product)
+                    store_stock = ledger_receive(
+                        store, product, pieces, movement_type='PURCHASE_GRN', reference=grn_ref,
+                        notes=audit_notes, user=user, batch_number=itm.get('batch_number'),
+                        expiry_date=itm.get('expiry_date') or None, supplier=vendor_name,
                     )
-                    store_stock.stock += qty
-
-                    # Record individual batch lot in StoreStockBatch (FEFO Tracking)
-                    if batch_num:
-                        batch_obj, _ = StoreStockBatch.objects.get_or_create(
-                            store=store,
-                            product=product,
-                            batch_number=batch_num,
-                            defaults={
-                                'store_stock': store_stock,
-                                'expiry_date': expiry,
-                                'quantity': 0,
-                                'supplier': vendor_name
-                            }
-                        )
-                        batch_obj.quantity += qty
-                        if expiry:
-                            batch_obj.expiry_date = expiry
-                        batch_obj.store_stock = store_stock
-                        if vendor_name and not batch_obj.supplier:
-                            batch_obj.supplier = vendor_name
-                        batch_obj.save()
-
-                    # Set primary store_stock batch & expiry to earliest active batch (FEFO protocol)
-                    earliest_batch = store_stock.batches.filter(quantity__gt=0, expiry_date__isnull=False).order_by('expiry_date').first()
-                    if earliest_batch:
-                        store_stock.batch_number = earliest_batch.batch_number
-                        store_stock.expiry_date = earliest_batch.expiry_date
-                    elif batch_num:
-                        store_stock.batch_number = batch_num
-                        if expiry:
-                            store_stock.expiry_date = expiry
-
-                    store_stock.save()
-
-                    # Increment global Product.stock if store is central
-                    if store.is_central:
-                        product.stock = (product.stock or 0) + qty
-                        product.save(update_fields=['stock'])
-
-                    # Audit trail: PURCHASE_GRN
-                    audit_notes = f"Received from {vendor_name}"
-                    if notes:
-                        audit_notes += f" - {notes}"
-
-                    StockMovement.objects.create(
-                        store=store,
-                        product=product,
-                        movement_type='PURCHASE_GRN',
-                        quantity=qty,
-                        balance_after=store_stock.stock,
-                        reference_number=grn_ref,
-                        notes=audit_notes,
-                        performed_by=user
-                    )
-
                     received_results.append({
                         'product_id': product.id,
                         'product_name': product.product_name,
-                        'quantity_received': qty,
+                        'quantity_received': pieces,
                         'new_stock': store_stock.stock
                     })
 
@@ -9296,6 +9259,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     'results': received_results
                 }, status=status.HTTP_201_CREATED)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': f"Failed to receive vendor stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -9312,6 +9277,7 @@ class StockTransferViewSet(viewsets.ModelViewSet):
     serializer_class = StockTransferSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -9331,7 +9297,8 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                 Q(source_store__name__icontains=search) |
                 Q(destination_store__name__icontains=search)
             )
-        return qs
+        from inventory.permissions import scope_to_user_stores
+        return scope_to_user_stores(qs, self.request.user, 'source_store', 'destination_store')
 
     def create(self, request, *args, **kwargs):
         """
@@ -9359,6 +9326,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         dest_store = PharmacyStore.objects.filter(id=dest_id).first()
         if not source_store or not dest_store:
             return Response({'error': 'Invalid source or destination store'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, source_store, 'issue stock')
+        if denied:
+            return denied
 
         user = request.user if request.user.is_authenticated else None
         transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
@@ -9375,53 +9346,20 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                     dispatched_at=timezone.now()
                 )
 
-                for itm in items_data:
+                from inventory.stock_service import to_pieces
+                lines = 0
+                for n, itm in enumerate(items_data, start=1):
                     prod_id = itm.get('product') or itm.get('product_id')
-                    qty_sent = int(itm.get('quantity_sent') or itm.get('quantity') or 0)
-                    if not prod_id or qty_sent <= 0:
+                    if not prod_id:
                         continue
-
                     prod = Product.objects.filter(id=prod_id).first()
                     if not prod:
-                        continue
-
-                    # Validate source stock
-                    src_stock, _ = StoreStock.objects.get_or_create(
-                        store=source_store, product=prod, defaults={'stock': prod.stock or 0}
-                    )
-                    if src_stock.stock < qty_sent:
-                        raise ValueError(f"Insufficient stock for {prod.product_name} in {source_store.name}. Available: {src_stock.stock}, Requested: {qty_sent}")
-
-                    # Deduct from source store
-                    src_stock.stock -= qty_sent
-                    src_stock.save()
-
-                    # Deduct from global Product.stock if source is central store
-                    if source_store.is_central:
-                        prod.stock = max(0, (prod.stock or 0) - qty_sent)
-                        prod.save(update_fields=['stock'])
-
-                    # Audit trail: TRANSFER_OUT
-                    StockMovement.objects.create(
-                        store=source_store,
-                        product=prod,
-                        movement_type='TRANSFER_OUT',
-                        quantity=-qty_sent,
-                        balance_after=src_stock.stock,
-                        reference_number=transfer.transfer_number,
-                        notes=f"Dispatched to {dest_store.name}",
-                        performed_by=user
-                    )
-
-                    StockTransferItem.objects.create(
-                        transfer=transfer,
-                        product=prod,
-                        quantity_sent=qty_sent,
-                        quantity_received=0,
-                        batch_number=itm.get('batch_number') or src_stock.batch_number or '',
-                        expiry_date=itm.get('expiry_date') or src_stock.expiry_date,
-                        notes=itm.get('notes', '')
-                    )
+                        raise ValueError(f"Line {n}: medication #{prod_id} was not found in the catalogue.")
+                    qty_sent = to_pieces(itm.get('quantity_sent') or itm.get('quantity'), f"{prod.product_name} quantity")
+                    lines += _dispatch_lines(transfer, source_store, dest_store, prod, qty_sent, user,
+                                             itm.get('notes', ''), itm.get('batch_number'))
+                if not lines:
+                    raise ValueError('At least one drug item must be selected for transfer')
 
                 serializer = self.get_serializer(transfer)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -9438,66 +9376,81 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         Atomically increments destination pharmacy stock and logs audit trail.
         """
         from django.db import transaction
+        from inventory.stock_service import receive as ledger_receive, to_pieces, StockError
 
-        transfer = self.get_object()
-        if transfer.status == 'received':
-            return Response({'error': 'This transfer has already been received.'}, status=status.HTTP_400_BAD_REQUEST)
+        received_map = {}
+        try:
+            for i in (request.data.get('items') or []):
+                if i.get('item_id') is None:
+                    continue
+                received_map[int(i['item_id'])] = (
+                    to_pieces(i.get('quantity_received'), 'Quantity received', allow_zero=True),
+                    str(i.get('notes') or '').strip(),
+                )
+        except (ValueError, TypeError) as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user if request.user.is_authenticated else None
-        received_items_data = request.data.get('items', [])
-        received_map = {int(i.get('item_id')): int(i.get('quantity_received', 0)) for i in received_items_data if 'item_id' in i}
-
+        shortages = []
         try:
             with transaction.atomic():
-                for item in transfer.items.all():
-                    qty_to_receive = received_map.get(item.id, item.quantity_sent)
-                    item.quantity_received = max(0, qty_to_receive)
-                    item.save(update_fields=['quantity_received'])
+                transfer = StockTransfer.objects.select_for_update(of=('self',)).select_related(
+                    'source_store', 'destination_store', 'requisition'
+                ).get(pk=self.get_object().pk)
+                # The PIN identifies the receiver: a staff member of the receiving pharmacy
+                user, err = _pin_store_staff(request, transfer.destination_store, 'accept this delivery')
+                if err:
+                    return err
+                if transfer.status not in ('in_transit', 'pending'):
+                    raise StockError(f"Transfer #{transfer.transfer_number} is already "
+                                     f"{transfer.get_status_display().lower()} - it cannot be received again.")
 
-                    # Increment destination pharmacy stock
-                    dest_stock, _ = StoreStock.objects.get_or_create(
-                        store=transfer.destination_store,
-                        product=item.product,
-                        defaults={'stock': 0, 'low_stock_threshold': 10}
-                    )
-                    dest_stock.stock += item.quantity_received
-                    if item.batch_number:
-                        dest_stock.batch_number = item.batch_number
-                    if item.expiry_date:
-                        dest_stock.expiry_date = item.expiry_date
-                    dest_stock.save()
-
-                    # Audit trail: TRANSFER_IN
-                    StockMovement.objects.create(
-                        store=transfer.destination_store,
-                        product=item.product,
-                        movement_type='TRANSFER_IN',
-                        quantity=item.quantity_received,
-                        balance_after=dest_stock.stock,
-                        reference_number=transfer.transfer_number,
-                        notes=f"Received from {transfer.source_store.name}",
-                        performed_by=user
-                    )
+                for item in transfer.items.select_related('product'):
+                    got, note = received_map.get(item.id, (item.quantity_sent, ''))
+                    if got > item.quantity_sent:
+                        raise StockError(f"{item.product.product_name}: {got} pcs counted but only "
+                                         f"{item.quantity_sent} pcs were sent.")
+                    item.quantity_received = got
+                    short = item.quantity_sent - got
+                    if short:
+                        shortages.append(f"{item.product.product_name}: {short} pc(s) short")
+                        tag = f"Short-received {short} pc(s)" + (f" - {note}" if note else '')
+                        item.notes = (f"{item.notes} | {tag}" if item.notes else tag)[:200]
+                    item.save(update_fields=['quantity_received', 'notes'])
+                    if got:
+                        ledger_receive(
+                            transfer.destination_store, item.product, got, movement_type='TRANSFER_IN',
+                            reference=transfer.transfer_number, notes=f"Received from {transfer.source_store.name}",
+                            user=user, batch_number=item.batch_number, expiry_date=item.expiry_date,
+                        )
 
                 transfer.status = 'received'
                 transfer.received_by = user
                 transfer.received_at = timezone.now()
-                transfer.save(update_fields=['status', 'received_by', 'received_at'])
+                if shortages:
+                    flag = '[Receipt discrepancy] ' + '; '.join(shortages)
+                    transfer.notes = f"{transfer.notes}\n{flag}" if transfer.notes else flag
+                transfer.save(update_fields=['status', 'received_by', 'received_at', 'notes', 'updated_date'])
 
-                # If tied to a requisition, mark it completed
-                if transfer.requisition:
-                    transfer.requisition.status = 'completed'
-                    transfer.requisition.save(update_fields=['status'])
+                req = transfer.requisition
+                if req and not req.transfers.exclude(pk=transfer.pk).filter(status__in=['pending', 'in_transit']).exists():
+                    req.status = 'completed'
+                    req.save(update_fields=['status', 'updated_date'])
 
-                serializer = self.get_serializer(transfer)
-                return Response({
-                    'success': True,
-                    'message': f"Stock successfully received into {transfer.destination_store.name}!",
-                    'transfer': serializer.data
-                }, status=status.HTTP_200_OK)
-
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': f"Failed to receive stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        transfer.refresh_from_db()
+        msg = f"Stock received into {transfer.destination_store.name} by {_staff_display(user)}."
+        if shortages:
+            msg += f" Discrepancy recorded - {'; '.join(shortages)}."
+        return Response({
+            'success': True,
+            'message': msg,
+            'shortages': shortages,
+            'transfer': self.get_serializer(transfer).data
+        }, status=status.HTTP_200_OK)
 
 
 class StockRequisitionViewSet(viewsets.ModelViewSet):
@@ -9511,6 +9464,7 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
     serializer_class = StockRequisitionSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -9526,7 +9480,8 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
         status_param = self.request.query_params.get('status', None)
         if status_param and status_param != 'all':
             qs = qs.filter(status=status_param)
-        return qs
+        from inventory.permissions import scope_to_user_stores
+        return scope_to_user_stores(qs, self.request.user, 'requesting_store', 'fulfilling_store')
 
     def create(self, request, *args, **kwargs):
         """
@@ -9555,6 +9510,12 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
         requesting_store = PharmacyStore.objects.filter(id=req_store_id).first()
         fulfilling_store = PharmacyStore.objects.filter(id=ful_store_id).first()
         items_data = request.data.get('items', [])
+        if not requesting_store or not fulfilling_store:
+            return Response({'error': 'Requesting or fulfilling store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from inventory.permissions import store_denied
+        denied = store_denied(request.user, requesting_store, 'raise requisitions')
+        if denied:
+            return denied
 
         if not items_data:
             return Response({'error': 'At least one medication must be requested'}, status=status.HTTP_400_BAD_REQUEST)
@@ -9574,26 +9535,32 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                     requested_by=user
                 )
 
-                for itm in items_data:
+                from inventory.stock_service import to_pieces
+                lines = 0
+                for n, itm in enumerate(items_data, start=1):
                     prod_id = itm.get('product') or itm.get('product_id')
-                    qty = int(itm.get('quantity_requested') or itm.get('quantity') or 0)
-                    if not prod_id or qty <= 0:
+                    if not prod_id:
                         continue
                     prod = Product.objects.filter(id=prod_id).first()
                     if not prod:
-                        continue
-
+                        raise ValueError(f"Line {n}: medication #{prod_id} was not found in the catalogue.")
+                    qty = to_pieces(itm.get('quantity_requested') or itm.get('quantity'), f"{prod.product_name} quantity")
                     StockRequisitionItem.objects.create(
                         requisition=requisition,
                         product=prod,
                         quantity_requested=qty,
-                        quantity_approved=qty,
-                        notes=itm.get('notes', '')
+                        quantity_approved=0,
+                        notes=(itm.get('notes') or '')[:200]
                     )
+                    lines += 1
+                if not lines:
+                    raise ValueError('At least one medication must be requested')
 
                 serializer = self.get_serializer(requisition)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': f"Failed to create requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -9605,20 +9572,58 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
         import uuid
         from django.db import transaction
 
-        req = self.get_object()
-        if req.status in ['dispatched', 'completed']:
-            return Response({'error': 'This requisition has already been dispatched or completed.'}, status=status.HTTP_400_BAD_REQUEST)
+        from django.db import transaction
+        from inventory.stock_service import availability, to_pieces, StockError
 
         user = request.user if request.user.is_authenticated else None
+        approval_notes = (request.data.get('notes') or '').strip()
+        custom = {str(i.get('id')): i for i in (request.data.get('items') or []) if i.get('id') is not None}
         transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
 
         try:
             with transaction.atomic():
-                approval_notes = request.data.get('notes', '').strip()
+                req = StockRequisition.objects.select_for_update().select_related(
+                    'requesting_store', 'fulfilling_store'
+                ).get(pk=self.get_object().pk)
+                from inventory.permissions import store_denied
+                denied = store_denied(request.user, req.fulfilling_store, 'issue stock')
+                if denied:
+                    return denied
+                if req.status not in ('pending', 'approved'):
+                    raise StockError(f"Requisition #{req.requisition_number} is already "
+                                     f"{req.get_status_display().lower()} - it cannot be issued again.")
+
+                plan = []
+                for itm in req.items.select_related('product'):
+                    name = itm.product.product_name
+                    if str(itm.id) in custom:
+                        c = custom[str(itm.id)]
+                        qty = to_pieces(c.get('quantity_approved'), f"{name} approved quantity", allow_zero=True)
+                        if 'notes' in c:
+                            itm.notes = (c.get('notes') or '')[:200]
+                    else:
+                        qty = itm.quantity_requested
+                    if qty > itm.quantity_requested:
+                        raise StockError(f"{name}: cannot issue {qty} pcs - only {itm.quantity_requested} pcs were requested.")
+                    plan.append((itm, qty))
+
+                if not any(q for _, q in plan):
+                    raise StockError('Nothing approved to issue. Use "Reject" if the store cannot supply this requisition.')
+
+                short = []
+                for itm, qty in plan:
+                    if qty:
+                        av = availability(req.fulfilling_store, itm.product)
+                        if av['usable'] < qty:
+                            short.append(f"{itm.product.product_name}: approved {qty}, usable {av['usable']}"
+                                         + (f" ({av['expired']} expired)" if av['expired'] else ''))
+                if short:
+                    raise StockError(f"Not enough stock in {req.fulfilling_store.name} - " + '; '.join(short)
+                                     + '. Reduce the approved quantity to what is available.')
+
                 transfer_notes = f"Fulfillment for Requisition #{req.requisition_number}"
                 if approval_notes:
                     transfer_notes += f" - Note: {approval_notes}"
-
                 transfer = StockTransfer.objects.create(
                     transfer_number=transfer_number,
                     source_store=req.fulfilling_store,
@@ -9629,89 +9634,71 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                     dispatched_by=user,
                     dispatched_at=timezone.now()
                 )
-
-                # Map any customized approved quantities from request payload: items: [{ id: 1, quantity_approved: 5, notes: '' }]
-                custom_items = request.data.get('items', [])
-                approved_map = {}
-                item_notes_map = {}
-                for itm_data in custom_items:
-                    item_id = itm_data.get('id')
-                    if item_id is not None:
-                        try:
-                            approved_map[str(item_id)] = max(0, int(itm_data.get('quantity_approved', 0)))
-                        except (ValueError, TypeError):
-                            approved_map[str(item_id)] = 0
-                        if 'notes' in itm_data:
-                            item_notes_map[str(item_id)] = itm_data.get('notes', '')
-
-                dispatched_count = 0
-                for itm in req.items.all():
-                    if str(itm.id) in approved_map:
-                        qty_to_send = approved_map[str(itm.id)]
-                        itm.quantity_approved = qty_to_send
-                        if str(itm.id) in item_notes_map:
-                            itm.notes = item_notes_map[str(itm.id)]
-                        itm.save(update_fields=['quantity_approved', 'notes'])
-                    else:
-                        qty_to_send = itm.quantity_approved if itm.quantity_approved > 0 else itm.quantity_requested
-                        itm.quantity_approved = qty_to_send
-                        itm.save(update_fields=['quantity_approved'])
-
-                    # Skip items that were approved for 0 units (rejected or unavailable)
-                    if qty_to_send <= 0:
-                        continue
-
-                    src_stock, _ = StoreStock.objects.get_or_create(
-                        store=req.fulfilling_store,
-                        product=itm.product,
-                        defaults={'stock': itm.product.stock or 0}
-                    )
-                    if src_stock.stock < qty_to_send:
-                        raise ValueError(f"Insufficient stock for {itm.product.product_name} in {req.fulfilling_store.name}. Available: {src_stock.stock}, Approved: {qty_to_send}")
-
-                    src_stock.stock -= qty_to_send
-                    src_stock.save()
-
-                    if req.fulfilling_store.is_central:
-                        itm.product.stock = max(0, (itm.product.stock or 0) - qty_to_send)
-                        itm.product.save(update_fields=['stock'])
-
-                    StockMovement.objects.create(
-                        store=req.fulfilling_store,
-                        product=itm.product,
-                        movement_type='TRANSFER_OUT',
-                        quantity=-qty_to_send,
-                        balance_after=src_stock.stock,
-                        reference_number=transfer.transfer_number,
-                        notes=f"Requisition fulfillment to {req.requesting_store.name}",
-                        performed_by=user
-                    )
-
-                    StockTransferItem.objects.create(
-                        transfer=transfer,
-                        product=itm.product,
-                        quantity_sent=qty_to_send,
-                        quantity_received=0,
-                        notes=itm.notes
-                    )
-                    dispatched_count += 1
+                for itm, qty in plan:
+                    itm.quantity_approved = qty
+                    itm.save(update_fields=['quantity_approved', 'notes'])
+                    if qty:
+                        _dispatch_lines(transfer, req.fulfilling_store, req.requesting_store, itm.product, qty, user, itm.notes)
 
                 req.status = 'dispatched'
                 req.approved_by = user
                 if approval_notes:
                     req.notes = f"{req.notes}\n[Approval Note]: {approval_notes}" if req.notes else f"[Approval Note]: {approval_notes}"
-                req.save(update_fields=['status', 'approved_by', 'notes'])
-
-                return Response({
-                    'success': True,
-                    'message': f"Requisition #{req.requisition_number} approved and dispatched to {req.requesting_store.name}!",
-                    'transfer_number': transfer.transfer_number
-                }, status=status.HTTP_200_OK)
+                req.save(update_fields=['status', 'approved_by', 'notes', 'updated_date'])
 
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': f"Failed to fulfill requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        partial = [f"{i.product.product_name} {q}/{i.quantity_requested}" for i, q in plan if q < i.quantity_requested]
+        return Response({
+            'success': True,
+            'message': f"Requisition #{req.requisition_number} issued and dispatched to {req.requesting_store.name}!"
+                       + (f" Partly supplied: {', '.join(partial)}." if partial else ''),
+            'transfer_number': transfer.transfer_number
+        }, status=status.HTTP_200_OK)
+
+    def _close_requisition(self, request, new_status, verb):
+        from django.db import transaction
+        reason = str(request.data.get('reason') or request.data.get('notes') or '').strip()
+        if not reason:
+            return Response({'error': f'A reason is required to {verb} a requisition.'}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user if request.user.is_authenticated else None
+        with transaction.atomic():
+            req = StockRequisition.objects.select_for_update().select_related('fulfilling_store', 'requesting_store').get(pk=self.get_object().pk)
+            if new_status == 'rejected':
+                from inventory.permissions import store_denied
+                denied = store_denied(request.user, req.fulfilling_store, 'reject requisitions')
+                if denied:
+                    return denied
+            else:
+                from inventory.permissions import store_denied
+                denied = store_denied(request.user, req.requesting_store, 'cancel requisitions')
+                if denied:
+                    return denied
+            if req.status not in ('pending', 'approved'):
+                return Response({'error': f"Requisition #{req.requisition_number} is already "
+                                          f"{req.get_status_display().lower()}."}, status=status.HTTP_400_BAD_REQUEST)
+            req.status = new_status
+            if new_status == 'rejected':
+                req.approved_by = user
+            tag = f"[{'Rejected' if new_status == 'rejected' else 'Cancelled'} by {_staff_display(user)}]: {reason}"
+            req.notes = f"{req.notes}\n{tag}" if req.notes else tag
+            req.save(update_fields=['status', 'approved_by', 'notes', 'updated_date'])
+            req.items.update(quantity_approved=0)
+        return Response({'success': True, 'message': f"Requisition #{req.requisition_number} {new_status}.",
+                         'requisition': self.get_serializer(req).data}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject_requisition(self, request, pk=None):
+        """Store cannot / will not supply - closes the requisition without moving stock."""
+        return self._close_requisition(request, 'rejected', 'reject')
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_requisition(self, request, pk=None):
+        """Requesting pharmacy withdraws its request before it is issued."""
+        return self._close_requisition(request, 'cancelled', 'cancel')
 
 
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
@@ -9734,7 +9721,8 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
         movement_type = self.request.query_params.get('type', None)
         if movement_type:
             qs = qs.filter(movement_type=movement_type)
-        return qs
+        from inventory.permissions import scope_to_user_stores
+        return scope_to_user_stores(qs, self.request.user, 'store')
 
 
 class PharmacyVendorViewSet(viewsets.ModelViewSet):

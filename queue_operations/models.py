@@ -515,7 +515,8 @@ class ImmunizationDrugRecord(models.Model):
 
     Lifecycle (one row per drug requested):
         requested       nurse asks CMS for a quantity (expected patients noted)
-        issued          CMS issues with PIN -> central stock is deducted; this is "received from CMS"
+        in_transit      CMS issues with PIN -> central stock is deducted
+        issued          clinic counts and receives it with PIN (who/when/how many) -> in use
         return_pending  nurse records usage and sends the unused balance back (PIN)
         closed          CMS receives the return with PIN -> central stock is credited back
                         (also closed directly when nothing is returned)
@@ -523,7 +524,8 @@ class ImmunizationDrugRecord(models.Model):
     """
     STATUS_CHOICES = [
         ('requested', 'Requested from Central Store'),
-        ('issued', 'Issued / Received from Central Store'),
+        ('in_transit', 'Issued - awaiting clinic receipt'),
+        ('issued', 'Received by clinic / in use'),
         ('return_pending', 'Return Awaiting Central Store'),
         ('closed', 'Closed / Reconciled'),
         ('rejected', 'Rejected by Central Store'),
@@ -554,6 +556,13 @@ class ImmunizationDrugRecord(models.Model):
     issued_at = models.DateTimeField(null=True, blank=True)
     store_notes = models.TextField(blank=True, default='')
 
+    # 2b. Receipt by the requesting section (PIN): what physically arrived
+    quantity_received = models.PositiveIntegerField(default=0)
+    received_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='imm_drug_receipts')
+    received_by_name = models.CharField(max_length=150, blank=True, default='')
+    received_at = models.DateTimeField(null=True, blank=True)
+    receipt_notes = models.TextField(blank=True, default='')
+
     # 3. Usage (nurse)
     quantity_used = models.PositiveIntegerField(default=0)
     patients_served = models.PositiveIntegerField(default=0)
@@ -582,14 +591,21 @@ class ImmunizationDrugRecord(models.Model):
 
     @property
     def unaccounted(self):
-        """Issued quantity not used and not returned (wastage / open-vial loss / missing)."""
-        if self.status in ('requested', 'rejected', 'cancelled'):
+        """Received quantity not used and not returned (wastage / open-vial loss / missing)."""
+        if self.status in ('requested', 'in_transit', 'rejected', 'cancelled'):
             return 0
-        return max(0, int(self.quantity_issued) - int(self.quantity_used) - int(self.quantity_returned))
+        return max(0, int(self.quantity_received) - int(self.quantity_used) - int(self.quantity_returned))
+
+    @property
+    def transit_shortfall(self):
+        """Issued by the store but not received by the clinic (lost between the two)."""
+        if self.status in ('requested', 'in_transit', 'rejected', 'cancelled'):
+            return 0
+        return max(0, int(self.quantity_issued) - int(self.quantity_received))
 
     @property
     def on_hand(self):
         """Still held by the clinic while the record is open."""
         if self.status != 'issued':
             return 0
-        return max(0, int(self.quantity_issued) - int(self.quantity_used))
+        return max(0, int(self.quantity_received) - int(self.quantity_used))
