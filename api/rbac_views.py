@@ -5,10 +5,34 @@ from django.db import transaction
 from django.db.models import Count
 from users.models import Role, SystemModule, SubModule, RolePermission, Category, User
 from users.rbac_seed import seed_rbac
+from inventory.permissions import is_admin
+
+SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
+
+
+class ReadAuthenticatedWriteAdmin(permissions.BasePermission):
+    """
+    Access-control configuration: any signed-in user may read it (the sidebar is built
+    from it); only administrators may change it.
+    """
+    message = 'Only an administrator can change departments, modules or access rights.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return request.method in SAFE_METHODS or is_admin(user)
+
+
+class AdminOnly(permissions.BasePermission):
+    message = 'Only an administrator can do this.'
+
+    def has_permission(self, request, view):
+        return is_admin(request.user)
 
 
 class RoleListView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def get(self, request):
         roles = Role.objects.all().order_by('name')
@@ -80,7 +104,7 @@ class RoleListView(APIView):
 
     def post(self, request):
         name = request.data.get('name', '').strip()
-        description = request.data.get('description', '').strip()
+        description = _text(request.data, 'description')
 
         if not name:
             return Response({'detail': 'Department name is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -112,7 +136,7 @@ class RoleListView(APIView):
 
 
 class RoleDetailView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def put(self, request, pk):
         try:
@@ -121,7 +145,7 @@ class RoleDetailView(APIView):
             return Response({'detail': 'Department not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         name = request.data.get('name', '').strip()
-        description = request.data.get('description', '').strip()
+        description = _text(request.data, 'description')
 
         if not name:
             return Response({'detail': 'Department name cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -176,7 +200,7 @@ class RoleDetailView(APIView):
 
 
 class SystemModuleListView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def get(self, request):
         modules = SystemModule.objects.all().order_by('order', 'name').prefetch_related('submodules')
@@ -218,7 +242,7 @@ class SystemModuleListView(APIView):
         icon = request.data.get('icon', 'fa-cubes').strip()
         color = request.data.get('color', '#4e73df').strip()
         primary_tab = request.data.get('primary_tab', '').strip() or code
-        description = request.data.get('description', '').strip()
+        description = _text(request.data, 'description')
         order = request.data.get('order', 0)
 
         if not name or not code:
@@ -266,7 +290,7 @@ class SystemModuleListView(APIView):
 
 
 class SystemModuleDetailView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def put(self, request, pk):
         try:
@@ -278,7 +302,7 @@ class SystemModuleDetailView(APIView):
         icon = request.data.get('icon', mod.icon).strip()
         color = request.data.get('color', mod.color).strip()
         primary_tab = request.data.get('primary_tab', mod.primary_tab).strip()
-        description = request.data.get('description', '').strip()
+        description = _text(request.data, 'description')
         order = request.data.get('order', mod.order)
 
         if not name:
@@ -322,19 +346,32 @@ class SystemModuleDetailView(APIView):
         return Response({'detail': f'Module "{mod_name}" and its submodules deleted from database.'})
 
 
+def _clean_route(value):
+    """'Inventory/Central-Store/ ' -> '/inventory/central-store' (same rule as the frontend router)."""
+    route = str(value or '').strip().lstrip('#').split('?')[0].replace(' ', '').rstrip('/').lower()
+    if not route:
+        return ''
+    return route if route.startswith('/') else '/' + route
+
+
+def _text(data, key, default=''):
+    value = data.get(key, default)
+    return str(value if value is not None else '').strip()
+
+
 class SubModuleView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def post(self, request):
         module_id = request.data.get('module_id')
         name = request.data.get('name', '').strip()
         code = request.data.get('code', '').strip().replace(' ', '_')
-        tab_key = request.data.get('tab_key', '').strip()
-        sub_tab = request.data.get('sub_tab', '').strip()
-        sub_sub_tab = request.data.get('sub_sub_tab', '').strip()
-        route = request.data.get('route', '').strip()
+        tab_key = _text(request.data, 'tab_key')
+        sub_tab = _text(request.data, 'sub_tab')
+        sub_sub_tab = _text(request.data, 'sub_sub_tab')
+        route = _clean_route(request.data.get('route', ''))
         icon = request.data.get('icon', 'fa-circle').strip()
-        description = request.data.get('description', '').strip()
+        description = _text(request.data, 'description')
         order = request.data.get('order', 0)
 
         if not module_id or not name or not code:
@@ -395,12 +432,12 @@ class SubModuleView(APIView):
             return Response({'detail': 'Submodule not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         name = request.data.get('name', '').strip()
-        tab_key = request.data.get('tab_key', sub.tab_key).strip()
-        sub_tab = request.data.get('sub_tab', sub.sub_tab).strip()
-        sub_sub_tab = request.data.get('sub_sub_tab', sub.sub_sub_tab).strip()
-        route = request.data.get('route', sub.route or '').strip()
-        icon = request.data.get('icon', sub.icon).strip()
-        description = request.data.get('description', '').strip()
+        tab_key = _text(request.data, 'tab_key', sub.tab_key)
+        sub_tab = _text(request.data, 'sub_tab', sub.sub_tab)
+        sub_sub_tab = _text(request.data, 'sub_sub_tab', sub.sub_sub_tab)
+        route = _clean_route(request.data.get('route', sub.route))
+        icon = _text(request.data, 'icon', sub.icon) or 'fa-circle'
+        description = _text(request.data, 'description')
         order = request.data.get('order', sub.order)
         new_module_id = request.data.get('module_id')
 
@@ -474,7 +511,7 @@ class SubModuleView(APIView):
 
 
 class RolePermissionView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def get(self, request):
         role_id = request.query_params.get('role_id')
@@ -556,7 +593,7 @@ class RolePermissionView(APIView):
 
 
 class UserRoleAssignmentView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AdminOnly]
 
     def post(self, request):
         user_id = request.data.get('user_id')
@@ -586,38 +623,36 @@ class UserRoleAssignmentView(APIView):
 
 
 class UserPermissionsView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        user = request.user if request.user.is_authenticated else None
-        
-        # Fallback to requested user_id or query param if provided
+        user = request.user
+
+        # Another user's permissions: administrators only
         user_id = request.query_params.get('user_id')
-        if user_id:
-            try:
-                user = User.objects.get(id=user_id)
-            except User.DoesNotExist:
-                pass
-
-        if not user or not user.is_authenticated:
-            # Return demo/default frontdesk permissions or first user
-            user = User.objects.first()
-
-        if not user:
-            return Response({'detail': 'No user found.'}, status=status.HTTP_404_NOT_FOUND)
+        if user_id and str(user_id) != str(user.id):
+            if not is_admin(user):
+                return Response({'detail': "You can only view your own access rights."},
+                                status=status.HTTP_403_FORBIDDEN)
+            user = User.objects.filter(id=user_id).first()
+            if not user:
+                return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         role = user.role
-        if not role:
-            # Fallback to user department category
-            dept_name = user.department.department if user.department else 'Admin'
-            role = Role.objects.filter(name__iexact=dept_name).first()
-            if not role:
-                role = Role.objects.filter(name='Admin').first()
+        if not role and user.department:
+            # Fall back to the role named after the user's department
+            role = Role.objects.filter(name__iexact=user.department.department).first()
+        if not role and is_admin(user):
+            role = Role.objects.filter(name__iexact='Admin').first()
 
         if not role:
-            return Response({'role': 'Admin', 'is_admin': True, 'modules': [], 'submodules': {}})
+            # No role and no matching department: no access (never assume Admin)
+            return Response({
+                'user_id': user.id, 'username': user.username, 'role_id': None, 'role_name': None,
+                'is_admin': False, 'modules': [], 'submodules': {},
+            })
 
-        is_admin = role.name.lower() in ['admin', 'cmd']
+        user_is_admin = is_admin(user) or role.name.lower() in ['admin', 'cmd']
 
         perms = RolePermission.objects.filter(role=role).select_related('module').prefetch_related('submodules')
         
@@ -633,14 +668,14 @@ class UserPermissionsView(APIView):
             'username': user.username,
             'role_id': role.id,
             'role_name': role.name,
-            'is_admin': is_admin,
+            'is_admin': user_is_admin,
             'modules': allowed_modules,
             'submodules': allowed_submodules,
         })
 
 
 class SeedRbacView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AdminOnly]
 
     def post(self, request):
         seed_rbac()

@@ -914,6 +914,8 @@ class InventoryProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryProduct
         fields = '__all__'
+        # Stock only changes through the stock ledger (GRN, transfer, dispense, stock count)
+        read_only_fields = ['stock']
 
 
 class InventoryTransactionSerializer(serializers.ModelSerializer):
@@ -1099,6 +1101,22 @@ class PharmacyStoreSerializer(serializers.ModelSerializer):
     low_stock_count = serializers.SerializerMethodField(read_only=True)
     total_stock_value = serializers.SerializerMethodField(read_only=True)
 
+    # Departments whose staff may operate this store (admin-managed)
+    departments = serializers.SerializerMethodField(read_only=True)
+    department_ids = serializers.PrimaryKeyRelatedField(
+        source='departments', many=True, required=False, write_only=True,
+        queryset=__import__('users.models', fromlist=['Category']).Category.objects.all(),
+    )
+    can_access = serializers.SerializerMethodField(read_only=True)
+
+    def get_departments(self, obj):
+        return [{'id': d.id, 'name': d.department} for d in obj.departments.all()]
+
+    def get_can_access(self, obj):
+        from inventory.permissions import can_use_store
+        request = self.context.get('request')
+        return can_use_store(getattr(request, 'user', None), obj)
+
     def get_total_items(self, obj):
         return obj.stocks.filter(stock__gt=0).count()
 
@@ -1119,6 +1137,7 @@ class PharmacyStoreSerializer(serializers.ModelSerializer):
             'id', 'name', 'code', 'store_type', 'description', 'location',
             'in_charge', 'in_charge_name', 'is_active', 'is_central',
             'total_items', 'low_stock_count', 'total_stock_value',
+            'departments', 'department_ids', 'can_access',
             'created_date', 'updated_date'
         ]
 
@@ -1162,6 +1181,7 @@ class StoreStockSerializer(serializers.ModelSerializer):
             'is_low_stock', 'days_until_earliest_expiry', 'expiry_status',
             'batches', 'created_date', 'updated_date'
         ]
+        read_only_fields = ['stock', 'batch_number', 'expiry_date']
 
 
 class StockTransferItemSerializer(serializers.ModelSerializer):

@@ -234,6 +234,9 @@ class PharmacyStore(models.Model):
     in_charge = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_stores')
     is_active = models.BooleanField(default=True)
     is_central = models.BooleanField(default=False, help_text="Designates this location as the primary central store")
+    # Departments whose staff may work in this store (see inventory/permissions.py).
+    departments = models.ManyToManyField('users.Category', blank=True, related_name='stores',
+                                         help_text="Staff in these departments can operate this pharmacy / store")
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
 

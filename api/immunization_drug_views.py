@@ -26,6 +26,7 @@ from queue_operations.models import ImmunizationDrugRecord, ImmunizationRecord
 from users.models import User
 
 from .immunization_views import verify_staff_pin
+from inventory.permissions import central_store_denied, is_admin, is_store_staff, can_operate_central_store
 from .vaccine_pricing import CATALOG_CODE_PATTERNS
 
 CLINIC_NAME = 'Immunization Clinic'
@@ -131,6 +132,11 @@ def serialize(rec, system_counts=None):
         'issued_by_name': rec.issued_by_name,
         'issued_at': rec.issued_at.isoformat() if rec.issued_at else None,
         'store_notes': rec.store_notes,
+        'quantity_received': rec.quantity_received,
+        'received_by_name': rec.received_by_name,
+        'received_at': rec.received_at.isoformat() if rec.received_at else None,
+        'receipt_notes': rec.receipt_notes,
+        'transit_shortfall': rec.transit_shortfall,
         'quantity_used': rec.quantity_used,
         'patients_served': rec.patients_served,
         'usage_notes': rec.usage_notes,
@@ -149,76 +155,24 @@ def serialize(rec, system_counts=None):
 
 # ----------------------------------------------------------------------------- stock moves (central store)
 def _deduct_central(store, product, qty, reference, batch_number, user):
-    """FEFO deduction from the central store. Returns (batch_used, expiry)."""
-    stock = StoreStock.objects.select_for_update().filter(store=store, product=product).first()
-    if stock is None or stock.stock < qty:
-        have = stock.stock if stock else 0
-        raise ValueError(f'Not enough {product.product_name} in {store.name}. Available: {have}, requested: {qty}.')
-
-    batches = list(
-        StoreStockBatch.objects.select_for_update()
-        .filter(store=store, product=product, quantity__gt=0)
-        .order_by('expiry_date', 'created_date')
-    )
-    today = timezone.localdate()
-    if batch_number:
-        batches = [b for b in batches if b.batch_number == batch_number]
-        if not batches:
-            raise ValueError(f'Batch {batch_number} of {product.product_name} has no stock in {store.name}.')
-    used_batch, used_expiry = '', None
-    if batches:
-        remaining = qty
-        usable = [b for b in batches if not (b.expiry_date and b.expiry_date <= today)]
-        if sum(b.quantity for b in usable) < qty:
-            raise ValueError(f'Not enough unexpired {product.product_name} batches in {store.name} to issue {qty}.')
-        for b in usable:
-            if remaining <= 0:
-                break
-            take = min(b.quantity, remaining)
-            b.quantity -= take
-            b.save(update_fields=['quantity', 'updated_date'])
-            remaining -= take
-            if not used_batch:
-                used_batch, used_expiry = b.batch_number, b.expiry_date
-            elif b.batch_number != used_batch and ',' not in used_batch:
-                used_batch = f'{used_batch}, {b.batch_number}'
-    else:
-        used_batch, used_expiry = stock.batch_number or '', stock.expiry_date
-
-    stock.stock -= qty
-    stock.save(update_fields=['stock', 'updated_date'])
-    product.stock = max(0, (product.stock or 0) - qty)
-    product.save(update_fields=['stock'])
-    StockMovement.objects.create(
-        store=store, product=product, movement_type='TRANSFER_OUT', quantity=-qty,
-        balance_after=stock.stock, reference_number=reference,
-        notes=f'Issued to {CLINIC_NAME}', performed_by=user,
-    )
-    return used_batch, used_expiry
+    """FEFO issue from the central store via the stock ledger. Returns (batch_used, expiry)."""
+    from inventory.stock_service import issue, StockError
+    try:
+        taken = issue(store, product, qty, movement_type='TRANSFER_OUT', reference=reference,
+                      notes=f'Dispatched to {CLINIC_NAME}', user=user, batch_number=batch_number or None)
+    except StockError as e:
+        raise ValueError(str(e))
+    names = [t['batch_number'] for t in taken if t['batch_number']]
+    used_batch = ', '.join(dict.fromkeys(names))[:50]
+    return used_batch, (taken[0]['expiry_date'] if taken else None)
 
 
 def _credit_central(store, product, qty, reference, batch_number, expiry, user):
-    stock, _ = StoreStock.objects.select_for_update().get_or_create(store=store, product=product, defaults={'stock': 0})
-    stock.stock += qty
-    stock.save(update_fields=['stock', 'updated_date'])
+    from inventory.stock_service import receive
     first_batch = (batch_number or '').split(',')[0].strip()
-    if first_batch:
-        b = StoreStockBatch.objects.select_for_update().filter(store=store, product=product, batch_number=first_batch).first()
-        if b:
-            b.quantity += qty
-            b.save(update_fields=['quantity', 'updated_date'])
-        else:
-            StoreStockBatch.objects.create(
-                store_stock=stock, store=store, product=product, batch_number=first_batch,
-                expiry_date=expiry, quantity=qty, supplier=f'Return - {CLINIC_NAME}',
-            )
-    product.stock = (product.stock or 0) + qty
-    product.save(update_fields=['stock'])
-    StockMovement.objects.create(
-        store=store, product=product, movement_type='RETURN', quantity=qty,
-        balance_after=stock.stock, reference_number=reference,
-        notes=f'Unused stock returned from {CLINIC_NAME}', performed_by=user,
-    )
+    receive(store, product, qty, movement_type='RETURN', reference=reference,
+            notes=f'Unused stock returned from {CLINIC_NAME}', user=user,
+            batch_number=first_batch, expiry_date=expiry, supplier=f'Return - {CLINIC_NAME}')
 
 
 # ----------------------------------------------------------------------------- views
@@ -278,6 +232,8 @@ class ImmunizationDrugRecordListView(APIView):
         totals = {
             'requested': sum(r.quantity_requested for r in live),
             'issued': sum(r.quantity_issued for r in live),
+            'received': sum(r.quantity_received for r in live),
+            'transit_shortfall': sum(r.transit_shortfall for r in live),
             'expected_patients': sum(r.expected_patients for r in live),
             'used': sum(r.quantity_used for r in live),
             'patients_served': sum(r.patients_served for r in live),
@@ -289,12 +245,14 @@ class ImmunizationDrugRecordListView(APIView):
         pending = {
             'awaiting_issue': ImmunizationDrugRecord.objects.filter(status='requested').count(),
             'awaiting_return_receipt': ImmunizationDrugRecord.objects.filter(status='return_pending').count(),
+            'awaiting_clinic_receipt': ImmunizationDrugRecord.objects.filter(status='in_transit').count(),
         }
         store = _central_store()
         return Response({
             'date': day.isoformat(),
             'view': view,
-            'central_store': {'id': store.id, 'name': store.name} if store else None,
+            'central_store': {'id': store.id, 'name': store.name,
+                              'can_operate': can_operate_central_store(request.user)} if store else None,
             'records': rows,
             'totals': totals,
             'pending': pending,
@@ -338,6 +296,7 @@ class ImmunizationDrugRecordActionView(APIView):
     """
     POST /immunizations/drug-records/<pk>/<action>/
         issue           CMS, PIN: {quantity_issued, batch_number?, notes?}       -> central stock deducted
+        receive         clinic, PIN: {quantity_received, notes?}                  -> who received it, and how many
         reject          CMS, PIN: {notes}
         cancel          nurse: only while still 'requested'
         usage           nurse: {expected_patients, quantity_used, patients_served, notes}
@@ -350,6 +309,7 @@ class ImmunizationDrugRecordActionView(APIView):
         data = request.data
         handler = {
             'issue': self._issue,
+            'receive': self._receive,
             'reject': self._reject,
             'cancel': self._cancel,
             'usage': self._usage,
@@ -373,24 +333,67 @@ class ImmunizationDrugRecordActionView(APIView):
         staff, err = verify_staff_pin(request, data, action='issue stock from the Central Store')
         if err:
             return err
+        denied = central_store_denied(staff, 'issue stock from the Central Store')
+        if denied:
+            return denied
         qty = _int(data.get('quantity_issued', rec.quantity_requested), 'Quantity issued', 1)
+        # Patients the issued quantity is planned for (scaled on screen from the request's ratio)
+        expected = rec.expected_patients
+        if data.get('expected_patients') not in (None, ''):
+            expected = _int(data.get('expected_patients'), 'Expected patients', 0)
         store = rec.central_store or _central_store()
         if not store:
             raise ValueError('No active Central Medical Store is set up.')
         batch, expiry = _deduct_central(store, rec.product, qty, rec.reference_number, (data.get('batch_number') or '').strip(), staff)
         rec.central_store = store
         rec.quantity_issued = qty
+        rec.expected_patients = expected
         rec.batch_number = batch
         rec.expiry_date = expiry
         rec.issued_by = staff
         rec.issued_by_name = _staff_name(staff)
         rec.issued_at = timezone.now()
         rec.store_notes = (data.get('notes') or '').strip()
-        rec.status = 'issued'
+        rec.status = 'in_transit'
         rec.save()
         short = f' ({rec.quantity_requested - qty} short of the request)' if qty < rec.quantity_requested else ''
-        return Response({'message': f'{qty} x {rec.product_name} issued to {CLINIC_NAME}{short}. Central store updated.',
+        return Response({'message': f'{qty} x {rec.product_name} issued to {CLINIC_NAME} for {expected} expected patients{short}. '
+                                    f'Central store updated. The clinic must now receive it with their PIN.',
                          'record': serialize(rec)})
+
+    # -- Requesting section counts what arrived and signs for it (PIN)
+    def _receive(self, request, rec, data):
+        if rec.status != 'in_transit':
+            raise ValueError(f'{rec.reference_number} is not waiting to be received (it is {rec.get_status_display().lower()}).')
+        staff, err = verify_staff_pin(request, data, action='receive this stock into the Immunization Section')
+        if err:
+            return err
+        if not is_admin(staff):
+            if is_store_staff(staff):
+                return Response({'error': 'The Central Store cannot sign the receipt for the Immunization Section. '
+                                          'A member of the Immunization Section must receive it with their own PIN.',
+                                 'code': 'receiver_must_be_clinic'}, status=status.HTTP_403_FORBIDDEN)
+            if rec.issued_by_id and staff.id == rec.issued_by_id:
+                return Response({'error': 'The person who issued the stock cannot also receive it.',
+                                 'code': 'receiver_must_be_clinic'}, status=status.HTTP_403_FORBIDDEN)
+        qty = _int(data.get('quantity_received', rec.quantity_issued), 'Quantity received', 0)
+        if qty > rec.quantity_issued:
+            raise ValueError(f'You cannot receive more than the {rec.quantity_issued} issued.')
+        notes = (data.get('notes') or '').strip()
+        short = rec.quantity_issued - qty
+        if short and not notes:
+            raise ValueError(f'{short} fewer than issued. Add a note explaining the difference.')
+        rec.quantity_received = qty
+        rec.received_by = staff
+        rec.received_by_name = _staff_name(staff)
+        rec.received_at = timezone.now()
+        rec.receipt_notes = notes
+        rec.status = 'issued'
+        rec.save()
+        msg = f'{qty} x {rec.product_name} received by {rec.received_by_name}.'
+        if short:
+            msg += f' {short} short of what the store issued - flagged on the record.'
+        return Response({'message': msg, 'record': serialize(rec)})
 
     def _reject(self, request, rec, data):
         if rec.status != 'requested':
@@ -398,6 +401,9 @@ class ImmunizationDrugRecordActionView(APIView):
         staff, err = verify_staff_pin(request, data, action='reject this request')
         if err:
             return err
+        denied = central_store_denied(staff, 'reject Central Store requests')
+        if denied:
+            return denied
         rec.status = 'rejected'
         rec.issued_by = staff
         rec.issued_by_name = _staff_name(staff)
@@ -422,12 +428,12 @@ class ImmunizationDrugRecordActionView(APIView):
             rec.patients_served = _int(data.get('patients_served'), 'Patients who received it', 0)
         if data.get('notes') is not None:
             rec.usage_notes = str(data.get('notes')).strip()
-        if rec.quantity_used > rec.quantity_issued:
-            raise ValueError(f'Quantity used ({rec.quantity_used}) cannot be more than the {rec.quantity_issued} received from the Central Store.')
+        if rec.quantity_used > rec.quantity_received:
+            raise ValueError(f'Quantity used ({rec.quantity_used}) cannot be more than the {rec.quantity_received} received from the Central Store.')
 
     def _usage(self, request, rec, data):
         if rec.status != 'issued':
-            raise ValueError('Usage can only be recorded after the Central Store has issued the stock and before it is returned.')
+            raise ValueError('Usage can only be recorded after the stock has been received and before it is returned.')
         self._apply_usage(rec, data)
         rec.save()
         return Response({'message': 'Usage saved.', 'record': serialize(rec)})
@@ -435,15 +441,15 @@ class ImmunizationDrugRecordActionView(APIView):
     # -- Nurse returns the balance (closes directly when nothing comes back)
     def _return(self, request, rec, data):
         if rec.status != 'issued':
-            raise ValueError('Only issued stock can be returned.')
+            raise ValueError('Only stock the clinic has received can be returned.')
         staff, err = verify_staff_pin(request, data, action='return stock to the Central Store')
         if err:
             return err
         self._apply_usage(rec, {k: data.get(k) for k in ('quantity_used', 'patients_served', 'expected_patients') if k in data})
         qty = _int(data.get('quantity_returned', 0), 'Quantity returned', 0)
-        balance = rec.quantity_issued - rec.quantity_used
+        balance = rec.quantity_received - rec.quantity_used
         if qty > balance:
-            raise ValueError(f'You can return at most {balance} (received {rec.quantity_issued} - used {rec.quantity_used}).')
+            raise ValueError(f'You can return at most {balance} (received {rec.quantity_received} - used {rec.quantity_used}).')
         rec.quantity_returned = qty
         rec.returned_by = staff
         rec.returned_by_name = _staff_name(staff)
@@ -466,6 +472,9 @@ class ImmunizationDrugRecordActionView(APIView):
         staff, err = verify_staff_pin(request, data, action='receive this return into the Central Store')
         if err:
             return err
+        denied = central_store_denied(staff, 'receive returns into the Central Store')
+        if denied:
+            return denied
         qty = _int(data.get('quantity_received', rec.quantity_returned), 'Quantity received', 0)
         if qty > rec.quantity_returned:
             raise ValueError(f'Received quantity cannot exceed the {rec.quantity_returned} returned.')
