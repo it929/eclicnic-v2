@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     'OPD_pharm.apps.OpdPharmConfig',
     'OPD_pharm2.apps.OpdPharm2Config',
     'IPD.apps.IpdConfig',
+    'notifications.apps.NotificationsConfig',
     'ANC.apps.AncConfig',
     'Billings.apps.BillingsConfig',
     'myAdmins.apps.MyadminsConfig',

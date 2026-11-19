@@ -1100,15 +1100,20 @@ class AdministerImmunizationBatchView(APIView):
         # 2. If next appointment date provided, create follow-up appointment
         if next_due_date:
             try:
-                PatientAppointment.objects.create(
-                    patient=patient,
-                    arrival_date=next_due_date,
-                    purpose='Immunization Follow-up & Next Dose',
-                    doctor=current_user,
-                    visit_type='Routine',
-                )
+                # (previously passed doctor= / visit_type='Routine', which the model does not have,
+                #  so every return visit silently failed to book)
+                if not PatientAppointment.objects.filter(
+                    patient=patient, arrival_date=next_due_date, purpose__icontains='immuniz'
+                ).exists():
+                    PatientAppointment.objects.create(
+                        patient=patient,
+                        arrival_date=next_due_date,
+                        purpose='Immunization Follow-up & Next Dose',
+                        provider=current_user if getattr(current_user, 'is_authenticated', False) else None,
+                        visit_type='Follow-up',
+                    )
             except Exception as e:
-                print(f"Error scheduling next immunization appointment: {e}")
+                logger.exception('Error scheduling next immunization appointment for patient %s: %s', patient.id, e)
 
         # 3. Billable vaccines are now 'pending' ImmunizationRecords: the Encounter Billing Queue
         #    picks them up (HMO-covered -> claim needing PA code, others -> patient invoice).

@@ -43,11 +43,20 @@ class Product(models.Model):
     expiry_flag_in_num = models.IntegerField(blank=True, null=True, default=0)
     staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
+    # Set when an administrator merges this duplicate into another product. The record stays
+    # (old prescriptions, ledgers and reports still open) but every new use goes to merged_into.
+    merged_into = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='merged_products')
+    merged_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         ordering = ['-created_date']
 
     def __str__(self):
         return self.product_name
+
+    @property
+    def live(self):
+        """The product to use today: itself, or the product it was merged into."""
+        return self.merged_into if self.merged_into_id else self
     
     def save(self, *args, **kwargs):
         if not self.product_id or not str(self.product_id).strip():
@@ -444,6 +453,8 @@ class StockMovement(models.Model):
         ('DISPENSE', 'Dispensed to Patient'),
         ('ADJUSTMENT', 'Stock Taking Adjustment'),
         ('RETURN', 'Stock Returned'),
+        ('MERGE', 'Merged Duplicate Product'),
+        ('OPENING', 'Opening Stock (go-live)'),
     ]
 
     store = models.ForeignKey(PharmacyStore, on_delete=models.CASCADE, related_name='movements')
@@ -485,3 +496,27 @@ class PharmacyVendor(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.code or 'No Code'})"
+
+
+class ProductMerge(models.Model):
+    """Audit record of one duplicate product merged into another."""
+    kept = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='merges_received')
+    merged = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='merges_done')
+    kept_sku = models.CharField(max_length=20, blank=True)
+    kept_name = models.CharField(max_length=200)
+    merged_sku = models.CharField(max_length=20, blank=True)
+    merged_name = models.CharField(max_length=200)
+    stock_carried = models.BooleanField(default=True)
+    pieces_moved = models.IntegerField(default=0)
+    price_before = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    price_after = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    merged_price = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    performed_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_date']
+
+    def __str__(self):
+        return f"{self.merged_sku} {self.merged_name} -> {self.kept_sku} {self.kept_name}"

@@ -212,19 +212,22 @@ def patient_registration(request):
             patient.save() 
 
             #  Registration Fee Logic 
+            # One registration fee for every patient (it does not vary by sponsor or plan)
             try:
-                reg_fee = RegFee.objects.get(plan_name=patient.plan.plan)
-                GetRegistrationFee.objects.create(
-                    price=reg_fee.price,
-                    patient=patient,
-                    category=patient.category,
-                    plan=patient.plan,
-                    staff=request.user,
-                )
-            except RegFee.DoesNotExist:
-                messages.warning(request, f'Patient saved but no RegFee found for plan {patient.plan}')
-                # Don't fail registration for this
+                from api.pricing import registration_fee
+                hospital_fee = registration_fee()
+                if hospital_fee is not None:
+                    GetRegistrationFee.objects.create(
+                        price=int(hospital_fee),
+                        patient=patient,
+                        category=patient.category,
+                        plan=patient.plan,
+                        staff=request.user,
+                    )
+                else:
+                    messages.warning(request, 'Patient saved, but the registration fee has not been set.')
             except Exception as e:
+                # Don't fail registration for this
                 print(f"RegFee error: {e}")
                 messages.warning(request, f'Patient saved but fee not captured: {e}')
 

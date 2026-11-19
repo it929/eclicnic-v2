@@ -90,6 +90,10 @@ def store_label(store):
 # Internal row handling
 # --------------------------------------------------------------------------- #
 def _lock_row(store, product):
+    if getattr(product, 'merged_into_id', None):
+        live = product.merged_into
+        raise StockError(f"{product.product_name} ({product.product_id}) was merged into "
+                         f"{live.product_name} ({live.product_id}). Use that product instead.")
     row, _ = StoreStock.objects.select_for_update().get_or_create(
         store=store, product=product,
         defaults={'stock': 0, 'low_stock_threshold': product.low_stock_threshold or 10},
@@ -305,15 +309,19 @@ def resolve_product(item_name, catalogue=None):
     name = str(item_name or '').strip()
     if not name:
         return None, []
-    exact = Product.objects.filter(product_name__iexact=name).order_by('id')
-    if exact.count() == 1:
-        return exact.first(), []
-    if exact.count() > 1:
-        return None, [{'id': p.id, 'product_name': p.product_name} for p in exact]
+    exact = {}
+    for p in Product.objects.filter(product_name__iexact=name).select_related('merged_into').order_by('id'):
+        live = p.live          # a merged duplicate's name resolves to the product it was merged into
+        exact[live.id] = live
+    if len(exact) == 1:
+        return next(iter(exact.values())), []
+    if len(exact) > 1:
+        return None, [{'id': p.id, 'product_name': p.product_name} for p in exact.values()]
 
     target = _norm(name)
     tokens = target.split()
-    all_products = catalogue if catalogue is not None else list(Product.objects.values_list('id', 'product_name'))
+    all_products = catalogue if catalogue is not None else list(
+        Product.objects.filter(merged_into__isnull=True).values_list('id', 'product_name'))
     same = [(pid, pn) for pid, pn in all_products if _norm(pn) == target]
     if len(same) == 1:
         return Product.objects.get(pk=same[0][0]), []
@@ -413,3 +421,84 @@ def repair(user=None):
             Product.objects.filter(pk=p.pk).update(stock=want)
             fixed['mirror'] += 1
     return fixed
+
+
+# --------------------------------------------------------------------------- #
+# Merging duplicate catalogue products
+# --------------------------------------------------------------------------- #
+def merge_stock(keep, dup, *, carry_stock=True, user=None):
+    """
+    Move every store's stock of ``dup`` into ``keep``, lot by lot (batch numbers and
+    expiry dates are kept). With carry_stock=False the duplicate's pieces are written
+    off instead (e.g. they were sample figures, not a real count).
+    Both sides get a MERGE ledger entry. Returns {store name: pieces}.
+    The caller holds the transaction.
+    """
+    ref = f"MERGE {dup.product_id or dup.id}>{keep.product_id or keep.id}"[:50]
+    moved = {}
+    rows = StoreStock.objects.select_for_update().filter(product=dup).select_related('store').order_by('id')
+    for row in rows:
+        _heal(row)
+        qty = row.stock
+        if not qty:
+            continue
+        if carry_stock:
+            krow = _lock_row(row.store, keep)
+            _heal(krow)
+            lots = StoreStockBatch.objects.select_for_update().filter(store=row.store, product=dup, quantity__gt=0)
+            for b in lots:
+                kb = _batch(krow, b.batch_number, b.expiry_date, b.supplier)
+                kb.quantity += b.quantity
+                if b.expiry_date and not kb.expiry_date:
+                    kb.expiry_date = b.expiry_date
+                kb.save()
+            krow.stock += qty
+            _save(krow, 'MERGE', qty, ref, f"Merged in from duplicate {dup.product_name} ({dup.product_id})", user)
+        moved[row.store.name] = qty
+        StoreStockBatch.objects.filter(store=row.store, product=dup).update(quantity=0)
+        row.stock = 0
+        _save(row, 'MERGE', -qty, ref,
+              f"Merged into {keep.product_name} ({keep.product_id})"
+              + ('' if carry_stock else ' - stock written off, not carried over'), user)
+    _mirror_product(keep)
+    _mirror_product(dup)
+    return moved
+
+
+# --------------------------------------------------------------------------- #
+# Go-live opening stock
+# --------------------------------------------------------------------------- #
+def set_opening(store, product, lots, *, reference='', notes='', user=None):
+    """
+    Opening stock (go-live): the shelf becomes exactly the counted ``lots``
+    [(batch_number, pieces, expiry_date)] - existing lots are replaced, not added to,
+    so loading the same sheet twice changes nothing.
+    Books one OPENING movement for the difference. Returns (row, delta).
+    """
+    row = _lock_row(store, product)
+    _heal(row)
+    target = {}
+    for batch, qty, expiry in lots:
+        key = _clean_batch(batch)
+        qty = to_pieces(qty, f'{product.product_name} counted quantity', allow_zero=True)
+        prev_qty, prev_exp = target.get(key, (0, None))
+        target[key] = (prev_qty + qty, _parse_expiry(expiry) or prev_exp)
+    new_total = sum(q for q, _ in target.values())
+    current = {b.batch_number: (b.quantity, b.expiry_date)
+               for b in StoreStockBatch.objects.filter(store=store, product=product)}
+    same = (new_total == row.stock and all(
+        current.get(k, (0, None))[0] == q and (not e or current.get(k, (0, None))[1] == e)
+        for k, (q, e) in target.items()))
+    if same:
+        return row, 0
+    StoreStockBatch.objects.select_for_update().filter(store=store, product=product).update(quantity=0)
+    for key, (qty, expiry) in target.items():
+        b = _batch(row, key, expiry)
+        b.quantity = qty
+        if expiry:
+            b.expiry_date = expiry
+        b.save()
+    delta = new_total - row.stock
+    row.stock = new_total
+    _save(row, 'OPENING', delta, reference, notes, user)
+    return row, delta

@@ -6,6 +6,12 @@ from . import rbac_views
 from . import lab_views
 from . import immunization_views
 from . import immunization_drug_views
+from . import product_merge_views
+from . import pricing_views
+from . import immunization_schedule_views
+from . import opening_stock_views
+from . import ipd_views
+from . import notification_views
 from .views import (
     LoginView,
     CurrentUserView,
@@ -168,6 +174,7 @@ urlpatterns = [
     path('tariffs/immunization-fees/', tariff_views.ImmunizationFeesView.as_view(), name='api-tariff-immunization-fees'),
 
     # Immunization Clinic Routes
+    path('immunizations/schedule/', immunization_schedule_views.ImmunizationScheduleView.as_view(), name='api-immunization-schedule'),
     path('immunizations/catalog/', immunization_views.ImmunizationCatalogView.as_view(), name='api-immunization-catalog'),
     path('immunizations/patient/<int:patient_id>/', immunization_views.PatientImmunizationListView.as_view(), name='api-patient-immunizations'),
     path('immunizations/patient/<int:patient_id>/vaccine-tariffs/', immunization_views.PatientVaccineTariffView.as_view(), name='api-patient-vaccine-tariffs'),
@@ -177,6 +184,25 @@ urlpatterns = [
     path('immunizations/drug-records/', immunization_drug_views.ImmunizationDrugRecordListView.as_view(), name='api-imm-drug-records'),
     path('immunizations/drug-records/products/', immunization_drug_views.ImmunizationDrugProductsView.as_view(), name='api-imm-drug-products'),
     path('immunizations/drug-records/<int:pk>/<str:action>/', immunization_drug_views.ImmunizationDrugRecordActionView.as_view(), name='api-imm-drug-record-action'),
+    # Top-bar bell
+    path('notifications/', notification_views.NotificationListView.as_view(), name='api-notifications'),
+    path('notifications/summary/', notification_views.NotificationSummaryView.as_view(), name='api-notifications-summary'),
+    path('notifications/read/', notification_views.NotificationReadView.as_view(), name='api-notifications-read'),
+    # In-patient (IPD): admissions, wards, beds
+    path('ipd/admissions/', ipd_views.AdmissionListView.as_view(), name='api-ipd-admissions'),
+    path('ipd/admissions/check/', ipd_views.AdmissionCheckView.as_view(), name='api-ipd-admission-check'),
+    path('ipd/admissions/admit/', ipd_views.AdmitView.as_view(), name='api-ipd-admit'),
+    path('ipd/admissions/<int:pk>/', ipd_views.AdmissionDetailView.as_view(), name='api-ipd-admission-detail'),
+    path('ipd/admissions/<int:pk>/<str:action>/', ipd_views.AdmissionActionView.as_view(), name='api-ipd-admission-action'),
+    path('ipd/wards/', ipd_views.WardListView.as_view(), name='api-ipd-wards'),
+    path('ipd/wards/<int:pk>/', ipd_views.WardDetailView.as_view(), name='api-ipd-ward-detail'),
+    path('ipd/wards/<int:pk>/add-beds/', ipd_views.WardAddBedsView.as_view(), name='api-ipd-ward-add-beds'),
+    path('ipd/beds/', ipd_views.BedListView.as_view(), name='api-ipd-beds'),
+    path('ipd/beds/map/', ipd_views.BedMapView.as_view(), name='api-ipd-beds-map'),
+    path('ipd/beds/<int:pk>/', ipd_views.BedDetailView.as_view(), name='api-ipd-bed-detail'),
+    path('pharmacy/product-merge/<str:action>/', product_merge_views.ProductMergeView.as_view(), name='api-product-merge'),
+    path('pharmacy/opening-stock/<str:action>/', opening_stock_views.OpeningStockView.as_view(), name='api-opening-stock'),
+    path('pricing/check/', pricing_views.CheckOrderPricesView.as_view(), name='api-pricing-check'),
 
     # Meta & stats
     path('departments/', DepartmentListView.as_view(), name='api-departments'),

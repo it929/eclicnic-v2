@@ -1,3 +1,4 @@
+import re
 from django.utils import timezone
 from django.db.models import Count, Sum, Q
 from datetime import date, timedelta
@@ -440,18 +441,87 @@ class QueueMonitorView(APIView):
         })
 
 
+_ICD_SUFFIX = re.compile(r'\s*\[\s*ICD[-\s]?\d*\s*:\s*([^\]]*)\]\s*$', re.I)
+_ICD_PREFIX = re.compile(r'^[A-Z]\d{1,2}(?:\.\d{1,3})?\s*-\s*')
+STATS_PERIODS = {'7': 7, '30': 30, '90': 90, '365': 365, 'all': None}
+
+
+def split_diagnosis(text):
+    """'Malaria due to P. falciparum [ICD-11: 1F40.Z]' -> ('Malaria due to P. falciparum', '1F40.Z')."""
+    text = (text or '').strip()
+    code = ''
+    m = _ICD_SUFFIX.search(text)
+    if m:
+        code = m.group(1).strip()
+        text = text[:m.start()].strip()
+    text = _ICD_PREFIX.sub('', text).strip()
+    if code.upper() == 'LOCAL':
+        code = ''
+    return text, code
+
+
+def diagnosis_frequencies(start=None, end=None):
+    """Count encounter diagnoses between start (inclusive) and end (exclusive).
+    The same condition with or without its ICD tag counts as one."""
+    from queue_operations.models import PatientEncounter
+    qs = PatientEncounter.objects.exclude(diagnosis__isnull=True).exclude(diagnosis='')
+    if start:
+        qs = qs.filter(created_at__gte=start)
+    if end:
+        qs = qs.filter(created_at__lt=end)
+    groups, patients = {}, set()
+    for diagnosis, patient_id in qs.order_by().values_list('diagnosis', 'patient_id').iterator():
+        name, code = split_diagnosis(diagnosis)
+        if not name:
+            continue
+        g = groups.setdefault(name.lower(), {'diagnosis': name, 'code': '', 'cases': 0, 'patients': set()})
+        g['cases'] += 1
+        g['patients'].add(patient_id)
+        g['code'] = g['code'] or code
+        patients.add(patient_id)
+    return groups, patients
+
+
 class StatisticalInsightsView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # Sample diagnosis analytics
-        diagnoses = [
-            {'diagnosis': 'Malaria (Plasmodium Falciparum)', 'cases': 34, 'percentage': 38},
-            {'diagnosis': 'Essential Hypertension', 'cases': 21, 'percentage': 23},
-            {'diagnosis': 'Upper Respiratory Tract Infection', 'cases': 14, 'percentage': 16},
-            {'diagnosis': 'Type 2 Diabetes Mellitus', 'cases': 11, 'percentage': 12},
-            {'diagnosis': 'Gastroenteritis', 'cases': 9, 'percentage': 10},
-        ]
+        # ---- Diagnosis frequencies from real encounters ----
+        period = request.query_params.get('period', '30')
+        if period not in STATS_PERIODS:
+            period = '30'
+        days = STATS_PERIODS[period]
+        now = timezone.now()
+        start = now - timedelta(days=days) if days else None
+        groups, patients = diagnosis_frequencies(start=start)
+        previous = {}
+        if days:
+            previous, _ = diagnosis_frequencies(start=start - timedelta(days=days), end=start)
+
+        total = sum(g['cases'] for g in groups.values())
+        ranked = sorted(groups.items(), key=lambda kv: (-kv[1]['cases'], kv[1]['diagnosis'].lower()))
+        diagnoses = []
+        for key, g in ranked[:10]:
+            prev = previous.get(key, {}).get('cases', 0) if days else None
+            diagnoses.append({
+                'diagnosis': g['diagnosis'],
+                'code': g['code'],
+                'cases': g['cases'],
+                'patients': len(g['patients']),
+                'percentage': round(g['cases'] * 100 / total, 1) if total else 0,
+                'previous_cases': prev,
+            })
+        diagnosis_summary = {
+            'period': period,
+            'days': days,
+            'from': start.date().isoformat() if start else None,
+            'to': now.date().isoformat(),
+            'total_cases': total,
+            'unique_conditions': len(groups),
+            'unique_patients': len(patients),
+            'previous_total': sum(g['cases'] for g in previous.values()) if days else None,
+            'other_cases': total - sum(d['cases'] for d in diagnoses),
+        }
 
         # Financial analytics
         total_revenue = Receipt.objects.aggregate(total=Sum('total_price'))['total'] or 450000
@@ -472,6 +542,7 @@ class StatisticalInsightsView(APIView):
 
         return Response({
             'diagnosis_analytics': diagnoses,
+            'diagnosis_summary': diagnosis_summary,
             'financial_analytics': {
                 'total_revenue': total_revenue,
                 'payment_methods': payment_methods,

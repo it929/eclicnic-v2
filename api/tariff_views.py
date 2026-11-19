@@ -2294,7 +2294,8 @@ class MedicationFeesView(APIView):
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
         if not product_id or not str(product_id).strip():
-            existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+            existing_prod = Product.objects.filter(product_name__iexact=product_name).select_related('merged_into').first()
+            existing_prod = existing_prod.live if existing_prod else None
             if existing_prod and existing_prod.product_id:
                 product_id = existing_prod.product_id
             else:
@@ -3092,7 +3093,8 @@ class BulkUploadMedicationTariffView(APIView):
             if sku and str(sku).strip():
                 sku = str(sku).strip()[:13]
             else:
-                existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+                existing_prod = Product.objects.filter(product_name__iexact=product_name).select_related('merged_into').first()
+                existing_prod = existing_prod.live if existing_prod else None
                 if existing_prod and existing_prod.product_id:
                     sku = existing_prod.product_id
                 else:

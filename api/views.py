@@ -1275,7 +1275,7 @@ class SponsorViewSet(viewsets.ModelViewSet):
 
         uploaded_file = request.FILES.get('file')
         default_category_id = request.data.get('category_id') or request.data.get('category')
-        
+
         default_category = None
         if default_category_id:
             try:
@@ -2272,7 +2272,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         description = request.data.get('description') or request.data.get('name')
         if not description or not str(description).strip():
             return Response({'detail': 'Diagnosis description is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         description = str(description).strip()
         category = request.data.get('category', 'General') or 'General'
         icd10_code = request.data.get('icd10_code', '').strip()
@@ -2309,8 +2309,8 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         Returns array of [{code, title, category, is_local, source}]
         """
         query = (
-            request.query_params.get('search') or 
-            request.query_params.get('terms') or 
+            request.query_params.get('search') or
+            request.query_params.get('terms') or
             request.query_params.get('code') or ''
         ).strip()
         if not query or len(query) < 2:
@@ -2417,7 +2417,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
             return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         filename = uploaded_file.name.lower()
         records_to_process = []
         try:
@@ -3329,7 +3329,7 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 class PatientAppointmentViewSet(viewsets.ModelViewSet):
     queryset = PatientAppointment.objects.all().select_related('patient', 'provider').order_by('-arrival_date', '-arrival_time', '-created_date')
     serializer_class = PatientAppointmentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
@@ -3391,7 +3391,40 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
         clinician = serializer.validated_data.get('clinician')
         if not clinician and provider:
             clinician = provider.fullname or provider.username
-        serializer.save(provider=provider, clinician=clinician)
+        appointment = serializer.save(provider=provider, clinician=clinician)
+        self._notify_nursing(appointment, user)
+
+    @staticmethod
+    def _notify_nursing(appt, actor):
+        """A patient booked for TODAY needs vitals: tell Nursing. Future bookings stay quiet
+        (they show up in the nurses' 'waiting for vitals' count on the day). Several purposes
+        booked together for one patient produce a single notification."""
+        try:
+            if not appt.patient_id or appt.completed == 2 or appt.arrival_date != timezone.localdate():
+                return
+            from datetime import timedelta as _td
+            from notifications.models import Notification
+            from notifications.services import notify_department
+            ref = f'appt-vitals:{appt.patient_id}:{appt.arrival_date.isoformat()}'
+            if Notification.objects.filter(kind='appointment_today', ref=ref,
+                                           created_at__gte=timezone.now() - _td(minutes=10)).exists():
+                return
+            p = appt.patient
+            name = ' '.join(x for x in [getattr(p, 'surname', ''), getattr(p, 'first_name', '')] if x).strip() or 'Patient'
+            hosp = getattr(p, 'hospital_number', '') or ''
+            urgent = 'emergency' in (appt.comment or '').lower() or 'emergency' in (appt.clinician or '').lower()
+            bits = [f'{name}{f" ({hosp})" if hosp else ""}', appt.purpose or '']
+            if appt.arrival_time:
+                bits.append(f'arriving {appt.arrival_time.strftime("%H:%M")}')
+            notify_department(
+                ['Nursing'], kind='appointment_today', actor=actor, ref=ref,
+                title='Emergency patient for vitals' if urgent else 'New patient for vitals',
+                message=' · '.join(b for b in bits if b),
+                link='/appointments/today', level='danger' if urgent else 'info', icon='fa-heartbeat',
+            )
+        except Exception:   # a notification problem must never block booking
+            import logging
+            logging.getLogger(__name__).exception('appointment nursing notification failed')
 
     def perform_update(self, serializer):
         inst = serializer.instance
@@ -3711,6 +3744,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             else:
                 payment_option = 'Cash'
 
+        # Prices are set by the server from the tariff (sponsor + plan -> sponsor -> General).
+        # Whatever rate the screen sent is ignored; an item with no price anywhere is refused.
+        from api.pricing import price_orders
+        priced, unpriced = price_orders(patient, [
+            ('drug', prescriptions), ('lab', lab_orders),
+            ('radiology', radiology_orders), ('service', other_service_orders),
+        ])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         # Each bill generation must have its own unique invoice number
         invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
 
@@ -3724,14 +3768,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not drug_name:
                     continue
                 qty = int(p.get('dispense_quantity') or p.get('qty') or 1)
-                rate = p.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from inventory.models import PharmacyTariff
-                        t = PharmacyTariff.objects.filter(product_name__icontains=drug_name).first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(p)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3762,14 +3799,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not test_name:
                     continue
                 qty = 1
-                rate = l.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from radio_lab.models import RadioLabInventory
-                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(l)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3813,14 +3843,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not scan_name:
                     continue
                 qty = 1
-                rate = r.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from radio_lab.models import RadioLabInventory
-                        t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(r)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3873,14 +3896,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not service_name:
                     continue
                 qty = 1
-                rate = s.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from myAdmins.models import OtherService2
-                        t = OtherService2.objects.filter(service__icontains=service_name).first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(s)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3983,6 +3999,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             user = User.objects.filter(is_staff=True).first() or User.objects.first()
         category = patient.category
 
+        # Prices are set by the server from the tariff (sponsor + plan -> sponsor -> General).
+        # Whatever rate the screen sent is ignored; an item with no price anywhere is refused.
+        from api.pricing import price_orders
+        priced, unpriced = price_orders(patient, [
+            ('drug', prescriptions), ('lab', lab_orders),
+            ('radiology', radiology_orders), ('service', other_service_orders),
+        ])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         saved_counts = {'prescriptions': 0, 'lab': 0, 'radiology': 0, 'services': 0}
 
         with transaction.atomic():
@@ -4040,6 +4067,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     patient=patient, item=drug_name[:200],
                     created_date__date=timezone.now().date()
                 ).first()
+                if existing_rx and existing_rx.unit_price is None and existing_rx.status == 'pending':
+                    pq = priced[id(p)]
+                    WrittenPrescriptions.objects.filter(pk=existing_rx.pk).update(
+                        item_code=pq.code or None, unit_price=pq.rate,
+                        price_source=pq.source, tariff_id=pq.tariff_id)
                 if not existing_rx:
                     WrittenPrescriptions.objects.create(
                         patient=patient,
@@ -4059,7 +4091,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         dispense_detail=dispense_detail,
                         comment=comment,
                         start_date=start_date,
-                        status='pending'
+                        status='pending',
+                        item_code=priced[id(p)].code or None,
+                        unit_price=priced[id(p)].rate,
+                        price_source=priced[id(p)].source,
+                        tariff_id=priced[id(p)].tariff_id,
                     )
                 saved_counts['prescriptions'] += 1
 
@@ -4068,24 +4104,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 test_name = (l.get('test') or l.get('item') or '').strip()
                 if not test_name:
                     continue
-                rate = l.get('tariff_rate')
-                if rate is None or rate == '':
-                    p_sponsor = getattr(patient, 'sponsor', None)
-                    p_plan = getattr(patient, 'plan', None)
-                    t = None
-                    if p_sponsor and p_plan:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor, plan=p_plan).first()
-                    if not t and p_plan:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', plan=p_plan).first()
-                    if not t and p_sponsor:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor).first()
-                    if not t:
-                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(l)].rate)
 
                 comment = (l.get('comment') or l.get('notes') or '').strip()
                 if l.get('is_pay_from_purse') or l.get('payment_mode') == 'pay_from_purse':
@@ -4118,14 +4137,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 scan_name = (r.get('scan') or r.get('item') or '').strip()
                 if not scan_name:
                     continue
-                rate = r.get('tariff_rate')
-                if rate is None or rate == '':
-                    t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(r)].rate)
 
                 comment = (r.get('comment') or r.get('notes') or '').strip()
                 if r.get('is_pay_from_purse') or r.get('payment_mode') == 'pay_from_purse':
@@ -4158,14 +4170,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 service_name = (s.get('service') or s.get('item') or '').strip()
                 if not service_name:
                     continue
-                rate = s.get('tariff_rate')
-                if rate is None or rate == '':
-                    t = OtherService2.objects.filter(service__icontains=service_name).first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(s)].rate)
 
                 existing_srv = OtherService.objects.filter(
                     patient=patient, purpose=service_name, completed=0,
@@ -4223,6 +4228,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         from radio_lab.models import RadioLabInventory
         from myAdmins.models import OtherService2
         from patients.models import PatientAppointment
+        from api.pricing import quote as price_quote, registration_fee
 
         # Filter parameters
         filter_date_param = request.query_params.get('date', '').strip()
@@ -4486,8 +4492,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if reg_obj and reg_obj.price:
                     reg_price = float(reg_obj.price)
                 else:
-                    rf = RegFee.objects.first()
-                    reg_price = float(rf.price) if rf else 2500.0
+                    hospital_fee = registration_fee()   # one fee for every patient
+                    reg_price = float(hospital_fee) if hospital_fee is not None else 0.0
 
                 items.append({
                     'id': f"reg_{pat.id}",
@@ -4553,37 +4559,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         matched_invoices_count += 1
                         continue
 
-                    # Determine consultation rate for this specific purpose and patient sponsor/plan
-                    pat_sponsor = getattr(pat, 'sponsor', None)
-                    pat_plan = getattr(pat, 'plan', None)
-                    vp = None
-
-                    if pat_sponsor and pat_plan:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan=pat_plan).first()
-                    if not vp and pat_sponsor:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan__isnull=True).first()
-                    if not vp and pat_plan:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, plan=pat_plan).first()
-                    if not vp:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor__isnull=True, plan__isnull=True).first()
-
-                    if not vp:
-                        p_first = p_name.split()[0]
-                        if pat_sponsor and pat_plan:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan=pat_plan).first()
-                        if not vp and pat_sponsor:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan__isnull=True).first()
-                        if not vp:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor__isnull=True, plan__isnull=True).first()
-
-                    if vp and vp.price:
-                        consult_price = float(vp.price)
-                    else:
-                        p_lower = p_name.lower()
-                        if any(s in p_lower for s in ['specialist', 'cardiology', 'dental', 'eye', 'pediatric', 'antenatal', 'anc']):
-                            consult_price = 5000.0
-                        else:
-                            consult_price = 2000.0
+                    # Consultation fee: sponsor + plan -> sponsor -> General (api/pricing.py). No guessing.
+                    vq = price_quote(pat, 'visit', name=p_name)
+                    consult_price = float(vq.rate) if vq else 0.0
+                    consult_unpriced = vq is None
 
                     items.append({
                         'id': f"consult_{pat.id}_{p_entry['appointment_id'] or p_name.replace(' ', '_')}",
@@ -4598,6 +4577,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         'bill': True,
                         'pa_code': '',
                         'category': 'consultation',
+                        'not_priced': consult_unpriced,
                         'original_model': 'PatientAppointment' if p_entry['appointment_id'] else 'DoctorWaitingList',
                         'original_id': p_entry['appointment_id'] or pat.id,
                     })
@@ -4627,8 +4607,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             for rx in rx_items:
                 if rx.id in already_invoiced_rx_ids or rx.status == 'billed':
                     continue
-                t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
-                rate = float(t.rate) if (t and t.rate) else 0.0
+                if rx.unit_price is not None:            # price fixed when the doctor ordered it
+                    rate = float(rx.unit_price)
+                    rx_unpriced = False
+                else:                                    # older prescriptions: price by the same rule now
+                    rq = price_quote(pat, 'drug', code=rx.item_code, name=rx.item,
+                                     pay_from_purse='[Pay from your purse]' in (rx.comment or ''))
+                    rate = float(rq.rate) if rq else 0.0
+                    rx_unpriced = rq is None
                 qty = rx.dispense_quantity or rx.quantity or 1
                 uom = rx.dispense_unit
                 if not uom or uom in ['Pieces', 'pieces', 'Each']:
@@ -4684,6 +4670,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
                 items.append({
                     'id': f"rx_{rx.id}",
+                    'not_priced': rx_unpriced,
                     'service_item': f"{rx.item}{disp_desc}{purse_tag}",
                     'uom': uom,
                     'quantity': qty,
@@ -4986,10 +4973,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
             settled_invoices_today = []
             for inv in settled_inv_list:
-                unit_p = float(inv.price or 0)
-                inv_qty = int(inv.qty or 1)
+                # Invoice.price holds the LINE total (after discount), not the unit price
+                inv_qty = int(inv.qty or 1) or 1
                 disc = float(inv.discount or 0)
-                inv_tot = float(unit_p * inv_qty * (1 - (disc / 100.0)))
+                inv_tot = float(inv.price or 0)
+                unit_p = inv_tot / (inv_qty * ((1 - disc / 100.0) or 1))
                 settled_invoices_today.append({
                     'id': inv.id,
                     'invoice_number': inv.invoice_number or f"INV-{inv.id}",
@@ -5171,6 +5159,44 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoices_to_create = []
         total_amount = 0.0
 
+        # The server sets every line's unit price from its source record / the tariff.
+        # The cashier still chooses quantity, discount and payment option.
+        from api.pricing import quote as price_quote, registration_fee
+
+        def _server_rate(item, product_name, orig_model, orig_id):
+            iid = str(item.get('id') or '')
+            if orig_model == 'WrittenPrescriptions' and orig_id:
+                rx_obj = WrittenPrescriptions.objects.filter(id=orig_id, patient=patient).first()
+                if not rx_obj:
+                    return None
+                if rx_obj.unit_price is not None:
+                    return float(rx_obj.unit_price)
+                rq = price_quote(patient, 'drug', code=rx_obj.item_code, name=rx_obj.item,
+                                 pay_from_purse='[Pay from your purse]' in (rx_obj.comment or ''))
+                return float(rq.rate) if rq else None
+            if orig_model == 'RadiologyLab' and orig_id:
+                o = RadiologyLab.objects.filter(id=orig_id, patient=patient).first()
+                return float(o.rate or 0) if o else None
+            if orig_model == 'OtherService' and orig_id:
+                o = OtherService.objects.filter(id=orig_id, patient=patient).first()
+                return float(o.price or 0) if o else None
+            if orig_model == 'PackageInvoice' and orig_id:
+                o = Invoice.objects.filter(id=orig_id, patient=patient).first()
+                return (float(o.price or 0) / max(int(o.qty or 1), 1)) if o else None
+            if orig_model == 'GetRegistrationFee' or iid.startswith('reg_'):
+                o = GetRegistrationFee.objects.filter(patient=patient, completed=0).first()
+                if o and o.price:
+                    return float(o.price)
+                fee = registration_fee()
+                return float(fee) if fee is not None else None
+            if iid.startswith('consult_') or product_name.lower().startswith('consultation fee:'):
+                purpose = product_name.split(':', 1)[1].strip() if ':' in product_name else product_name
+                vq = price_quote(patient, 'visit', name=purpose)
+                return float(vq.rate) if vq else None
+            return 'client'   # manual lines the cashier adds keep their typed price
+
+        not_priced = []
+
         # HMO approval: vaccines covered by the HMO must carry the PA code before they can be claimed
         if is_hmo:
             missing_pa = [
@@ -5211,6 +5237,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     discount = 0
                     rate = float(imm_rec.fee or 0)
                     item_total = rate
+                else:
+                    srv = _server_rate(item, product_name, orig_model, orig_id)
+                    if srv is None:
+                        not_priced.append(product_name)
+                        continue
+                    if srv != 'client':
+                        rate = srv
+                        discount = max(0, min(100, discount))
+                        qty = max(qty, 1)
+                        item_total = qty * rate * (1 - discount / 100.0)
 
                 # Determine target document number:
                 # - For HMO patients: items marked 'Claim' go to HMO Claim (CLM-...)
@@ -5284,6 +5320,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     GetRegistrationFee.objects.filter(patient=patient).update(completed=1)
                 elif orig_model in ['PatientAppointment', 'Appointment'] and orig_id:
                     pass
+
+            if not_priced:
+                transaction.set_rollback(True)
+                return Response({
+                    'error': 'No price is set for: ' + ', '.join(not_priced)
+                             + '. Ask Accounts to add it to the price list, then generate the bill again.',
+                    'code': 'not_priced', 'items': not_priced,
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             if invoices_to_create:
                 Invoice.objects.bulk_create(invoices_to_create)
@@ -5929,48 +5973,35 @@ class RefundViewSet(viewsets.ModelViewSet):
 
 
 # IPD ViewSets
-class AdmissionViewSet(viewsets.ModelViewSet):
+class AdmissionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Admitting, beds and discharge go through /api/ipd/... (IPD/services.py)."""
     queryset = AdmissionTable.objects.all().select_related('patient', 'doctor_admitted').order_by('-doctor_admit_date')
     serializer_class = AdmissionTableSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        from IPD.models import OPEN_ADMISSION_STATUSES
         qs = super().get_queryset()
         active = self.request.query_params.get('active', None)
         if active == '1':
-            qs = qs.filter(doctor_discharge_status=0)
+            qs = qs.filter(status__in=OPEN_ADMISSION_STATUSES)
         return qs
 
-    def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(doctor_admitted=user)
 
-    def perform_update(self, serializer):
-        status = serializer.validated_data.get('doctor_discharge_status')
-        if status == 1 or status == '1':
-            user = self.request.user if self.request.user.is_authenticated else None
-            user_name = user.fullname if (user and hasattr(user, 'fullname') and user.fullname) else 'Doctor'
-            serializer.save(
-                doctor_discharge_status=1,
-                doctor_discharge_date=timezone.now(),
-                doctor_discharged=user_name
-            )
-        else:
-            serializer.save()
-
-
-class WardViewSet(viewsets.ModelViewSet):
+class WardViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Wards and beds are managed through /api/ipd/wards/."""
     queryset = Ward.objects.all().prefetch_related('beds').order_by('ward_name')
     serializer_class = WardSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
-class BedAllocationViewSet(viewsets.ModelViewSet):
+class BedAllocationViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Beds are assigned through /api/ipd/admissions/<id>/assign-bed/."""
     queryset = BedAllocation.objects.all().select_related('patient', 'ward', 'bed', 'staff').order_by('-created_date')
     serializer_class = BedAllocationSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -6357,7 +6388,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Patient ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
             patient = get_object_or_404(PatientProfile, id=patient_id)
-            
+
             # Fetch active ANC Journey or initiate a new one
             visit = self._get_or_create_active_visit(patient)
             past_completed_visits = AntenatalVisit.objects.filter(
@@ -6568,7 +6599,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             # Gestational age & EDD calculation
             from_us = bool(preg_payload.get('gestational_period_from_ultrasound'))
             preg.gestational_period_from_ultrasound = from_us
-            
+
             if parsed_lmp:
                 if not from_us or not preg_payload.get('expected_date_of_delivery'):
                     parsed_edd = parsed_lmp + timedelta(days=280)
@@ -6576,7 +6607,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 else:
                     parsed_edd = parse_date_safe(preg_payload.get('expected_date_of_delivery'))
                     preg.expected_date_of_delivery = parsed_edd
-                
+
                 if not from_us or preg_payload.get('gestational_age_weeks') in ('', None):
                     delta_days = (date.today() - parsed_lmp).days
                     calc_ga = max(0, delta_days // 7)
@@ -6649,7 +6680,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             tests.hepatitis_b = tests_payload.get('hepatitis_b', tests.hepatitis_b)
             tests.hepatitis_c = tests_payload.get('hepatitis_c', tests.hepatitis_c)
             tests.rhesus_factor = tests_payload.get('rhesus_factor', tests.rhesus_factor)
-            
+
             hb_val = tests_payload.get('hb')
             if hb_val not in ('', None):
                 try:
@@ -6687,7 +6718,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             )
         else:
             anc_reg.antenatal_visit = visit
-            anc_reg.status = 'active' 
+            anc_reg.status = 'active'
         if parsed_lmp:
             anc_reg.last_menstrual_period = parsed_lmp
         if parsed_edd:
@@ -6737,7 +6768,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 arrival_time = sched.get('time') or "09:00"
                 if len(str(arrival_time)) == 5:
                     arrival_time = f"{arrival_time}:00"
-                
+
                 clinician_name = "ANC Clinic"
                 if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
                     clinician_name = current_user.fullname
@@ -7167,7 +7198,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
 
             lmp_date = preg.last_menstrual_period if preg and preg.last_menstrual_period else (anc_reg.last_menstrual_period if anc_reg else None)
             edd_date = preg.expected_date_of_delivery if preg and preg.expected_date_of_delivery else (anc_reg.expected_delivery_date if anc_reg else None)
-            
+
             # If LMP is present but EDD is not stored, calculate EDD (Naegele's rule: LMP + 280 days)
             if lmp_date and not edd_date:
                 edd_date = lmp_date + timedelta(days=280)
@@ -7457,7 +7488,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 arrival_time = sched.get('time') or "09:00"
                 if len(str(arrival_time)) == 5:
                     arrival_time = f"{arrival_time}:00"
-                
+
                 clinician_name = "ANC Clinic"
                 if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
                     clinician_name = current_user.fullname
@@ -7673,6 +7704,12 @@ class InventoryProductViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if str(self.request.query_params.get('include_merged') or '').lower() not in ('1', 'true', 'yes'):
+            qs = qs.filter(merged_into__isnull=True)
+        return qs
+
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
         product_id = serializer.validated_data.get('product_id')
@@ -7784,11 +7821,22 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         if not user or not user.is_authenticated:
             user = User.objects.filter(is_staff=True).first() or User.objects.first()
 
+        # Price every drug now (sponsor + plan -> sponsor -> General); refuse what has no price
+        from api.pricing import price_orders
+        for p in prescriptions_list:
+            if '[Pay from your purse]' in str(p.get('comment') or '') and not p.get('is_pay_from_purse'):
+                p['is_pay_from_purse'] = True
+        priced, unpriced = price_orders(patient, [('drug', prescriptions_list)])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         created_items = []
         for p in prescriptions_list:
             item_name = str(p.get('item') or p.get('drug') or '').strip()
             if not item_name:
                 continue
+            pq = priced.get(id(p))
 
             dosage_form = p.get('dosage_form') or 'Tablet'
             route = p.get('route') or 'Oral'
@@ -7854,7 +7902,11 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                 dispense_detail=dispense_detail,
                 comment=comment,
                 start_date=start_date,
-                status='pending'
+                status='pending',
+                item_code=(pq.code or None) if pq else None,
+                unit_price=pq.rate if pq else None,
+                price_source=pq.source if pq else None,
+                tariff_id=pq.tariff_id if pq else None,
             )
             created_items.append(record)
 
@@ -8104,7 +8156,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             all_store_stocks = list(StoreStock.objects.filter(store=target_store).select_related('product'))
         from inventory.stock_service import resolve_product
         stock_by_product = {ss.product_id: ss.stock for ss in all_store_stocks}
-        _catalogue = list(Product.objects.values_list('id', 'product_name'))
+        _catalogue = list(Product.objects.filter(merged_into__isnull=True).values_list('id', 'product_name'))
         _resolved = {}
 
         def get_pharmacy_stock_for_item(item_name):
@@ -8513,7 +8565,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 target_store = PharmacyStore.objects.filter(id=store_id).first()
                 if target_store and (target_store.is_central or target_store.store_type == 'central_store'):
                     existing_product_ids = set(StoreStock.objects.filter(store=target_store).values_list('product_id', flat=True))
-                    missing_products = Product.objects.exclude(id__in=existing_product_ids)
+                    missing_products = Product.objects.filter(merged_into__isnull=True).exclude(id__in=existing_product_ids)
                     if missing_products.exists():
                         new_stocks = [
                             StoreStock(
@@ -8532,6 +8584,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         # Only the stores assigned to the user's department (admins: all)
         from inventory.permissions import scope_to_user_stores
         qs = scope_to_user_stores(qs, self.request.user, 'store')
+        qs = qs.filter(product__merged_into__isnull=True)   # merged duplicates hold no stock
         product_id = self.request.query_params.get('product', None)
         if product_id:
             qs = qs.filter(product_id=product_id)
@@ -8849,7 +8902,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         category = (request.query_params.get('category') or 'all').lower()
 
         # Query all products in database
-        products_qs = Product.objects.all().order_by('product_name')
+        products_qs = Product.objects.filter(merged_into__isnull=True).order_by('product_name')
         from inventory.categories import normalize_category, infer_product_category, CATEGORY_LABELS
         category_code = '' if category == 'all' else normalize_category(category)
 
@@ -9062,7 +9115,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 if not uom:
                     # No dosage type in the sheet: derive it (vaccine -> vial, cream -> tubes, ...)
                     uom = _infer_uom(row_category, name)
-                
+
                 # Only the delivered quantity counts. "Current_In_Stock" is what is ALREADY on the
                 # shelf - adding it again would double the stock.
                 qty_raw = None
@@ -9092,7 +9145,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     cost = Decimal('0.00')
 
                 # 1. Product
-                prod = Product.objects.filter(product_name__iexact=name).first()
+                prod = Product.objects.filter(product_name__iexact=name).select_related('merged_into').first()
+                prod = prod.live if prod else None   # a merged duplicate's name books into the kept product
                 if not prod:
                     sku = get_next_isl_sku()
                     prod = Product.objects.create(
@@ -9129,17 +9183,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     row_errors.append(f"Row {idx + 1} ({name}): {e}")
                     continue
 
-                # 6. General tariff - only overwrite the price when the sheet gives one
-                tariff = PharmacyTariff.objects.filter(product_name=prod.product_name, sponsor=None, plan=None).first()
-                if tariff is None:
-                    PharmacyTariff.objects.create(
-                        product_name=prod.product_name, product_id=prod.product_id, sponsor=None, plan=None,
-                        rate=cost if cost > 0 else Decimal('500.00'), staff=staff,
-                    )
-                elif cost > 0 and tariff.rate != cost:
-                    tariff.rate = cost
-                    tariff.staff = staff
-                    tariff.save()
+                # 6. Selling prices are NOT set here. The store books stock (and the purchase cost on
+                #    the product); selling prices per sponsor / plan come only from the price lists.
 
                 stocked_count += 1
                 total_units += qty
@@ -9326,12 +9371,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         dest_store = PharmacyStore.objects.filter(id=dest_id).first()
         if not source_store or not dest_store:
             return Response({'error': 'Invalid source or destination store'}, status=status.HTTP_404_NOT_FOUND)
-        from inventory.permissions import store_denied
-        denied = store_denied(request.user, source_store, 'issue stock')
-        if denied:
-            return denied
-
-        user = request.user if request.user.is_authenticated else None
+        # The PIN identifies the sender: a staff member of the store the stock leaves from
+        user, err = _pin_store_staff(request, source_store, 'send this stock')
+        if err:
+            return err
         transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
 
         try:
@@ -9361,8 +9404,17 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                 if not lines:
                     raise ValueError('At least one drug item must be selected for transfer')
 
-                serializer = self.get_serializer(transfer)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                from notifications.services import notify_store
+                notify_store(
+                    dest_store, kind='transfer_new', actor=user,
+                    title=f"Stock sent to you from {source_store.name}",
+                    message=f"#{transfer.transfer_number} · {lines} line(s) sent by {_staff_display(user)}. "
+                            f"Count it and accept with your PIN.",
+                    link='/inventory/transfers', level='info', icon='fa-truck', ref=f'transfer:{transfer.pk}')
+
+                data = dict(self.get_serializer(transfer).data)
+                data['message'] = f"Sent to {dest_store.name} by {_staff_display(user)}. It is in transit until they accept it."
+                return Response(data, status=status.HTTP_201_CREATED)
 
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -9442,6 +9494,14 @@ class StockTransferViewSet(viewsets.ModelViewSet):
             return Response({'error': f"Failed to receive stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         transfer.refresh_from_db()
+        from notifications.services import notify_store
+        notify_store(
+            transfer.source_store, kind='transfer_received', actor=user,
+            title=f"{transfer.destination_store.name} accepted #{transfer.transfer_number}",
+            message=(f"Received by {_staff_display(user)} with shortages: {'; '.join(shortages)}." if shortages
+                     else f"Received by {_staff_display(user)}; everything counted correct."),
+            link='/inventory/transfers', level='warning' if shortages else 'success',
+            icon='fa-exclamation-triangle' if shortages else 'fa-check-circle', ref=f'transfer:{transfer.pk}')
         msg = f"Stock received into {transfer.destination_store.name} by {_staff_display(user)}."
         if shortages:
             msg += f" Discrepancy recorded - {'; '.join(shortages)}."
@@ -9556,6 +9616,15 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                 if not lines:
                     raise ValueError('At least one medication must be requested')
 
+                from notifications.services import notify_store
+                urgent = requisition.priority in ('urgent', 'emergency')
+                notify_store(
+                    requisition.fulfilling_store, kind='requisition_new', actor=request.user,
+                    title=f"{'URGENT: ' if urgent else ''}Stock request from {requisition.requesting_store.name}",
+                    message=f"#{requisition.requisition_number} · {lines} item(s) requested from {requisition.fulfilling_store.name}.",
+                    link='/inventory/requests', level='danger' if urgent else 'warning', icon='fa-dolly',
+                    ref=f'requisition:{requisition.pk}')
+
                 serializer = self.get_serializer(requisition)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -9585,10 +9654,10 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                 req = StockRequisition.objects.select_for_update().select_related(
                     'requesting_store', 'fulfilling_store'
                 ).get(pk=self.get_object().pk)
-                from inventory.permissions import store_denied
-                denied = store_denied(request.user, req.fulfilling_store, 'issue stock')
-                if denied:
-                    return denied
+                # The PIN identifies the sender: a staff member of the store that issues the stock
+                user, err = _pin_store_staff(request, req.fulfilling_store, 'issue this stock')
+                if err:
+                    return err
                 if req.status not in ('pending', 'approved'):
                     raise StockError(f"Requisition #{req.requisition_number} is already "
                                      f"{req.get_status_display().lower()} - it cannot be issued again.")
@@ -9652,9 +9721,18 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
             return Response({'error': f"Failed to fulfill requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         partial = [f"{i.product.product_name} {q}/{i.quantity_requested}" for i, q in plan if q < i.quantity_requested]
+        from notifications.services import notify_store
+        notify_store(
+            req.requesting_store, kind='requisition_dispatched', actor=user,
+            title=f"Stock on the way from {req.fulfilling_store.name}",
+            message=f"#{req.requisition_number} sent by {_staff_display(user)} ({transfer.transfer_number})."
+                    + (f" Partly supplied: {', '.join(partial)}." if partial else '')
+                    + " Count it and accept with your PIN.",
+            link='/inventory/requests', level='warning' if partial else 'info', icon='fa-truck',
+            ref=f'requisition:{req.pk}')
         return Response({
             'success': True,
-            'message': f"Requisition #{req.requisition_number} issued and dispatched to {req.requesting_store.name}!"
+            'message': f"Requisition #{req.requisition_number} sent to {req.requesting_store.name} by {_staff_display(user)}."
                        + (f" Partly supplied: {', '.join(partial)}." if partial else ''),
             'transfer_number': transfer.transfer_number
         }, status=status.HTTP_200_OK)
@@ -9687,6 +9765,17 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
             req.notes = f"{req.notes}\n{tag}" if req.notes else tag
             req.save(update_fields=['status', 'approved_by', 'notes', 'updated_date'])
             req.items.update(quantity_approved=0)
+        from notifications.services import notify_store
+        if new_status == 'rejected':
+            notify_store(req.requesting_store, kind='requisition_rejected', actor=user,
+                         title=f"Request #{req.requisition_number} rejected by {req.fulfilling_store.name}",
+                         message=f"{_staff_display(user)}: {reason}", link='/inventory/requests', level='danger',
+                         icon='fa-times-circle', ref=f'requisition:{req.pk}')
+        else:
+            notify_store(req.fulfilling_store, kind='requisition_cancelled', actor=user,
+                         title=f"Request #{req.requisition_number} cancelled by {req.requesting_store.name}",
+                         message=f"{_staff_display(user)}: {reason}", link='/inventory/requests', level='info',
+                         icon='fa-ban', ref=f'requisition:{req.pk}')
         return Response({'success': True, 'message': f"Requisition #{req.requisition_number} {new_status}.",
                          'requisition': self.get_serializer(req).data}, status=status.HTTP_200_OK)
 
