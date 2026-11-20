@@ -274,6 +274,8 @@ class OpeningStockView(APIView):
         if not pin:
             return Response({'error': 'Enter your PIN to load the opening stock.', 'code': 'pin_required'}, status=400)
         if not request.user.check_pin(pin):
+            from api.audit import pin_failed
+            pin_failed(request, f'load opening stock at {store.name}', store_id=store.id)
             return Response({'error': 'That PIN is not correct for your account.', 'code': 'pin_invalid'}, status=400)
         errors = [l for l in lines if l['status'] == 'error']
         if errors:

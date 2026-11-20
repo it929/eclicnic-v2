@@ -483,50 +483,6 @@ def passwordSuccess(request):
     return render(request, 'users/password_change_success.html')
 
 
-# for password reset
-def custom_password_reset(request):
-    if request.method == "POST":
-        form = PasswordResetForm(request.POST)
-        if form.is_valid():
-            username = form.cleaned_data['username']
-            new_password = form.cleaned_data['new_password']
-            confirm_password = form.cleaned_data['confirm_password']
-            date_of_birth = form.cleaned_data['date_of_birth']
-            authenticates = User.objects.filter(username=username, dob=date_of_birth)
-            
-            if not authenticates.exists():
-                messages.error(request, 'This Username does not match with the Date of Birth')
-            elif new_password and confirm_password and new_password != confirm_password:
-                messages.error(request, 'Both Passwords are not the same')
-            else:
-                try:
-                    user = User.objects.get(username=username)
-                    user.set_password(new_password)
-                    user.save()
-                    
-                    # Log the password reset activity
-                    log_user_activity(
-                        user,
-                        'password_reset',
-                        request,
-                        f"User reset their password using password reset form",
-                        {
-                            'action': 'password_reset',
-                            'reset_method': 'custom_password_reset_form',
-                            'timestamp': timezone.now().isoformat()
-                        }
-                    )
-                    
-                    messages.success(request, "Password reset successfully.")
-                    return redirect("login")
-                except User.DoesNotExist:
-                    messages.error(request, "User not found.")
-    else:
-        form = PasswordResetForm()
-    return render(request, "users/custom_password_reset.html", {"form": form})
-
-
-
 # Signal for user login
 @receiver(user_logged_in)
 def log_user_login(sender, request, user, **kwargs):

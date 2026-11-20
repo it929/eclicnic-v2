@@ -26,8 +26,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # Set timezone to WAT (UTC+1)
-        wat_timezone = timezone.get_current_timezone()
-        now = timezone.now()
+        # Local hospital time (settings.TIME_ZONE = Africa/Lagos), so "11pm" means 11pm WAT, not UTC.
+        now = timezone.localtime()
         
         if options.get('test'):
             # Test mode: send report for last 24 hours
@@ -51,7 +51,10 @@ class Command(BaseCommand):
         self.stdout.write(f"Generating report for period: {start_datetime} to {end_datetime}")
         
         # Get recipient email
-        recipient_email = options.get('email') or 'adebayoseun109@gmail.com'
+        recipient_email = options.get('email') or getattr(settings, 'DAY_BOOK_EMAIL', '')
+        if not recipient_email:
+            self.stderr.write('No recipient: set DAY_BOOK_EMAIL in the server environment or pass --email.')
+            return
         
         try:
             # Generate report data

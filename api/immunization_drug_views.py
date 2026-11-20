@@ -178,7 +178,7 @@ def _credit_central(store, product, qty, reference, batch_number, expiry, user):
 # ----------------------------------------------------------------------------- views
 class ImmunizationDrugProductsView(APIView):
     """Drugs / vaccines the clinic can request, with the central store's stock and batches."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         store = _central_store()
@@ -215,7 +215,7 @@ class ImmunizationDrugRecordListView(APIView):
          ?view=store                -> all records waiting on the Central Store (any date)
     POST {product_id, quantity_requested, expected_patients, notes, record_date?} -> new request
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         view = request.query_params.get('view') or 'day'
@@ -303,7 +303,7 @@ class ImmunizationDrugRecordActionView(APIView):
         return          nurse, PIN: {quantity_returned, quantity_used?, patients_served?, notes?}
         receive-return  CMS, PIN: {quantity_received, notes?}                     -> central stock credited
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk, action):
         data = request.data

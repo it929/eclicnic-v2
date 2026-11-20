@@ -564,6 +564,8 @@ def verify_staff_pin(request, data, action='authorize this immunization'):
             status=status.HTTP_400_BAD_REQUEST,
         )
     if not staff.check_pin(pin_str):
+        from api.audit import pin_failed
+        pin_failed(request, action, pin_owner=staff)
         return None, Response({'error': 'Incorrect security PIN. Authorization denied.'}, status=status.HTTP_403_FORBIDDEN)
     return staff, None
 
@@ -645,7 +647,7 @@ def format_next_due_text(next_due):
 
 class ImmunizationCatalogView(APIView):
     """Returns the National / WHO Routine Childhood & Adult Immunization Schedule, routes, and sites."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         return Response({
@@ -658,7 +660,7 @@ class ImmunizationCatalogView(APIView):
 
 class PatientImmunizationListView(APIView):
     """Returns a patient's complete immunization card, historical vaccines, and due status."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, patient_id):
         patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -818,7 +820,7 @@ class PatientVaccineTariffView(APIView):
     list is returned separately for vaccines the plan does not cover).
     Other patients: plan, sponsor-wide, then General prices. Each item says which source was used.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, patient_id):
         patient = get_object_or_404(PatientProfile.objects.select_related('sponsor', 'sponsor__category', 'plan', 'plan__sponsor', 'category'), id=patient_id)
@@ -856,7 +858,7 @@ class AdministerImmunizationBatchView(APIView):
     - If fee > 0, routes to Billings TransactionUpdate for the cashier/HMO desk.
     - If next_appointment_date is passed, schedules the follow-up appointment.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         data = request.data
@@ -1156,7 +1158,7 @@ class ConfirmImmunizationAdministrationView(APIView):
     the nurse who gives the injection confirms it with their security PIN.
     Body: { patient_id, record_ids: [...], pin, staff_id?, notes? }
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         data = request.data
@@ -1245,7 +1247,7 @@ class ConfirmImmunizationAdministrationView(APIView):
 
 class DeleteImmunizationRecordView(APIView):
     """Deletes or reverses an immunization record entered in error."""
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def delete(self, request, pk):
         record = get_object_or_404(ImmunizationRecord, id=pk)

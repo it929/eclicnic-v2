@@ -234,6 +234,8 @@ class ProductMergeView(APIView):
             return Response({'error': 'Enter your PIN to confirm the merge.', 'code': 'pin_required'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not request.user.check_pin(pin):
+            from api.audit import pin_failed
+            pin_failed(request, 'merge duplicate products')
             return Response({'error': 'That PIN is not correct for your account.', 'code': 'pin_invalid'},
                             status=status.HTTP_400_BAD_REQUEST)
         try:

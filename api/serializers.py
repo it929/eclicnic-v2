@@ -507,7 +507,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
         if vitals.created_date:
             local_dt = timezone.localtime(vitals.created_date)
             created_time_str = local_dt.strftime('%H:%M')
-            created_date_str = local_dt.strftime('%b %d, %Y %H:%M')
+            created_date_str = local_dt.strftime('%d %b %Y, %H:%M')
 
         return {
             'id': vitals.id,

@@ -1,20 +1,22 @@
-# Clinic365 EMR: daily clean-up of old notifications (top-bar bell).
+# Clinic365 EMR: scheduled jobs.
 #
 # Install on the Linux server (as root):
-#   1. Edit APP, VENV and RUN_AS below to match the server.
+#   1. Edit the user column (clinic365) below if the server differs.
 #   2. sudo cp deploy/cron/clinic365-notifications /etc/cron.d/clinic365-notifications
 #   3. sudo chmod 644 /etc/cron.d/clinic365-notifications     (cron ignores group/world-writable files)
-#   4. sudo mkdir -p /var/log/clinic365 && sudo chown <RUN_AS user> /var/log/clinic365
-#   Test once by hand:
-#      cd $APP && $VENV/bin/python manage.py purge_notifications --dry-run --settings=clinic365.settings_production
+#   4. sudo mkdir -p /var/log/clinic365 && sudo chown clinic365 /var/log/clinic365
+#   Needs /usr/local/bin/clinic365-manage (deploy/bin/clinic365-manage), which loads the env file.
+#   Test once by hand:  sudo -u clinic365 clinic365-manage purge_notifications --dry-run
 #
+# Times are the SERVER's clock: set it to Lagos time first (sudo timedatectl set-timezone Africa/Lagos).
+# clinic365-manage loads /etc/clinic365/clinic365.env (settings module, database password, email...).
 # Files in /etc/cron.d need the user column (here: clinic365) and must end with a newline.
 
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
-APP=/opt/clinic365/clinic365
-VENV=/opt/clinic365/venv
 
-# Every day at 02:30 (server time): delete read notifications older than 90 days,
-# unread ones older than 365 days.
-30 2 * * * clinic365 cd $APP && $VENV/bin/python manage.py purge_notifications --settings=clinic365.settings_production >> /var/log/clinic365/purge_notifications.log 2>&1
+# 02:30 daily: delete read notifications older than 90 days, unread ones older than 365 days.
+30 2 * * * clinic365 /usr/local/bin/clinic365-manage purge_notifications >> /var/log/clinic365/purge_notifications.log 2>&1
+
+# 23:05 daily: email the day book (11pm-11pm) to DAY_BOOK_EMAIL. Needs EMAIL_HOST in the env file.
+5 23 * * * clinic365 /usr/local/bin/clinic365-manage send_daily_day_book >> /var/log/clinic365/day_book.log 2>&1

@@ -19,6 +19,7 @@ class UserActivityLog(models.Model):
         ('failed_login', 'Failed Login Attempt'),
         ('session_expired', 'Session Expired'),
         ('account_accessed', 'Account Accessed by Admin'),
+        ('failed_pin', 'Wrong PIN Entered'),
     ]
     
     user = models.ForeignKey('users.User', on_delete=models.CASCADE, related_name='activities')

@@ -107,6 +107,10 @@ class LoginView(APIView):
                 pass
 
         if not user:
+            from api.audit import audit
+            target = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+            if target:   # unknown usernames have no account to attach the entry to
+                audit(target, 'failed_login', request, 'Sign-in failed: wrong password')
             return Response(
                 {'detail': 'Invalid username or password.'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -130,10 +134,30 @@ class LoginView(APIView):
         })
 
 
+def _ensure_browser_session(request):
+    """The app signs requests with a token, but <img>/<a> requests for /media/ files can only carry
+    the session cookie. If the cookie has expired while the token is still valid, renew it here
+    (called on every app load). No login signal: this is not a new sign-in for the audit log."""
+    from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
+    try:
+        django_request = request._request
+        session = django_request.session
+        user = request.user
+        if session.get(SESSION_KEY) == str(user.pk):
+            return
+        session.cycle_key()
+        session[SESSION_KEY] = user._meta.pk.value_to_string(user)
+        session[BACKEND_SESSION_KEY] = 'django.contrib.auth.backends.ModelBackend'
+        session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+    except Exception:
+        pass
+
+
 class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        _ensure_browser_session(request)
         serializer = UserSerializer(request.user)
         user_data = serializer.data
         role_name = user_data.get('role_name') or (request.user.department.department if request.user.department else 'Admin')
@@ -153,20 +177,31 @@ class LogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        from api.audit import audit
+        from myAdmins.models import UserSession
+        user = request.user
+        expired = str(request.data.get('reason', '')).lower() == 'inactivity'
+        audit(user, 'session_expired' if expired else 'logout', request,
+              'Signed out automatically after inactivity' if expired else 'Signed out')
         try:
-            request.user.auth_token.delete()
+            user.auth_token.delete()
+        except Exception:
+            pass
+        try:   # end this browser's Django session too, so the user leaves the Online list
+            key = request.session.session_key
+            if key:
+                UserSession.objects.filter(user=user, session_key=key).delete()
+            request.session.flush()
         except Exception:
             pass
         return Response({'detail': 'Logged out successfully.'})
 
 
 class UserProfileView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
         return Response({
             'user': UserSerializer(user, context={'request': request}).data,
             'has_pin': bool(user.has_pin),
@@ -174,14 +209,17 @@ class UserProfileView(APIView):
         })
 
     def put(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         pin_code = request.data.get('pin_code')
         if user.has_pin:
             if not pin_code or not user.check_pin(pin_code):
+                audit(user, 'failed_pin', request, 'Wrong security PIN while updating own profile')
                 return Response({'detail': 'Incorrect Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tracked = ('fullname', 'email', 'phone_number', 'address', 'gender', 'dob')
+        before = {f: str(getattr(user, f) or '') for f in tracked}
 
         # Update profile fields
         user.fullname = request.data.get('fullname', user.fullname)
@@ -195,6 +233,11 @@ class UserProfileView(APIView):
         if 'avatar' in request.FILES:
             user.avatar = request.FILES['avatar']
         user.save()
+        changed = [f for f in tracked if str(getattr(user, f) or '') != before[f]]
+        if changed or 'avatar' in request.FILES:
+            labels = {'fullname': 'name', 'phone_number': 'phone', 'dob': 'date of birth'}
+            parts = [labels.get(f, f) for f in changed] + (['photo'] if 'avatar' in request.FILES else [])
+            audit(user, 'profile_update', request, 'Updated own profile: ' + ', '.join(parts), fields=changed)
 
         return Response({
             'detail': 'Profile updated successfully!',
@@ -203,12 +246,11 @@ class UserProfileView(APIView):
 
 
 class UserAvatarUploadView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         avatar_file = request.FILES.get('avatar')
         if not avatar_file:
@@ -216,6 +258,7 @@ class UserAvatarUploadView(APIView):
 
         user.avatar = avatar_file
         user.save()
+        audit(user, 'profile_picture_update', request, 'Changed own profile photo')
         return Response({
             'detail': 'Profile image updated successfully!',
             'user': UserSerializer(user, context={'request': request}).data,
@@ -224,12 +267,11 @@ class UserAvatarUploadView(APIView):
 
 
 class ChangePasswordView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         data = request.data if isinstance(request.data, dict) else {}
         old_password = data.get('old_password') or data.get('current_password') or ''
@@ -238,15 +280,18 @@ class ChangePasswordView(APIView):
         if not new_password:
             return Response({'detail': 'New password is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if len(new_password) < 6:
-            return Response({'detail': 'New password must be at least 6 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+        from users.pin_policy import password_error
+        msg = password_error(new_password, old_password)
+        if msg:
+            return Response({'detail': msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user.has_usable_password() and request.user.is_authenticated:
-            if not user.check_password(old_password):
-                return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.has_usable_password() and not user.check_password(old_password):
+            audit(user, 'failed_login', request, 'Wrong current password while changing password')
+            return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save()
+        audit(user, 'password_change', request, 'Changed own password')
 
         if request.user.is_authenticated:
             try:
@@ -259,24 +304,40 @@ class ChangePasswordView(APIView):
 
 
 class UpdatePinView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
+        had_pin = bool(user.has_pin)
+        if had_pin:   # changing an existing PIN needs the current one (an unlocked screen is not enough)
+            current = str(request.data.get('current_pin') or '').strip()
+            if not current:
+                return Response({'detail': 'Enter your current PIN.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not user.check_pin(current):
+                audit(user, 'failed_pin', request, 'Wrong current PIN while changing security PIN')
+                return Response({'detail': 'Current PIN is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        new_pin = request.data.get('new_pin')
-        if not new_pin or not str(new_pin).isdigit() or len(str(new_pin)) != 4:
-            return Response({'detail': 'PIN must be a 4-digit number.'}, status=status.HTTP_400_BAD_REQUEST)
+        from users.pin_policy import pin_error
+        new_pin = str(request.data.get('new_pin') or '').strip()
+        msg = pin_error(new_pin)
+        if msg:
+            return Response({'detail': msg}, status=status.HTTP_400_BAD_REQUEST)
+        if had_pin and user.check_pin(new_pin):
+            return Response({'detail': 'The new PIN must be different from your current PIN.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_pin(new_pin)
         user.save()
+        audit(user, 'pin_change' if had_pin else 'pin_created', request,
+              'Changed own security PIN' if had_pin else 'Set up a security PIN')
         return Response({'detail': 'Security PIN updated successfully!'})
 
 
 class DepartmentListView(APIView):
-    permission_classes = [permissions.AllowAny]
+    """Any signed-in user may list departments (sidebar, filters); only an administrator may
+    create, rename, delete or change a department's modules, since modules grant access."""
+    from api.rbac_views import ReadAuthenticatedWriteAdmin
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def get(self, request):
         departments = Category.objects.all().order_by('department')
@@ -357,7 +418,7 @@ class DepartmentListView(APIView):
 
 
 class DashboardStatsView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         today = timezone.localdate()
@@ -420,7 +481,7 @@ class PatientViewSet(viewsets.ModelViewSet):
     queryset = PatientProfile.objects.all().select_related('category', 'plan', 'created_by')
     serializer_class = PatientProfileSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['surname', 'first_name', 'other_name', 'hospital_number', 'phone_number', 'email_address']
     ordering_fields = ['created_date', 'surname', 'first_name', 'hospital_number']
@@ -519,12 +580,17 @@ class PatientViewSet(viewsets.ModelViewSet):
     def import_excel(self, request):
         uploaded_file = request.FILES.get('file') or request.FILES.get('excel_file')
         if not uploaded_file:
-            return Response({'detail': 'No file uploaded. Please upload a .xlsx or .xls file.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'No file uploaded. Please upload a .xlsx, .xls or .csv file.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             import pandas as pd
             import io
-            df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+            raw = uploaded_file.read()
+            if (uploaded_file.name or '').lower().endswith('.csv'):
+                # dtype=str keeps phone numbers / hospital numbers with their leading zeros
+                df = pd.read_csv(io.BytesIO(raw), dtype=str, encoding='utf-8-sig', keep_default_na=True)
+            else:
+                df = pd.read_excel(io.BytesIO(raw))
             df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
             unique_cats = set(df['category'].dropna().astype(str).str.strip().unique()) if 'category' in df.columns else set()
@@ -558,8 +624,11 @@ class PatientViewSet(viewsets.ModelViewSet):
                             dob = dob.date()
                         else:
                             from dateutil import parser
+                            import re as _re
                             try:
-                                dob = parser.parse(str(dob)).date()
+                                s_dob = str(dob).strip()
+                                # 1990-04-03 is ISO; anything else (03/04/1990) is read day-first, as written in Nigeria
+                                dob = parser.parse(s_dob, dayfirst=not _re.match(r'^\d{4}-\d{1,2}-\d{1,2}', s_dob)).date()
                             except Exception:
                                 dob = None
                     else:
@@ -1134,7 +1203,7 @@ class PatientViewSet(viewsets.ModelViewSet):
 class PatientCategoryViewSet(viewsets.ModelViewSet):
     queryset = PatientCategory.objects.all().order_by('category')
     serializer_class = PatientCategorySerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1167,7 +1236,7 @@ class PatientCategoryViewSet(viewsets.ModelViewSet):
 class SponsorViewSet(viewsets.ModelViewSet):
     queryset = Sponsor.objects.all().select_related('category').prefetch_related('plans').order_by('name')
     serializer_class = SponsorSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1418,7 +1487,7 @@ class SponsorViewSet(viewsets.ModelViewSet):
 class PatientPlanViewSet(viewsets.ModelViewSet):
     queryset = PatientPlan.objects.all().select_related('category', 'sponsor').order_by('plan')
     serializer_class = PatientPlanSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1447,7 +1516,7 @@ class FamilyFolderViewSet(viewsets.ModelViewSet):
         'members__patient__category', 'members__patient__sponsor', 'members__patient__plan'
     ).order_by('-created_date')
     serializer_class = FamilyFolderSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
@@ -1890,7 +1959,7 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
     queryset = NurseWaitingList.objects.all().select_related('attendant', 'patient')
     serializer_class = NurseWaitingListSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1927,7 +1996,7 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
     queryset = DoctorWaitingList.objects.all().select_related('patient', 'staff', 'category', 'plan').order_by('-created_date')
     serializer_class = DoctorWaitingListSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         # Auto-consolidate any split package invoice rows into a single package line
@@ -2037,7 +2106,7 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
     queryset = PatientEncounter.objects.all().select_related('patient', 'provider').order_by('-created_at')
     serializer_class = PatientEncounterSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -2099,6 +2168,8 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
 
         # Strictly verify that the entered PIN matches the doctor's security PIN
         if not authorizing_doctor.check_pin(pin_str):
+            from api.audit import pin_failed
+            pin_failed(request, 'sign a consultation', pin_owner=authorizing_doctor)
             return Response(
                 {'detail': 'Incorrect Security PIN. Authorization denied.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -2164,7 +2235,7 @@ class ConsultationDraftViewSet(viewsets.ModelViewSet):
     """
     queryset = ConsultationDraft.objects.all().select_related('patient', 'doctor', 'appointment').order_by('-updated_at')
     serializer_class = ConsultationDraftSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2246,7 +2317,7 @@ class ConsultationDraftViewSet(viewsets.ModelViewSet):
 class PatientDiagnosisViewSet(viewsets.ModelViewSet):
     queryset = PatientDiagnosis.objects.all().order_by('category', 'description')
     serializer_class = PatientDiagnosisSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2488,7 +2559,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
 class PresentingComplaintViewSet(viewsets.ModelViewSet):
     queryset = PresentingComplaint.objects.all().order_by('category', 'name')
     serializer_class = PresentingComplaintSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2666,7 +2737,7 @@ class PresentingComplaintViewSet(viewsets.ModelViewSet):
 class VisitPurposeViewSet(viewsets.ModelViewSet):
     queryset = VisitPurpose.objects.all().select_related('sponsor', 'plan', 'sponsor__category').order_by('purpose', 'sponsor__name', 'plan__plan')
     serializer_class = VisitPurposeSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['purpose', 'sponsor__name', 'sponsor__code', 'plan__plan', 'plan__code']
@@ -2936,14 +3007,16 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 
         created_count = 0
         updated_count = 0
+        skipped = []
+        from api.money import parse_money, MoneyError
 
-        for item in records_to_process:
+        for row_no, item in enumerate(records_to_process, start=2):
             purpose_text = item['purpose']
             try:
-                price_val = int(float(str(item.get('price') or 0).replace(',', '').replace('₦', '').strip()))
-            except (ValueError, TypeError):
-                price_val = 0
-            price_val = max(0, price_val)
+                price_val = int(round(parse_money(item.get('price'), 'Fee')))
+            except MoneyError as e:
+                skipped.append(f"Row {row_no} ({purpose_text}): {e}")
+                continue
             specialist_val = 0
 
             # Resolve sponsor
@@ -2977,15 +3050,18 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
                     if not target_plan:
                         target_plan = plans_by_name.get(p_str.lower()) or PatientPlan.objects.filter(plan__icontains=p_str).first()
 
-            obj, created = VisitPurpose.objects.update_or_create(
-                purpose=purpose_text,
-                sponsor=target_sponsor,
-                plan=target_plan,
-                defaults={
-                    'price': price_val,
-                    'specialist_id': specialist_val,
-                }
-            )
+            # update_or_create() crashed (MultipleObjectsReturned -> 500) when older data already held the
+            # same purpose twice for one sponsor/plan; update every copy so they all show the new price
+            same = VisitPurpose.objects.filter(purpose=purpose_text, sponsor=target_sponsor, plan=target_plan)
+            if same.exists():
+                same.update(price=price_val, specialist_id=specialist_val)
+                created = False
+            else:
+                VisitPurpose.objects.create(
+                    purpose=purpose_text, sponsor=target_sponsor, plan=target_plan,
+                    price=price_val, specialist_id=specialist_val,
+                )
+                created = True
             if created:
                 created_count += 1
             else:
@@ -2997,10 +3073,13 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 
         return Response({
             'success': True,
-            'message': f'Successfully processed {len(records_to_process)} consultation tariff records for {target_label} ({created_count} created, {updated_count} updated).',
+            'message': f'Processed consultation tariff records for {target_label} ({created_count} created, {updated_count} updated'
+                       + (f', {len(skipped)} skipped: ' + '; '.join(skipped[:5]) + (' …' if len(skipped) > 5 else '') if skipped else '') + ').',
             'created_count': created_count,
             'updated_count': updated_count,
-            'total_processed': len(records_to_process),
+            'skipped_count': len(skipped),
+            'skipped': skipped,
+            'total_processed': created_count + updated_count,
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='download-template')
@@ -3669,7 +3748,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.all().select_related('patient', 'patient__sponsor', 'patient__plan', 'patient__category', 'category', 'staff').order_by('-created_date')
     serializer_class = InvoiceSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['invoice_number', 'product', 'patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -5931,7 +6010,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     queryset = Receipt.objects.all().select_related('patient', 'category', 'staff').order_by('-created_date')
     serializer_class = ReceiptSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['receipt_number', 'invoice_number', 'patient__surname', 'patient__first_name']
 
@@ -5962,14 +6041,14 @@ class DepositViewSet(viewsets.ModelViewSet):
     queryset = Deposit.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = DepositSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
 class RefundViewSet(viewsets.ModelViewSet):
     queryset = Refund.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = RefundSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
 # IPD ViewSets
@@ -6023,7 +6102,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
     queryset = ANCRegistration.objects.all().select_related('patient', 'created_by', 'antenatal_visit').order_by('-visit_date')
     serializer_class = ANCRegistrationSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -7554,7 +7633,7 @@ class PharmacyDrugViewSet(viewsets.ModelViewSet):
     queryset = OpdDrugs.objects.all().select_related('staff').order_by('product_name')
     serializer_class = OpdDrugsSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
 
@@ -7577,7 +7656,7 @@ class RadioLabViewSet(viewsets.ModelViewSet):
     queryset = RadiologyLab.objects.all().select_related('patient', 'category', 'plan', 'staff').order_by('-created_date')
     serializer_class = RadiologyLabSerializer
     pagination_class = None
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['item', 'patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -7628,6 +7707,15 @@ class RadioLabViewSet(viewsets.ModelViewSet):
         file_obj = request.FILES.get('file') or request.FILES.get('scan') or request.FILES.get('file_upload')
 
         is_radio = order.item_type in ['R', 'RA', 'Radio']
+        # The PIN decides who is recorded as reporting the result (shared department computers):
+        # Radiology staff for scans, Laboratory staff for lab results (Admin/CMD for either).
+        from api.pin_identity import staff_by_pin, display_name
+        if is_radio:
+            user, pin_error = staff_by_pin(request, 'radiology', 'Radiology', 'enter scan results')
+        else:
+            user, pin_error = staff_by_pin(request, 'laboratory', 'Laboratory', 'enter lab results')
+        if pin_error:
+            return pin_error
 
         if is_radio:
             result_instance = ScanResult.objects.create(
@@ -7657,8 +7745,10 @@ class RadioLabViewSet(viewsets.ModelViewSet):
         order.save(update_fields=['completed', 'radiolab_waiting_status'])
 
         return Response({
-            'message': 'Result recorded successfully',
+            'message': f'Result recorded successfully. Reported by {display_name(user)}.',
             'order_id': order.id,
+            'reported_by': user.id,
+            'reported_by_name': display_name(user),
             'result': serializer.data
         }, status=status.HTTP_201_CREATED)
 
@@ -7666,7 +7756,9 @@ class RadioLabViewSet(viewsets.ModelViewSet):
 class LabResultViewSet(viewsets.ModelViewSet):
     queryset = LabResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
     serializer_class = LabResultSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    # Read-only: lab results are entered with the scientist's PIN (lab-order-results/bulk_save/).
+    http_method_names = ['get', 'head', 'options']
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -7680,7 +7772,9 @@ class LabResultViewSet(viewsets.ModelViewSet):
 class ScanResultViewSet(viewsets.ModelViewSet):
     queryset = ScanResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
     serializer_class = ScanResultSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    # Read-only: scan results are entered with the radiographer's PIN (radio-lab/<id>/upload-result/).
+    http_method_names = ['get', 'head', 'options']
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -7699,7 +7793,7 @@ from .serializers import InventoryProductSerializer, InventoryTransactionSeriali
 class InventoryProductViewSet(viewsets.ModelViewSet):
     queryset = InventoryProduct.objects.all().order_by('-created_date')
     serializer_class = InventoryProductSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
@@ -7723,7 +7817,7 @@ class InventoryProductViewSet(viewsets.ModelViewSet):
 class InventoryTransactionViewSet(viewsets.ModelViewSet):
     queryset = InventoryTransaction.objects.all().order_by('-created_date')
     serializer_class = InventoryTransactionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
@@ -7733,7 +7827,7 @@ class InventoryTransactionViewSet(viewsets.ModelViewSet):
 class InventoryProductRequestViewSet(viewsets.ModelViewSet):
     queryset = InventoryProductRequests.objects.all().order_by('-created_date')
     serializer_class = InventoryProductRequestSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
@@ -7748,7 +7842,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
     """
     queryset = WrittenPrescriptions.objects.all().select_related('patient', 'provider', 'dispensed_by').order_by('-created_date')
     serializer_class = WrittenPrescriptionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -8000,6 +8094,13 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         store_name = target_store.name
 
+        # The pharmacist confirms with their PIN. On a shared pharmacy computer the PIN (not the
+        # signed-in account) identifies who dispensed, so dispensed_by and the stock movement name
+        # the person who actually handed over the drug.
+        dispenser, pin_error = _pin_store_staff(request, target_store, 'dispense this medication')
+        if pin_error:
+            return pin_error
+
         # Match the prescription to exactly ONE catalogue item - never guess
         override_id = request.data.get('product_id')
         if override_id:
@@ -8016,7 +8117,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                     'candidates': candidates,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user if request.user.is_authenticated else None
+        user = dispenser
         pat_str = (f"{patient.surname} {patient.first_name} (#{patient.hospital_number})" if patient else "patient")
 
         try:
@@ -8057,6 +8158,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             'remaining_stock': remaining_stock,
             'store_name': store_name,
             'drug_name': product.product_name,
+            'dispensed_by_name': _staff_display(dispenser),
             'batches': [{'batch_number': t['batch_number'] or 'unbatched',
                          'expiry_date': t['expiry_date'].isoformat() if t['expiry_date'] else None,
                          'quantity': t['quantity']} for t in taken],
@@ -8359,7 +8461,7 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
     """
     queryset = PharmacyStore.objects.all().select_related('in_charge').prefetch_related('departments').order_by('-is_central', 'name')
     serializer_class = PharmacyStoreSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -8480,6 +8582,8 @@ def _pin_staff(request, purpose):
     for cand in User.objects.filter(is_active=True):
         if getattr(cand, 'has_pin', False) and cand.check_pin(raw):
             return cand, None
+    from api.audit import pin_failed
+    pin_failed(request, purpose)
     return None, Response(
         {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
         status=status.HTTP_400_BAD_REQUEST,
@@ -8506,6 +8610,9 @@ def _pin_store_staff(request, store, purpose):
     if len(matches) == 1:
         return matches[0], None
     if not matches:
+        # Logged against the account signed in at that computer (the PIN itself is never stored).
+        from api.audit import pin_failed
+        pin_failed(request, f'{purpose} at {store.name}', store_id=store.id, store=store.name)
         return None, Response({'error': f'PIN not recognised for any staff of {store.name}.', 'code': 'pin_invalid'},
                               status=status.HTTP_400_BAD_REQUEST)
     return None, Response({'error': f'This PIN is shared by {len(matches)} staff of {store.name}, so the receiver cannot be '
@@ -8553,7 +8660,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
     """
     queryset = StoreStock.objects.all().select_related('store', 'product').prefetch_related('batches').order_by('store', 'product__product_name')
     serializer_class = StoreStockSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -8694,6 +8801,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     break
 
         if not staff_user:
+            from api.audit import pin_failed
+            pin_failed(request, 'edit a medication stock record', stock_id=stock_id)
             return Response(
                 {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -9136,13 +9245,34 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 batch_num = str(clean.get('batch_number') or clean.get('batch') or clean.get('lot') or '').strip()
                 expiry = clean.get('expiry_date') or clean.get('expiry') or None
                 if expiry:
-                    expiry = str(expiry).strip()[:10]
+                    # Excel dates arrive as datetime/date or text in several layouts; store YYYY-MM-DD
+                    import datetime as _dt
+                    if isinstance(expiry, (_dt.datetime, _dt.date)):
+                        exp_date = expiry.date() if isinstance(expiry, _dt.datetime) else expiry
+                    else:
+                        exp_date = None
+                        txt = str(expiry).strip()[:10]
+                        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y/%m/%d'):
+                            try:
+                                exp_date = _dt.datetime.strptime(txt, fmt).date()
+                                break
+                            except ValueError:
+                                pass
+                    if not exp_date:
+                        row_errors.append(f"Row {idx + 1} ({name}): expiry date '{expiry}' is not a date (use YYYY-MM-DD or DD/MM/YYYY).")
+                        continue
+                    if exp_date <= timezone.localdate():
+                        row_errors.append(f"Row {idx + 1} ({name}): batch expired on {exp_date:%d %b %Y}; expired stock is not received.")
+                        continue
+                    expiry = exp_date.isoformat()
 
                 cost_raw = clean.get('unit_cost') or clean.get('cost') or clean.get('price') or clean.get('rate') or 0
+                from api.money import parse_money, MoneyError
                 try:
-                    cost = Decimal(str(cost_raw).replace(',', '').replace('₦', '').strip())
-                except Exception:
-                    cost = Decimal('0.00')
+                    cost = parse_money(cost_raw, 'Unit cost')
+                except MoneyError as e:
+                    row_errors.append(f"Row {idx + 1} ({name}): {e}")
+                    continue
 
                 # 1. Product
                 prod = Product.objects.filter(product_name__iexact=name).select_related('merged_into').first()
@@ -9320,7 +9450,7 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         'source_store', 'destination_store', 'dispatched_by', 'received_by'
     ).prefetch_related('items__product').order_by('-created_date')
     serializer_class = StockTransferSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -9522,7 +9652,7 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
         'requesting_store', 'fulfilling_store', 'requested_by', 'approved_by'
     ).prefetch_related('items__product').order_by('-created_date')
     serializer_class = StockRequisitionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -9796,7 +9926,7 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = StockMovement.objects.all().select_related('store', 'product', 'performed_by').order_by('-created_date')
     serializer_class = StockMovementSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -9820,7 +9950,7 @@ class PharmacyVendorViewSet(viewsets.ModelViewSet):
     """
     queryset = PharmacyVendor.objects.all().order_by('name')
     serializer_class = PharmacyVendorSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
