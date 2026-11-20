@@ -19,6 +19,17 @@ from patients.models import PatientProfile, PatientAppointment, PatientPlan, Pat
 from .models import VisitPurpose, NurseWaitingList,PatientBackgroundHealth, DoctorWaitingList,Transcript,PatientFollowUp,PatientReferral,PatientOtherDetails, OtherService, WrittenPrescriptions, ICD11Code
 from IPD_pharm.models import IPDAdministeredDrugs
 from IPD.models import AdmissionTable
+
+
+def _legacy_admit(request, patient):
+    """Admit from the older consultation pages through IPD/services.py; None (with a message) if refused."""
+    from IPD import services as ipd_services
+    try:
+        return ipd_services.admit(patient, doctor=request.user, created_by=request.user,
+                                  reason='Admitted from the consultation page', source='opd')
+    except ipd_services.AdmissionError as e:
+        messages.error(request, e.message)
+        return None
 from Billings.models import TransactionUpdate
 from radio_lab.models import RadioLabInventory, RadiologyLab, ScanResult, LabResult
 from ANC.models import AntenatalVisit
@@ -1080,14 +1091,9 @@ def doctor_nurse_report(request, key):
                 messages.error(request, 'Error occurred, pls try again!')
         elif 'admit_patient' in request.POST:
             if request.user.pin == int(request.POST.get('pin_code')):
-                admission = AdmissionTable.objects.create(
-                patient=patient,
-                doctor_admitted=request.user,
-            )
+                admission = _legacy_admit(request, patient)
                 if admission:
                     messages.success(request,'Successfully admitted!')
-                else:
-                    messages.error(request,'Error Occurred! try later')
             else:
                 messages.error(request,'Incorrect Pin!')
 
@@ -2048,11 +2054,9 @@ def get_case_note(request, patient_id):
             try:
                 # Ensuring that pin_input is a valid integer before comparison
                 if pin_input and int(request.user.pin) == int(pin_input):
-                    admission = AdmissionTable.objects.create(
-                        patient=patient,
-                        doctor_admitted=request.user,
-                    )
-                    messages.success(request, 'Successfully admitted!')
+                    admission = _legacy_admit(request, patient)
+                    if admission:
+                        messages.success(request, 'Successfully admitted!')
                 else:
                     messages.error(request, 'Incorrect Pin!')
             except (ValueError, TypeError):
@@ -3852,14 +3856,9 @@ def administer_drugs(request, patient_id):
             
         elif 'admit_patient' in request.POST:
             if request.user.pin == int(request.POST.get('pin_code')):
-                admission = AdmissionTable.objects.create(
-                patient=patient,
-                doctor_admitted=request.user,
-            )
+                admission = _legacy_admit(request, patient)
                 if admission:
                     messages.success(request,'Successfully admitted!')
-                else:
-                    messages.error(request,'Error Occurred! try later')
             else:
                 messages.error(request,'Incorrect Pin!')
                 

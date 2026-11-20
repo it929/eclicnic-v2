@@ -194,7 +194,7 @@ class OPD2AdministeredDrugs(models.Model):
         # start date if available and future dated
         if self.start_date:
             from datetime import date
-            instruction += f" Start on {self.start_date.strftime('%B %d, %Y')}."
+            instruction += f" Start on {self.start_date.strftime('%d %B %Y')}."
         
         return instruction
     

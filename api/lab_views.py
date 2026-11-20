@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal
+from api.money import parse_money, MoneyError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -120,7 +121,7 @@ class LabParameterViewSet(viewsets.ModelViewSet):
     """CRUD viewset for individual lab test parameters."""
     queryset = LabParameter.objects.all().order_by('category', 'display_order', 'name')
     serializer_class = LabParameterSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['name', 'code', 'category', 'specimen']
@@ -477,12 +478,10 @@ class LabParameterViewSet(viewsets.ModelViewSet):
                 'price', 'baseprice', 'rate', 'tariff', 'amount', 'fee', 'cost', 'charge', 'basepricengn', 'pricengn'
             ])
             try:
-                clean_p_str = re.sub(r'[^\d.]', '', str(raw_price)) if raw_price is not None else ''
-                base_price = Decimal(clean_p_str) if clean_p_str else Decimal('0.00')
-                if base_price < 0:
-                    base_price = Decimal('0.00')
-            except Exception:
-                base_price = Decimal('0.00')
+                base_price = parse_money(raw_price, 'Price')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({name}): {e}")
+                continue
 
             # 4. CATEGORY (inferred if absent)
             raw_cat = find_field(norm_row, ['category', 'dept', 'department', 'type', 'section'])
@@ -599,7 +598,7 @@ class LabInvestigationViewSet(viewsets.ModelViewSet):
     """CRUD viewset for investigation panels (e.g. FBC, LFT, Lipid Profile)."""
     queryset = LabInvestigation.objects.all().prefetch_related('parameter_mappings__parameter').order_by('category', 'name')
     serializer_class = LabInvestigationSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['name', 'code', 'category', 'specimen']
@@ -920,12 +919,10 @@ class LabInvestigationViewSet(viewsets.ModelViewSet):
                 'price', 'baseprice', 'rate', 'tariff', 'amount', 'fee', 'cost', 'charge', 'basepricengn', 'pricengn'
             ])
             try:
-                clean_p_str = re.sub(r'[^\d.]', '', str(raw_price)) if raw_price is not None else ''
-                base_price = Decimal(clean_p_str) if clean_p_str else Decimal('0.00')
-                if base_price < 0:
-                    base_price = Decimal('0.00')
-            except Exception:
-                base_price = Decimal('0.00')
+                base_price = parse_money(raw_price, 'Price')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({name}): {e}")
+                continue
 
             # 4. CATEGORY (inferred if absent)
             raw_cat = find_field(norm_row, ['category', 'dept', 'department', 'type', 'section'])
@@ -1058,7 +1055,7 @@ class LabTestSearchView(APIView):
     Resolves plan-specific tariff rates if patient, sponsor, or plan is provided.
     Used by Doctor Consultation CPOE and Lab Reception.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         query = request.query_params.get('q', '').strip()
@@ -1220,7 +1217,7 @@ class LabOrderTemplateView(APIView):
     and the structured list of parameters to test (with pre-matched reference ranges),
     merging any previously entered partial results and who signed each parameter.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, order_id):
         try:
@@ -1432,7 +1429,7 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
     """ViewSet for managing individual result rows, PIN verification, partial drafts, and batch-saving completed test panels."""
     queryset = LabOrderResultItem.objects.all().order_by('display_order')
     serializer_class = LabOrderResultItemSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1440,6 +1437,13 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
         if order_id:
             qs = qs.filter(order_id=order_id)
         return qs
+
+    # Results are written only through bulk_save, which needs the scientist's PIN and records them.
+    def _pin_only(self, *args, **kwargs):
+        return Response({'detail': 'Lab results are entered with a PIN on the Laboratory screen (lab-order-results/bulk_save/).'},
+                        status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    create = update = partial_update = destroy = _pin_only
 
     @action(detail=False, methods=['post'])
     def bulk_save(self, request):
@@ -1467,50 +1471,12 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
         if not order_id:
             return Response({'detail': 'order_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Mandatory Security PIN Verification
-        if not pin_code or str(pin_code).strip() == '':
-            return Response(
-                {'detail': 'Security PIN is required. Please enter your 4-digit PIN to authorize and sign laboratory findings.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        pin_str = str(pin_code).strip()
-        if not pin_str.isdigit():
-            return Response(
-                {'detail': 'Invalid security PIN format. PIN must contain numeric digits only.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Identify attending staff member
-        user = None
-        if request.user and request.user.is_authenticated:
-            user = request.user
-        elif request.data.get('staff_id'):
-            from users.models import User
-            user = User.objects.filter(id=request.data.get('staff_id'), is_active=True).first()
-        elif request.data.get('staff_username'):
-            from users.models import User
-            user = User.objects.filter(username__iexact=str(request.data.get('staff_username')).strip(), is_active=True).first()
-
-        if not user:
-            return Response(
-                {'detail': 'Authentication required. Please log in as an attending staff member to authorize lab results.'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        # Verify PIN against user's PIN
-        if not user.has_pin:
-            staff_name = getattr(user, 'fullname', '') or user.username
-            return Response(
-                {'detail': f'Staff member "{staff_name}" has no security PIN configured. Please set your 4-digit PIN in Profile Settings before recording lab results.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not user.check_pin(pin_str):
-            return Response(
-                {'detail': 'Incorrect Security PIN. Result entry authorization denied.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # 1. The PIN says WHO is entering the results. On a shared lab computer the signed-in account
+        #    may belong to someone else; the PIN owner (Laboratory staff, or Admin/CMD) is recorded.
+        from api.pin_identity import staff_by_pin
+        user, pin_error = staff_by_pin(request, 'laboratory', 'Laboratory', 'enter lab results', pin=pin_code or '')
+        if pin_error:
+            return pin_error
 
         try:
             order = RadiologyLab.objects.select_related('patient').get(id=order_id)
@@ -1647,9 +1613,12 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
             order.save(update_fields=['completed', 'radiolab_waiting_status'])
 
         msg = 'Lab results verified and completed successfully.' if is_completed else f'Partial lab results saved successfully ({len(non_empty_items)} of {len(items_data)} parameters ready).'
+        msg += f' Entered by {author_name}.'
 
         return Response({
             'message': msg,
+            'entered_by': user.id,
+            'entered_by_name': author_name,
             'order_id': order.id,
             'is_completed': is_completed,
             'filled_count': len(non_empty_items),
@@ -1666,7 +1635,7 @@ class RadiologyProcedureViewSet(viewsets.ModelViewSet):
     """
     queryset = RadiologyProcedure.objects.all().order_by('category', 'code', 'name')
     serializer_class = RadiologyProcedureSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['name', 'code', 'category', 'body_part']
@@ -1944,14 +1913,11 @@ class RadiologyProcedureViewSet(viewsets.ModelViewSet):
                 'price', 'baseprice', 'rate', 'tariff', 'amount', 'fee', 'cost',
                 'charge', 'basepricengn', 'pricengn', 'generalprice', 'standardprice'
             ])
-            if raw_price is not None:
-                clean_p_str = re.sub(r'[^\d.]', '', str(raw_price))
-                try:
-                    base_price = Decimal(clean_p_str) if clean_p_str else Decimal('0.00')
-                except Exception:
-                    base_price = Decimal('0.00')
-            else:
-                base_price = Decimal('0.00')
+            try:
+                base_price = parse_money(raw_price, 'Price')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({name}): {e}")
+                continue
 
             # 4. CATEGORY / MODALITY (auto-inferred if absent)
             raw_cat = find_field_value(norm_row, [

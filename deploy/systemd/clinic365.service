@@ -1,0 +1,32 @@
+# Clinic365 EMR - Django API served by gunicorn.
+# Install:  sudo cp deploy/systemd/clinic365.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now clinic365
+# Logs:     journalctl -u clinic365 -f      (and /var/log/clinic365/django.log)
+
+[Unit]
+Description=Clinic365 EMR (gunicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=clinic365
+Group=clinic365
+WorkingDirectory=/opt/clinic365/clinic365
+EnvironmentFile=/etc/clinic365/clinic365.env
+# Scheduled jobs (day book, notification clean-up) run from cron, not inside the web process,
+# so several workers are safe. Rule of thumb: workers = 2 x CPU cores + 1.
+ExecStart=/opt/clinic365/venv/bin/gunicorn clinic365.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 3 --threads 4 \
+    --timeout 120 \
+    --access-logfile - --error-logfile -
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

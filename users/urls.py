@@ -19,8 +19,8 @@ urlpatterns = [
     path('reset_password_sent/', auth_views.PasswordResetDoneView.as_view(template_name="users/password_reset_sent.html"), name = "password_reset_done"),
     path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(template_name="users/password_reset_form.html"), name = "password_reset_confirm"),
     path('reset_password_complete/', auth_views.PasswordResetCompleteView.as_view(template_name="users/password_reset_done.html"), name = "password_reset_complete"),
-    # password reset without sending email
-    path("reset-password/", views.custom_password_reset, name="custom_password_reset"),
+    # The old "reset password with Staff ID + date of birth" page was removed: anyone who knew those
+    # two facts could take over a staff account. Passwords are reset by an administrator (Task Manager).
    
     
 ]

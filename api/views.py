@@ -107,6 +107,10 @@ class LoginView(APIView):
                 pass
 
         if not user:
+            from api.audit import audit
+            target = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+            if target:   # unknown usernames have no account to attach the entry to
+                audit(target, 'failed_login', request, 'Sign-in failed: wrong password')
             return Response(
                 {'detail': 'Invalid username or password.'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -130,10 +134,30 @@ class LoginView(APIView):
         })
 
 
+def _ensure_browser_session(request):
+    """The app signs requests with a token, but <img>/<a> requests for /media/ files can only carry
+    the session cookie. If the cookie has expired while the token is still valid, renew it here
+    (called on every app load). No login signal: this is not a new sign-in for the audit log."""
+    from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
+    try:
+        django_request = request._request
+        session = django_request.session
+        user = request.user
+        if session.get(SESSION_KEY) == str(user.pk):
+            return
+        session.cycle_key()
+        session[SESSION_KEY] = user._meta.pk.value_to_string(user)
+        session[BACKEND_SESSION_KEY] = 'django.contrib.auth.backends.ModelBackend'
+        session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+    except Exception:
+        pass
+
+
 class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        _ensure_browser_session(request)
         serializer = UserSerializer(request.user)
         user_data = serializer.data
         role_name = user_data.get('role_name') or (request.user.department.department if request.user.department else 'Admin')
@@ -153,20 +177,31 @@ class LogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        from api.audit import audit
+        from myAdmins.models import UserSession
+        user = request.user
+        expired = str(request.data.get('reason', '')).lower() == 'inactivity'
+        audit(user, 'session_expired' if expired else 'logout', request,
+              'Signed out automatically after inactivity' if expired else 'Signed out')
         try:
-            request.user.auth_token.delete()
+            user.auth_token.delete()
+        except Exception:
+            pass
+        try:   # end this browser's Django session too, so the user leaves the Online list
+            key = request.session.session_key
+            if key:
+                UserSession.objects.filter(user=user, session_key=key).delete()
+            request.session.flush()
         except Exception:
             pass
         return Response({'detail': 'Logged out successfully.'})
 
 
 class UserProfileView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
         return Response({
             'user': UserSerializer(user, context={'request': request}).data,
             'has_pin': bool(user.has_pin),
@@ -174,14 +209,17 @@ class UserProfileView(APIView):
         })
 
     def put(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         pin_code = request.data.get('pin_code')
         if user.has_pin:
             if not pin_code or not user.check_pin(pin_code):
+                audit(user, 'failed_pin', request, 'Wrong security PIN while updating own profile')
                 return Response({'detail': 'Incorrect Security PIN.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tracked = ('fullname', 'email', 'phone_number', 'address', 'gender', 'dob')
+        before = {f: str(getattr(user, f) or '') for f in tracked}
 
         # Update profile fields
         user.fullname = request.data.get('fullname', user.fullname)
@@ -195,6 +233,11 @@ class UserProfileView(APIView):
         if 'avatar' in request.FILES:
             user.avatar = request.FILES['avatar']
         user.save()
+        changed = [f for f in tracked if str(getattr(user, f) or '') != before[f]]
+        if changed or 'avatar' in request.FILES:
+            labels = {'fullname': 'name', 'phone_number': 'phone', 'dob': 'date of birth'}
+            parts = [labels.get(f, f) for f in changed] + (['photo'] if 'avatar' in request.FILES else [])
+            audit(user, 'profile_update', request, 'Updated own profile: ' + ', '.join(parts), fields=changed)
 
         return Response({
             'detail': 'Profile updated successfully!',
@@ -203,12 +246,11 @@ class UserProfileView(APIView):
 
 
 class UserAvatarUploadView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         avatar_file = request.FILES.get('avatar')
         if not avatar_file:
@@ -216,6 +258,7 @@ class UserAvatarUploadView(APIView):
 
         user.avatar = avatar_file
         user.save()
+        audit(user, 'profile_picture_update', request, 'Changed own profile photo')
         return Response({
             'detail': 'Profile image updated successfully!',
             'user': UserSerializer(user, context={'request': request}).data,
@@ -224,12 +267,11 @@ class UserAvatarUploadView(APIView):
 
 
 class ChangePasswordView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
 
         data = request.data if isinstance(request.data, dict) else {}
         old_password = data.get('old_password') or data.get('current_password') or ''
@@ -238,15 +280,18 @@ class ChangePasswordView(APIView):
         if not new_password:
             return Response({'detail': 'New password is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if len(new_password) < 6:
-            return Response({'detail': 'New password must be at least 6 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+        from users.pin_policy import password_error
+        msg = password_error(new_password, old_password)
+        if msg:
+            return Response({'detail': msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user.has_usable_password() and request.user.is_authenticated:
-            if not user.check_password(old_password):
-                return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.has_usable_password() and not user.check_password(old_password):
+            audit(user, 'failed_login', request, 'Wrong current password while changing password')
+            return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save()
+        audit(user, 'password_change', request, 'Changed own password')
 
         if request.user.is_authenticated:
             try:
@@ -259,24 +304,40 @@ class ChangePasswordView(APIView):
 
 
 class UpdatePinView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if not user:
-            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from api.audit import audit
+        user = request.user
+        had_pin = bool(user.has_pin)
+        if had_pin:   # changing an existing PIN needs the current one (an unlocked screen is not enough)
+            current = str(request.data.get('current_pin') or '').strip()
+            if not current:
+                return Response({'detail': 'Enter your current PIN.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not user.check_pin(current):
+                audit(user, 'failed_pin', request, 'Wrong current PIN while changing security PIN')
+                return Response({'detail': 'Current PIN is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        new_pin = request.data.get('new_pin')
-        if not new_pin or not str(new_pin).isdigit() or len(str(new_pin)) != 4:
-            return Response({'detail': 'PIN must be a 4-digit number.'}, status=status.HTTP_400_BAD_REQUEST)
+        from users.pin_policy import pin_error
+        new_pin = str(request.data.get('new_pin') or '').strip()
+        msg = pin_error(new_pin)
+        if msg:
+            return Response({'detail': msg}, status=status.HTTP_400_BAD_REQUEST)
+        if had_pin and user.check_pin(new_pin):
+            return Response({'detail': 'The new PIN must be different from your current PIN.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_pin(new_pin)
         user.save()
+        audit(user, 'pin_change' if had_pin else 'pin_created', request,
+              'Changed own security PIN' if had_pin else 'Set up a security PIN')
         return Response({'detail': 'Security PIN updated successfully!'})
 
 
 class DepartmentListView(APIView):
-    permission_classes = [permissions.AllowAny]
+    """Any signed-in user may list departments (sidebar, filters); only an administrator may
+    create, rename, delete or change a department's modules, since modules grant access."""
+    from api.rbac_views import ReadAuthenticatedWriteAdmin
+    permission_classes = [ReadAuthenticatedWriteAdmin]
 
     def get(self, request):
         departments = Category.objects.all().order_by('department')
@@ -357,7 +418,7 @@ class DepartmentListView(APIView):
 
 
 class DashboardStatsView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         today = timezone.localdate()
@@ -420,7 +481,7 @@ class PatientViewSet(viewsets.ModelViewSet):
     queryset = PatientProfile.objects.all().select_related('category', 'plan', 'created_by')
     serializer_class = PatientProfileSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['surname', 'first_name', 'other_name', 'hospital_number', 'phone_number', 'email_address']
     ordering_fields = ['created_date', 'surname', 'first_name', 'hospital_number']
@@ -519,12 +580,17 @@ class PatientViewSet(viewsets.ModelViewSet):
     def import_excel(self, request):
         uploaded_file = request.FILES.get('file') or request.FILES.get('excel_file')
         if not uploaded_file:
-            return Response({'detail': 'No file uploaded. Please upload a .xlsx or .xls file.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'No file uploaded. Please upload a .xlsx, .xls or .csv file.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             import pandas as pd
             import io
-            df = pd.read_excel(io.BytesIO(uploaded_file.read()))
+            raw = uploaded_file.read()
+            if (uploaded_file.name or '').lower().endswith('.csv'):
+                # dtype=str keeps phone numbers / hospital numbers with their leading zeros
+                df = pd.read_csv(io.BytesIO(raw), dtype=str, encoding='utf-8-sig', keep_default_na=True)
+            else:
+                df = pd.read_excel(io.BytesIO(raw))
             df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
             unique_cats = set(df['category'].dropna().astype(str).str.strip().unique()) if 'category' in df.columns else set()
@@ -558,8 +624,11 @@ class PatientViewSet(viewsets.ModelViewSet):
                             dob = dob.date()
                         else:
                             from dateutil import parser
+                            import re as _re
                             try:
-                                dob = parser.parse(str(dob)).date()
+                                s_dob = str(dob).strip()
+                                # 1990-04-03 is ISO; anything else (03/04/1990) is read day-first, as written in Nigeria
+                                dob = parser.parse(s_dob, dayfirst=not _re.match(r'^\d{4}-\d{1,2}-\d{1,2}', s_dob)).date()
                             except Exception:
                                 dob = None
                     else:
@@ -1134,7 +1203,7 @@ class PatientViewSet(viewsets.ModelViewSet):
 class PatientCategoryViewSet(viewsets.ModelViewSet):
     queryset = PatientCategory.objects.all().order_by('category')
     serializer_class = PatientCategorySerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1167,7 +1236,7 @@ class PatientCategoryViewSet(viewsets.ModelViewSet):
 class SponsorViewSet(viewsets.ModelViewSet):
     queryset = Sponsor.objects.all().select_related('category').prefetch_related('plans').order_by('name')
     serializer_class = SponsorSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1275,7 +1344,7 @@ class SponsorViewSet(viewsets.ModelViewSet):
 
         uploaded_file = request.FILES.get('file')
         default_category_id = request.data.get('category_id') or request.data.get('category')
-        
+
         default_category = None
         if default_category_id:
             try:
@@ -1418,7 +1487,7 @@ class SponsorViewSet(viewsets.ModelViewSet):
 class PatientPlanViewSet(viewsets.ModelViewSet):
     queryset = PatientPlan.objects.all().select_related('category', 'sponsor').order_by('plan')
     serializer_class = PatientPlanSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -1447,7 +1516,7 @@ class FamilyFolderViewSet(viewsets.ModelViewSet):
         'members__patient__category', 'members__patient__sponsor', 'members__patient__plan'
     ).order_by('-created_date')
     serializer_class = FamilyFolderSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
@@ -1890,7 +1959,7 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
     queryset = NurseWaitingList.objects.all().select_related('attendant', 'patient')
     serializer_class = NurseWaitingListSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1927,7 +1996,7 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
     queryset = DoctorWaitingList.objects.all().select_related('patient', 'staff', 'category', 'plan').order_by('-created_date')
     serializer_class = DoctorWaitingListSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         # Auto-consolidate any split package invoice rows into a single package line
@@ -2037,7 +2106,7 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
     queryset = PatientEncounter.objects.all().select_related('patient', 'provider').order_by('-created_at')
     serializer_class = PatientEncounterSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -2099,6 +2168,8 @@ class PatientEncounterViewSet(viewsets.ModelViewSet):
 
         # Strictly verify that the entered PIN matches the doctor's security PIN
         if not authorizing_doctor.check_pin(pin_str):
+            from api.audit import pin_failed
+            pin_failed(request, 'sign a consultation', pin_owner=authorizing_doctor)
             return Response(
                 {'detail': 'Incorrect Security PIN. Authorization denied.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -2164,7 +2235,7 @@ class ConsultationDraftViewSet(viewsets.ModelViewSet):
     """
     queryset = ConsultationDraft.objects.all().select_related('patient', 'doctor', 'appointment').order_by('-updated_at')
     serializer_class = ConsultationDraftSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2246,7 +2317,7 @@ class ConsultationDraftViewSet(viewsets.ModelViewSet):
 class PatientDiagnosisViewSet(viewsets.ModelViewSet):
     queryset = PatientDiagnosis.objects.all().order_by('category', 'description')
     serializer_class = PatientDiagnosisSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2272,7 +2343,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         description = request.data.get('description') or request.data.get('name')
         if not description or not str(description).strip():
             return Response({'detail': 'Diagnosis description is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         description = str(description).strip()
         category = request.data.get('category', 'General') or 'General'
         icd10_code = request.data.get('icd10_code', '').strip()
@@ -2309,8 +2380,8 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         Returns array of [{code, title, category, is_local, source}]
         """
         query = (
-            request.query_params.get('search') or 
-            request.query_params.get('terms') or 
+            request.query_params.get('search') or
+            request.query_params.get('terms') or
             request.query_params.get('code') or ''
         ).strip()
         if not query or len(query) < 2:
@@ -2417,7 +2488,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
             return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         filename = uploaded_file.name.lower()
         records_to_process = []
         try:
@@ -2488,7 +2559,7 @@ class PatientDiagnosisViewSet(viewsets.ModelViewSet):
 class PresentingComplaintViewSet(viewsets.ModelViewSet):
     queryset = PresentingComplaint.objects.all().order_by('category', 'name')
     serializer_class = PresentingComplaintSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -2666,7 +2737,7 @@ class PresentingComplaintViewSet(viewsets.ModelViewSet):
 class VisitPurposeViewSet(viewsets.ModelViewSet):
     queryset = VisitPurpose.objects.all().select_related('sponsor', 'plan', 'sponsor__category').order_by('purpose', 'sponsor__name', 'plan__plan')
     serializer_class = VisitPurposeSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['purpose', 'sponsor__name', 'sponsor__code', 'plan__plan', 'plan__code']
@@ -2936,14 +3007,16 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 
         created_count = 0
         updated_count = 0
+        skipped = []
+        from api.money import parse_money, MoneyError
 
-        for item in records_to_process:
+        for row_no, item in enumerate(records_to_process, start=2):
             purpose_text = item['purpose']
             try:
-                price_val = int(float(str(item.get('price') or 0).replace(',', '').replace('₦', '').strip()))
-            except (ValueError, TypeError):
-                price_val = 0
-            price_val = max(0, price_val)
+                price_val = int(round(parse_money(item.get('price'), 'Fee')))
+            except MoneyError as e:
+                skipped.append(f"Row {row_no} ({purpose_text}): {e}")
+                continue
             specialist_val = 0
 
             # Resolve sponsor
@@ -2977,15 +3050,18 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
                     if not target_plan:
                         target_plan = plans_by_name.get(p_str.lower()) or PatientPlan.objects.filter(plan__icontains=p_str).first()
 
-            obj, created = VisitPurpose.objects.update_or_create(
-                purpose=purpose_text,
-                sponsor=target_sponsor,
-                plan=target_plan,
-                defaults={
-                    'price': price_val,
-                    'specialist_id': specialist_val,
-                }
-            )
+            # update_or_create() crashed (MultipleObjectsReturned -> 500) when older data already held the
+            # same purpose twice for one sponsor/plan; update every copy so they all show the new price
+            same = VisitPurpose.objects.filter(purpose=purpose_text, sponsor=target_sponsor, plan=target_plan)
+            if same.exists():
+                same.update(price=price_val, specialist_id=specialist_val)
+                created = False
+            else:
+                VisitPurpose.objects.create(
+                    purpose=purpose_text, sponsor=target_sponsor, plan=target_plan,
+                    price=price_val, specialist_id=specialist_val,
+                )
+                created = True
             if created:
                 created_count += 1
             else:
@@ -2997,10 +3073,13 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 
         return Response({
             'success': True,
-            'message': f'Successfully processed {len(records_to_process)} consultation tariff records for {target_label} ({created_count} created, {updated_count} updated).',
+            'message': f'Processed consultation tariff records for {target_label} ({created_count} created, {updated_count} updated'
+                       + (f', {len(skipped)} skipped: ' + '; '.join(skipped[:5]) + (' …' if len(skipped) > 5 else '') if skipped else '') + ').',
             'created_count': created_count,
             'updated_count': updated_count,
-            'total_processed': len(records_to_process),
+            'skipped_count': len(skipped),
+            'skipped': skipped,
+            'total_processed': created_count + updated_count,
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='download-template')
@@ -3329,7 +3408,7 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
 class PatientAppointmentViewSet(viewsets.ModelViewSet):
     queryset = PatientAppointment.objects.all().select_related('patient', 'provider').order_by('-arrival_date', '-arrival_time', '-created_date')
     serializer_class = PatientAppointmentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
@@ -3391,7 +3470,40 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
         clinician = serializer.validated_data.get('clinician')
         if not clinician and provider:
             clinician = provider.fullname or provider.username
-        serializer.save(provider=provider, clinician=clinician)
+        appointment = serializer.save(provider=provider, clinician=clinician)
+        self._notify_nursing(appointment, user)
+
+    @staticmethod
+    def _notify_nursing(appt, actor):
+        """A patient booked for TODAY needs vitals: tell Nursing. Future bookings stay quiet
+        (they show up in the nurses' 'waiting for vitals' count on the day). Several purposes
+        booked together for one patient produce a single notification."""
+        try:
+            if not appt.patient_id or appt.completed == 2 or appt.arrival_date != timezone.localdate():
+                return
+            from datetime import timedelta as _td
+            from notifications.models import Notification
+            from notifications.services import notify_department
+            ref = f'appt-vitals:{appt.patient_id}:{appt.arrival_date.isoformat()}'
+            if Notification.objects.filter(kind='appointment_today', ref=ref,
+                                           created_at__gte=timezone.now() - _td(minutes=10)).exists():
+                return
+            p = appt.patient
+            name = ' '.join(x for x in [getattr(p, 'surname', ''), getattr(p, 'first_name', '')] if x).strip() or 'Patient'
+            hosp = getattr(p, 'hospital_number', '') or ''
+            urgent = 'emergency' in (appt.comment or '').lower() or 'emergency' in (appt.clinician or '').lower()
+            bits = [f'{name}{f" ({hosp})" if hosp else ""}', appt.purpose or '']
+            if appt.arrival_time:
+                bits.append(f'arriving {appt.arrival_time.strftime("%H:%M")}')
+            notify_department(
+                ['Nursing'], kind='appointment_today', actor=actor, ref=ref,
+                title='Emergency patient for vitals' if urgent else 'New patient for vitals',
+                message=' · '.join(b for b in bits if b),
+                link='/appointments/today', level='danger' if urgent else 'info', icon='fa-heartbeat',
+            )
+        except Exception:   # a notification problem must never block booking
+            import logging
+            logging.getLogger(__name__).exception('appointment nursing notification failed')
 
     def perform_update(self, serializer):
         inst = serializer.instance
@@ -3636,7 +3748,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.all().select_related('patient', 'patient__sponsor', 'patient__plan', 'patient__category', 'category', 'staff').order_by('-created_date')
     serializer_class = InvoiceSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['invoice_number', 'product', 'patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -3711,6 +3823,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             else:
                 payment_option = 'Cash'
 
+        # Prices are set by the server from the tariff (sponsor + plan -> sponsor -> General).
+        # Whatever rate the screen sent is ignored; an item with no price anywhere is refused.
+        from api.pricing import price_orders
+        priced, unpriced = price_orders(patient, [
+            ('drug', prescriptions), ('lab', lab_orders),
+            ('radiology', radiology_orders), ('service', other_service_orders),
+        ])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         # Each bill generation must have its own unique invoice number
         invoice_number = f"INV-{uuid.uuid4().hex[:8].upper()}"
 
@@ -3724,14 +3847,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not drug_name:
                     continue
                 qty = int(p.get('dispense_quantity') or p.get('qty') or 1)
-                rate = p.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from inventory.models import PharmacyTariff
-                        t = PharmacyTariff.objects.filter(product_name__icontains=drug_name).first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(p)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3762,14 +3878,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not test_name:
                     continue
                 qty = 1
-                rate = l.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from radio_lab.models import RadioLabInventory
-                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(l)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3813,14 +3922,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not scan_name:
                     continue
                 qty = 1
-                rate = r.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from radio_lab.models import RadioLabInventory
-                        t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(r)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3873,14 +3975,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if not service_name:
                     continue
                 qty = 1
-                rate = s.get('tariff_rate')
-                if rate is None or rate == '':
-                    try:
-                        from myAdmins.models import OtherService2
-                        t = OtherService2.objects.filter(service__icontains=service_name).first()
-                        rate = t.rate if t else 0
-                    except Exception:
-                        rate = 0
+                rate = priced[id(s)].rate
                 try:
                     unit_price = int(round(float(rate)))
                 except (ValueError, TypeError):
@@ -3983,6 +4078,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             user = User.objects.filter(is_staff=True).first() or User.objects.first()
         category = patient.category
 
+        # Prices are set by the server from the tariff (sponsor + plan -> sponsor -> General).
+        # Whatever rate the screen sent is ignored; an item with no price anywhere is refused.
+        from api.pricing import price_orders
+        priced, unpriced = price_orders(patient, [
+            ('drug', prescriptions), ('lab', lab_orders),
+            ('radiology', radiology_orders), ('service', other_service_orders),
+        ])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         saved_counts = {'prescriptions': 0, 'lab': 0, 'radiology': 0, 'services': 0}
 
         with transaction.atomic():
@@ -4040,6 +4146,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     patient=patient, item=drug_name[:200],
                     created_date__date=timezone.now().date()
                 ).first()
+                if existing_rx and existing_rx.unit_price is None and existing_rx.status == 'pending':
+                    pq = priced[id(p)]
+                    WrittenPrescriptions.objects.filter(pk=existing_rx.pk).update(
+                        item_code=pq.code or None, unit_price=pq.rate,
+                        price_source=pq.source, tariff_id=pq.tariff_id)
                 if not existing_rx:
                     WrittenPrescriptions.objects.create(
                         patient=patient,
@@ -4059,7 +4170,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         dispense_detail=dispense_detail,
                         comment=comment,
                         start_date=start_date,
-                        status='pending'
+                        status='pending',
+                        item_code=priced[id(p)].code or None,
+                        unit_price=priced[id(p)].rate,
+                        price_source=priced[id(p)].source,
+                        tariff_id=priced[id(p)].tariff_id,
                     )
                 saved_counts['prescriptions'] += 1
 
@@ -4068,24 +4183,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 test_name = (l.get('test') or l.get('item') or '').strip()
                 if not test_name:
                     continue
-                rate = l.get('tariff_rate')
-                if rate is None or rate == '':
-                    p_sponsor = getattr(patient, 'sponsor', None)
-                    p_plan = getattr(patient, 'plan', None)
-                    t = None
-                    if p_sponsor and p_plan:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor, plan=p_plan).first()
-                    if not t and p_plan:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', plan=p_plan).first()
-                    if not t and p_sponsor:
-                        t = RadioLabInventory.objects.filter(item__iexact=test_name, type='L', sponsor=p_sponsor).first()
-                    if not t:
-                        t = RadioLabInventory.objects.filter(item__icontains=test_name, type='L').first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(l)].rate)
 
                 comment = (l.get('comment') or l.get('notes') or '').strip()
                 if l.get('is_pay_from_purse') or l.get('payment_mode') == 'pay_from_purse':
@@ -4118,14 +4216,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 scan_name = (r.get('scan') or r.get('item') or '').strip()
                 if not scan_name:
                     continue
-                rate = r.get('tariff_rate')
-                if rate is None or rate == '':
-                    t = RadioLabInventory.objects.filter(item__icontains=scan_name, type='R').first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(r)].rate)
 
                 comment = (r.get('comment') or r.get('notes') or '').strip()
                 if r.get('is_pay_from_purse') or r.get('payment_mode') == 'pay_from_purse':
@@ -4158,14 +4249,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 service_name = (s.get('service') or s.get('item') or '').strip()
                 if not service_name:
                     continue
-                rate = s.get('tariff_rate')
-                if rate is None or rate == '':
-                    t = OtherService2.objects.filter(service__icontains=service_name).first()
-                    rate = t.rate if t else 0
-                try:
-                    unit_price = float(rate)
-                except (ValueError, TypeError):
-                    unit_price = 0
+                unit_price = float(priced[id(s)].rate)
 
                 existing_srv = OtherService.objects.filter(
                     patient=patient, purpose=service_name, completed=0,
@@ -4223,6 +4307,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         from radio_lab.models import RadioLabInventory
         from myAdmins.models import OtherService2
         from patients.models import PatientAppointment
+        from api.pricing import quote as price_quote, registration_fee
 
         # Filter parameters
         filter_date_param = request.query_params.get('date', '').strip()
@@ -4486,8 +4571,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 if reg_obj and reg_obj.price:
                     reg_price = float(reg_obj.price)
                 else:
-                    rf = RegFee.objects.first()
-                    reg_price = float(rf.price) if rf else 2500.0
+                    hospital_fee = registration_fee()   # one fee for every patient
+                    reg_price = float(hospital_fee) if hospital_fee is not None else 0.0
 
                 items.append({
                     'id': f"reg_{pat.id}",
@@ -4553,37 +4638,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         matched_invoices_count += 1
                         continue
 
-                    # Determine consultation rate for this specific purpose and patient sponsor/plan
-                    pat_sponsor = getattr(pat, 'sponsor', None)
-                    pat_plan = getattr(pat, 'plan', None)
-                    vp = None
-
-                    if pat_sponsor and pat_plan:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan=pat_plan).first()
-                    if not vp and pat_sponsor:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor=pat_sponsor, plan__isnull=True).first()
-                    if not vp and pat_plan:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, plan=pat_plan).first()
-                    if not vp:
-                        vp = VisitPurpose.objects.filter(purpose__iexact=p_name, sponsor__isnull=True, plan__isnull=True).first()
-
-                    if not vp:
-                        p_first = p_name.split()[0]
-                        if pat_sponsor and pat_plan:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan=pat_plan).first()
-                        if not vp and pat_sponsor:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor=pat_sponsor, plan__isnull=True).first()
-                        if not vp:
-                            vp = VisitPurpose.objects.filter(purpose__icontains=p_first, sponsor__isnull=True, plan__isnull=True).first()
-
-                    if vp and vp.price:
-                        consult_price = float(vp.price)
-                    else:
-                        p_lower = p_name.lower()
-                        if any(s in p_lower for s in ['specialist', 'cardiology', 'dental', 'eye', 'pediatric', 'antenatal', 'anc']):
-                            consult_price = 5000.0
-                        else:
-                            consult_price = 2000.0
+                    # Consultation fee: sponsor + plan -> sponsor -> General (api/pricing.py). No guessing.
+                    vq = price_quote(pat, 'visit', name=p_name)
+                    consult_price = float(vq.rate) if vq else 0.0
+                    consult_unpriced = vq is None
 
                     items.append({
                         'id': f"consult_{pat.id}_{p_entry['appointment_id'] or p_name.replace(' ', '_')}",
@@ -4598,6 +4656,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         'bill': True,
                         'pa_code': '',
                         'category': 'consultation',
+                        'not_priced': consult_unpriced,
                         'original_model': 'PatientAppointment' if p_entry['appointment_id'] else 'DoctorWaitingList',
                         'original_id': p_entry['appointment_id'] or pat.id,
                     })
@@ -4627,8 +4686,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             for rx in rx_items:
                 if rx.id in already_invoiced_rx_ids or rx.status == 'billed':
                     continue
-                t = PharmacyTariff.objects.filter(product_name__icontains=rx.item).first()
-                rate = float(t.rate) if (t and t.rate) else 0.0
+                if rx.unit_price is not None:            # price fixed when the doctor ordered it
+                    rate = float(rx.unit_price)
+                    rx_unpriced = False
+                else:                                    # older prescriptions: price by the same rule now
+                    rq = price_quote(pat, 'drug', code=rx.item_code, name=rx.item,
+                                     pay_from_purse='[Pay from your purse]' in (rx.comment or ''))
+                    rate = float(rq.rate) if rq else 0.0
+                    rx_unpriced = rq is None
                 qty = rx.dispense_quantity or rx.quantity or 1
                 uom = rx.dispense_unit
                 if not uom or uom in ['Pieces', 'pieces', 'Each']:
@@ -4684,6 +4749,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
                 items.append({
                     'id': f"rx_{rx.id}",
+                    'not_priced': rx_unpriced,
                     'service_item': f"{rx.item}{disp_desc}{purse_tag}",
                     'uom': uom,
                     'quantity': qty,
@@ -4986,10 +5052,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
             settled_invoices_today = []
             for inv in settled_inv_list:
-                unit_p = float(inv.price or 0)
-                inv_qty = int(inv.qty or 1)
+                # Invoice.price holds the LINE total (after discount), not the unit price
+                inv_qty = int(inv.qty or 1) or 1
                 disc = float(inv.discount or 0)
-                inv_tot = float(unit_p * inv_qty * (1 - (disc / 100.0)))
+                inv_tot = float(inv.price or 0)
+                unit_p = inv_tot / (inv_qty * ((1 - disc / 100.0) or 1))
                 settled_invoices_today.append({
                     'id': inv.id,
                     'invoice_number': inv.invoice_number or f"INV-{inv.id}",
@@ -5171,6 +5238,44 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoices_to_create = []
         total_amount = 0.0
 
+        # The server sets every line's unit price from its source record / the tariff.
+        # The cashier still chooses quantity, discount and payment option.
+        from api.pricing import quote as price_quote, registration_fee
+
+        def _server_rate(item, product_name, orig_model, orig_id):
+            iid = str(item.get('id') or '')
+            if orig_model == 'WrittenPrescriptions' and orig_id:
+                rx_obj = WrittenPrescriptions.objects.filter(id=orig_id, patient=patient).first()
+                if not rx_obj:
+                    return None
+                if rx_obj.unit_price is not None:
+                    return float(rx_obj.unit_price)
+                rq = price_quote(patient, 'drug', code=rx_obj.item_code, name=rx_obj.item,
+                                 pay_from_purse='[Pay from your purse]' in (rx_obj.comment or ''))
+                return float(rq.rate) if rq else None
+            if orig_model == 'RadiologyLab' and orig_id:
+                o = RadiologyLab.objects.filter(id=orig_id, patient=patient).first()
+                return float(o.rate or 0) if o else None
+            if orig_model == 'OtherService' and orig_id:
+                o = OtherService.objects.filter(id=orig_id, patient=patient).first()
+                return float(o.price or 0) if o else None
+            if orig_model == 'PackageInvoice' and orig_id:
+                o = Invoice.objects.filter(id=orig_id, patient=patient).first()
+                return (float(o.price or 0) / max(int(o.qty or 1), 1)) if o else None
+            if orig_model == 'GetRegistrationFee' or iid.startswith('reg_'):
+                o = GetRegistrationFee.objects.filter(patient=patient, completed=0).first()
+                if o and o.price:
+                    return float(o.price)
+                fee = registration_fee()
+                return float(fee) if fee is not None else None
+            if iid.startswith('consult_') or product_name.lower().startswith('consultation fee:'):
+                purpose = product_name.split(':', 1)[1].strip() if ':' in product_name else product_name
+                vq = price_quote(patient, 'visit', name=purpose)
+                return float(vq.rate) if vq else None
+            return 'client'   # manual lines the cashier adds keep their typed price
+
+        not_priced = []
+
         # HMO approval: vaccines covered by the HMO must carry the PA code before they can be claimed
         if is_hmo:
             missing_pa = [
@@ -5211,6 +5316,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     discount = 0
                     rate = float(imm_rec.fee or 0)
                     item_total = rate
+                else:
+                    srv = _server_rate(item, product_name, orig_model, orig_id)
+                    if srv is None:
+                        not_priced.append(product_name)
+                        continue
+                    if srv != 'client':
+                        rate = srv
+                        discount = max(0, min(100, discount))
+                        qty = max(qty, 1)
+                        item_total = qty * rate * (1 - discount / 100.0)
 
                 # Determine target document number:
                 # - For HMO patients: items marked 'Claim' go to HMO Claim (CLM-...)
@@ -5284,6 +5399,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     GetRegistrationFee.objects.filter(patient=patient).update(completed=1)
                 elif orig_model in ['PatientAppointment', 'Appointment'] and orig_id:
                     pass
+
+            if not_priced:
+                transaction.set_rollback(True)
+                return Response({
+                    'error': 'No price is set for: ' + ', '.join(not_priced)
+                             + '. Ask Accounts to add it to the price list, then generate the bill again.',
+                    'code': 'not_priced', 'items': not_priced,
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             if invoices_to_create:
                 Invoice.objects.bulk_create(invoices_to_create)
@@ -5887,7 +6010,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     queryset = Receipt.objects.all().select_related('patient', 'category', 'staff').order_by('-created_date')
     serializer_class = ReceiptSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['receipt_number', 'invoice_number', 'patient__surname', 'patient__first_name']
 
@@ -5918,59 +6041,46 @@ class DepositViewSet(viewsets.ModelViewSet):
     queryset = Deposit.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = DepositSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
 class RefundViewSet(viewsets.ModelViewSet):
     queryset = Refund.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = RefundSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
 # IPD ViewSets
-class AdmissionViewSet(viewsets.ModelViewSet):
+class AdmissionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Admitting, beds and discharge go through /api/ipd/... (IPD/services.py)."""
     queryset = AdmissionTable.objects.all().select_related('patient', 'doctor_admitted').order_by('-doctor_admit_date')
     serializer_class = AdmissionTableSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        from IPD.models import OPEN_ADMISSION_STATUSES
         qs = super().get_queryset()
         active = self.request.query_params.get('active', None)
         if active == '1':
-            qs = qs.filter(doctor_discharge_status=0)
+            qs = qs.filter(status__in=OPEN_ADMISSION_STATUSES)
         return qs
 
-    def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(doctor_admitted=user)
 
-    def perform_update(self, serializer):
-        status = serializer.validated_data.get('doctor_discharge_status')
-        if status == 1 or status == '1':
-            user = self.request.user if self.request.user.is_authenticated else None
-            user_name = user.fullname if (user and hasattr(user, 'fullname') and user.fullname) else 'Doctor'
-            serializer.save(
-                doctor_discharge_status=1,
-                doctor_discharge_date=timezone.now(),
-                doctor_discharged=user_name
-            )
-        else:
-            serializer.save()
-
-
-class WardViewSet(viewsets.ModelViewSet):
+class WardViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Wards and beds are managed through /api/ipd/wards/."""
     queryset = Ward.objects.all().prefetch_related('beds').order_by('ward_name')
     serializer_class = WardSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
 
-class BedAllocationViewSet(viewsets.ModelViewSet):
+class BedAllocationViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only. Beds are assigned through /api/ipd/admissions/<id>/assign-bed/."""
     queryset = BedAllocation.objects.all().select_related('patient', 'ward', 'bed', 'staff').order_by('-created_date')
     serializer_class = BedAllocationSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -5992,7 +6102,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
     queryset = ANCRegistration.objects.all().select_related('patient', 'created_by', 'antenatal_visit').order_by('-visit_date')
     serializer_class = ANCRegistrationSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -6357,7 +6467,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Patient ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
             patient = get_object_or_404(PatientProfile, id=patient_id)
-            
+
             # Fetch active ANC Journey or initiate a new one
             visit = self._get_or_create_active_visit(patient)
             past_completed_visits = AntenatalVisit.objects.filter(
@@ -6568,7 +6678,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             # Gestational age & EDD calculation
             from_us = bool(preg_payload.get('gestational_period_from_ultrasound'))
             preg.gestational_period_from_ultrasound = from_us
-            
+
             if parsed_lmp:
                 if not from_us or not preg_payload.get('expected_date_of_delivery'):
                     parsed_edd = parsed_lmp + timedelta(days=280)
@@ -6576,7 +6686,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 else:
                     parsed_edd = parse_date_safe(preg_payload.get('expected_date_of_delivery'))
                     preg.expected_date_of_delivery = parsed_edd
-                
+
                 if not from_us or preg_payload.get('gestational_age_weeks') in ('', None):
                     delta_days = (date.today() - parsed_lmp).days
                     calc_ga = max(0, delta_days // 7)
@@ -6649,7 +6759,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             tests.hepatitis_b = tests_payload.get('hepatitis_b', tests.hepatitis_b)
             tests.hepatitis_c = tests_payload.get('hepatitis_c', tests.hepatitis_c)
             tests.rhesus_factor = tests_payload.get('rhesus_factor', tests.rhesus_factor)
-            
+
             hb_val = tests_payload.get('hb')
             if hb_val not in ('', None):
                 try:
@@ -6687,7 +6797,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             )
         else:
             anc_reg.antenatal_visit = visit
-            anc_reg.status = 'active' 
+            anc_reg.status = 'active'
         if parsed_lmp:
             anc_reg.last_menstrual_period = parsed_lmp
         if parsed_edd:
@@ -6737,7 +6847,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 arrival_time = sched.get('time') or "09:00"
                 if len(str(arrival_time)) == 5:
                     arrival_time = f"{arrival_time}:00"
-                
+
                 clinician_name = "ANC Clinic"
                 if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
                     clinician_name = current_user.fullname
@@ -7167,7 +7277,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
 
             lmp_date = preg.last_menstrual_period if preg and preg.last_menstrual_period else (anc_reg.last_menstrual_period if anc_reg else None)
             edd_date = preg.expected_date_of_delivery if preg and preg.expected_date_of_delivery else (anc_reg.expected_delivery_date if anc_reg else None)
-            
+
             # If LMP is present but EDD is not stored, calculate EDD (Naegele's rule: LMP + 280 days)
             if lmp_date and not edd_date:
                 edd_date = lmp_date + timedelta(days=280)
@@ -7457,7 +7567,7 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
                 arrival_time = sched.get('time') or "09:00"
                 if len(str(arrival_time)) == 5:
                     arrival_time = f"{arrival_time}:00"
-                
+
                 clinician_name = "ANC Clinic"
                 if current_user and hasattr(current_user, 'fullname') and current_user.fullname:
                     clinician_name = current_user.fullname
@@ -7523,7 +7633,7 @@ class PharmacyDrugViewSet(viewsets.ModelViewSet):
     queryset = OpdDrugs.objects.all().select_related('staff').order_by('product_name')
     serializer_class = OpdDrugsSerializer
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
 
@@ -7546,7 +7656,7 @@ class RadioLabViewSet(viewsets.ModelViewSet):
     queryset = RadiologyLab.objects.all().select_related('patient', 'category', 'plan', 'staff').order_by('-created_date')
     serializer_class = RadiologyLabSerializer
     pagination_class = None
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['item', 'patient__surname', 'patient__first_name', 'patient__hospital_number']
 
@@ -7597,6 +7707,15 @@ class RadioLabViewSet(viewsets.ModelViewSet):
         file_obj = request.FILES.get('file') or request.FILES.get('scan') or request.FILES.get('file_upload')
 
         is_radio = order.item_type in ['R', 'RA', 'Radio']
+        # The PIN decides who is recorded as reporting the result (shared department computers):
+        # Radiology staff for scans, Laboratory staff for lab results (Admin/CMD for either).
+        from api.pin_identity import staff_by_pin, display_name
+        if is_radio:
+            user, pin_error = staff_by_pin(request, 'radiology', 'Radiology', 'enter scan results')
+        else:
+            user, pin_error = staff_by_pin(request, 'laboratory', 'Laboratory', 'enter lab results')
+        if pin_error:
+            return pin_error
 
         if is_radio:
             result_instance = ScanResult.objects.create(
@@ -7626,8 +7745,10 @@ class RadioLabViewSet(viewsets.ModelViewSet):
         order.save(update_fields=['completed', 'radiolab_waiting_status'])
 
         return Response({
-            'message': 'Result recorded successfully',
+            'message': f'Result recorded successfully. Reported by {display_name(user)}.',
             'order_id': order.id,
+            'reported_by': user.id,
+            'reported_by_name': display_name(user),
             'result': serializer.data
         }, status=status.HTTP_201_CREATED)
 
@@ -7635,7 +7756,9 @@ class RadioLabViewSet(viewsets.ModelViewSet):
 class LabResultViewSet(viewsets.ModelViewSet):
     queryset = LabResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
     serializer_class = LabResultSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    # Read-only: lab results are entered with the scientist's PIN (lab-order-results/bulk_save/).
+    http_method_names = ['get', 'head', 'options']
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -7649,7 +7772,9 @@ class LabResultViewSet(viewsets.ModelViewSet):
 class ScanResultViewSet(viewsets.ModelViewSet):
     queryset = ScanResult.objects.all().select_related('patient', 'staff', 'order').order_by('-created_date')
     serializer_class = ScanResultSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    # Read-only: scan results are entered with the radiographer's PIN (radio-lab/<id>/upload-result/).
+    http_method_names = ['get', 'head', 'options']
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -7668,10 +7793,16 @@ from .serializers import InventoryProductSerializer, InventoryTransactionSeriali
 class InventoryProductViewSet(viewsets.ModelViewSet):
     queryset = InventoryProduct.objects.all().order_by('-created_date')
     serializer_class = InventoryProductSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'product_id', 'description']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if str(self.request.query_params.get('include_merged') or '').lower() not in ('1', 'true', 'yes'):
+            qs = qs.filter(merged_into__isnull=True)
+        return qs
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
@@ -7686,7 +7817,7 @@ class InventoryProductViewSet(viewsets.ModelViewSet):
 class InventoryTransactionViewSet(viewsets.ModelViewSet):
     queryset = InventoryTransaction.objects.all().order_by('-created_date')
     serializer_class = InventoryTransactionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
@@ -7696,7 +7827,7 @@ class InventoryTransactionViewSet(viewsets.ModelViewSet):
 class InventoryProductRequestViewSet(viewsets.ModelViewSet):
     queryset = InventoryProductRequests.objects.all().order_by('-created_date')
     serializer_class = InventoryProductRequestSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         staff = self.request.user if self.request.user.is_authenticated else None
@@ -7711,7 +7842,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
     """
     queryset = WrittenPrescriptions.objects.all().select_related('patient', 'provider', 'dispensed_by').order_by('-created_date')
     serializer_class = WrittenPrescriptionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -7784,11 +7915,22 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
         if not user or not user.is_authenticated:
             user = User.objects.filter(is_staff=True).first() or User.objects.first()
 
+        # Price every drug now (sponsor + plan -> sponsor -> General); refuse what has no price
+        from api.pricing import price_orders
+        for p in prescriptions_list:
+            if '[Pay from your purse]' in str(p.get('comment') or '') and not p.get('is_pay_from_purse'):
+                p['is_pay_from_purse'] = True
+        priced, unpriced = price_orders(patient, [('drug', prescriptions_list)])
+        if unpriced:
+            return Response({'error': ' '.join(unpriced), 'code': 'not_priced', 'items': unpriced},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         created_items = []
         for p in prescriptions_list:
             item_name = str(p.get('item') or p.get('drug') or '').strip()
             if not item_name:
                 continue
+            pq = priced.get(id(p))
 
             dosage_form = p.get('dosage_form') or 'Tablet'
             route = p.get('route') or 'Oral'
@@ -7854,7 +7996,11 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                 dispense_detail=dispense_detail,
                 comment=comment,
                 start_date=start_date,
-                status='pending'
+                status='pending',
+                item_code=(pq.code or None) if pq else None,
+                unit_price=pq.rate if pq else None,
+                price_source=pq.source if pq else None,
+                tariff_id=pq.tariff_id if pq else None,
             )
             created_items.append(record)
 
@@ -7948,6 +8094,13 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         store_name = target_store.name
 
+        # The pharmacist confirms with their PIN. On a shared pharmacy computer the PIN (not the
+        # signed-in account) identifies who dispensed, so dispensed_by and the stock movement name
+        # the person who actually handed over the drug.
+        dispenser, pin_error = _pin_store_staff(request, target_store, 'dispense this medication')
+        if pin_error:
+            return pin_error
+
         # Match the prescription to exactly ONE catalogue item - never guess
         override_id = request.data.get('product_id')
         if override_id:
@@ -7964,7 +8117,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
                     'candidates': candidates,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user if request.user.is_authenticated else None
+        user = dispenser
         pat_str = (f"{patient.surname} {patient.first_name} (#{patient.hospital_number})" if patient else "patient")
 
         try:
@@ -8005,6 +8158,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             'remaining_stock': remaining_stock,
             'store_name': store_name,
             'drug_name': product.product_name,
+            'dispensed_by_name': _staff_display(dispenser),
             'batches': [{'batch_number': t['batch_number'] or 'unbatched',
                          'expiry_date': t['expiry_date'].isoformat() if t['expiry_date'] else None,
                          'quantity': t['quantity']} for t in taken],
@@ -8104,7 +8258,7 @@ class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
             all_store_stocks = list(StoreStock.objects.filter(store=target_store).select_related('product'))
         from inventory.stock_service import resolve_product
         stock_by_product = {ss.product_id: ss.stock for ss in all_store_stocks}
-        _catalogue = list(Product.objects.values_list('id', 'product_name'))
+        _catalogue = list(Product.objects.filter(merged_into__isnull=True).values_list('id', 'product_name'))
         _resolved = {}
 
         def get_pharmacy_stock_for_item(item_name):
@@ -8307,7 +8461,7 @@ class PharmacyStoreViewSet(viewsets.ModelViewSet):
     """
     queryset = PharmacyStore.objects.all().select_related('in_charge').prefetch_related('departments').order_by('-is_central', 'name')
     serializer_class = PharmacyStoreSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -8428,6 +8582,8 @@ def _pin_staff(request, purpose):
     for cand in User.objects.filter(is_active=True):
         if getattr(cand, 'has_pin', False) and cand.check_pin(raw):
             return cand, None
+    from api.audit import pin_failed
+    pin_failed(request, purpose)
     return None, Response(
         {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
         status=status.HTTP_400_BAD_REQUEST,
@@ -8454,6 +8610,9 @@ def _pin_store_staff(request, store, purpose):
     if len(matches) == 1:
         return matches[0], None
     if not matches:
+        # Logged against the account signed in at that computer (the PIN itself is never stored).
+        from api.audit import pin_failed
+        pin_failed(request, f'{purpose} at {store.name}', store_id=store.id, store=store.name)
         return None, Response({'error': f'PIN not recognised for any staff of {store.name}.', 'code': 'pin_invalid'},
                               status=status.HTTP_400_BAD_REQUEST)
     return None, Response({'error': f'This PIN is shared by {len(matches)} staff of {store.name}, so the receiver cannot be '
@@ -8501,7 +8660,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
     """
     queryset = StoreStock.objects.all().select_related('store', 'product').prefetch_related('batches').order_by('store', 'product__product_name')
     serializer_class = StoreStockSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -8513,7 +8672,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 target_store = PharmacyStore.objects.filter(id=store_id).first()
                 if target_store and (target_store.is_central or target_store.store_type == 'central_store'):
                     existing_product_ids = set(StoreStock.objects.filter(store=target_store).values_list('product_id', flat=True))
-                    missing_products = Product.objects.exclude(id__in=existing_product_ids)
+                    missing_products = Product.objects.filter(merged_into__isnull=True).exclude(id__in=existing_product_ids)
                     if missing_products.exists():
                         new_stocks = [
                             StoreStock(
@@ -8532,6 +8691,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         # Only the stores assigned to the user's department (admins: all)
         from inventory.permissions import scope_to_user_stores
         qs = scope_to_user_stores(qs, self.request.user, 'store')
+        qs = qs.filter(product__merged_into__isnull=True)   # merged duplicates hold no stock
         product_id = self.request.query_params.get('product', None)
         if product_id:
             qs = qs.filter(product_id=product_id)
@@ -8641,6 +8801,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     break
 
         if not staff_user:
+            from api.audit import pin_failed
+            pin_failed(request, 'edit a medication stock record', stock_id=stock_id)
             return Response(
                 {'error': 'Incorrect Security PIN. Authorization denied. Please enter your valid 4-digit staff PIN.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -8849,7 +9011,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
         category = (request.query_params.get('category') or 'all').lower()
 
         # Query all products in database
-        products_qs = Product.objects.all().order_by('product_name')
+        products_qs = Product.objects.filter(merged_into__isnull=True).order_by('product_name')
         from inventory.categories import normalize_category, infer_product_category, CATEGORY_LABELS
         category_code = '' if category == 'all' else normalize_category(category)
 
@@ -9062,7 +9224,7 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 if not uom:
                     # No dosage type in the sheet: derive it (vaccine -> vial, cream -> tubes, ...)
                     uom = _infer_uom(row_category, name)
-                
+
                 # Only the delivered quantity counts. "Current_In_Stock" is what is ALREADY on the
                 # shelf - adding it again would double the stock.
                 qty_raw = None
@@ -9083,16 +9245,38 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                 batch_num = str(clean.get('batch_number') or clean.get('batch') or clean.get('lot') or '').strip()
                 expiry = clean.get('expiry_date') or clean.get('expiry') or None
                 if expiry:
-                    expiry = str(expiry).strip()[:10]
+                    # Excel dates arrive as datetime/date or text in several layouts; store YYYY-MM-DD
+                    import datetime as _dt
+                    if isinstance(expiry, (_dt.datetime, _dt.date)):
+                        exp_date = expiry.date() if isinstance(expiry, _dt.datetime) else expiry
+                    else:
+                        exp_date = None
+                        txt = str(expiry).strip()[:10]
+                        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y/%m/%d'):
+                            try:
+                                exp_date = _dt.datetime.strptime(txt, fmt).date()
+                                break
+                            except ValueError:
+                                pass
+                    if not exp_date:
+                        row_errors.append(f"Row {idx + 1} ({name}): expiry date '{expiry}' is not a date (use YYYY-MM-DD or DD/MM/YYYY).")
+                        continue
+                    if exp_date <= timezone.localdate():
+                        row_errors.append(f"Row {idx + 1} ({name}): batch expired on {exp_date:%d %b %Y}; expired stock is not received.")
+                        continue
+                    expiry = exp_date.isoformat()
 
                 cost_raw = clean.get('unit_cost') or clean.get('cost') or clean.get('price') or clean.get('rate') or 0
+                from api.money import parse_money, MoneyError
                 try:
-                    cost = Decimal(str(cost_raw).replace(',', '').replace('₦', '').strip())
-                except Exception:
-                    cost = Decimal('0.00')
+                    cost = parse_money(cost_raw, 'Unit cost')
+                except MoneyError as e:
+                    row_errors.append(f"Row {idx + 1} ({name}): {e}")
+                    continue
 
                 # 1. Product
-                prod = Product.objects.filter(product_name__iexact=name).first()
+                prod = Product.objects.filter(product_name__iexact=name).select_related('merged_into').first()
+                prod = prod.live if prod else None   # a merged duplicate's name books into the kept product
                 if not prod:
                     sku = get_next_isl_sku()
                     prod = Product.objects.create(
@@ -9129,17 +9313,8 @@ class StoreStockViewSet(viewsets.ModelViewSet):
                     row_errors.append(f"Row {idx + 1} ({name}): {e}")
                     continue
 
-                # 6. General tariff - only overwrite the price when the sheet gives one
-                tariff = PharmacyTariff.objects.filter(product_name=prod.product_name, sponsor=None, plan=None).first()
-                if tariff is None:
-                    PharmacyTariff.objects.create(
-                        product_name=prod.product_name, product_id=prod.product_id, sponsor=None, plan=None,
-                        rate=cost if cost > 0 else Decimal('500.00'), staff=staff,
-                    )
-                elif cost > 0 and tariff.rate != cost:
-                    tariff.rate = cost
-                    tariff.staff = staff
-                    tariff.save()
+                # 6. Selling prices are NOT set here. The store books stock (and the purchase cost on
+                #    the product); selling prices per sponsor / plan come only from the price lists.
 
                 stocked_count += 1
                 total_units += qty
@@ -9275,7 +9450,7 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         'source_store', 'destination_store', 'dispatched_by', 'received_by'
     ).prefetch_related('items__product').order_by('-created_date')
     serializer_class = StockTransferSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -9326,12 +9501,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         dest_store = PharmacyStore.objects.filter(id=dest_id).first()
         if not source_store or not dest_store:
             return Response({'error': 'Invalid source or destination store'}, status=status.HTTP_404_NOT_FOUND)
-        from inventory.permissions import store_denied
-        denied = store_denied(request.user, source_store, 'issue stock')
-        if denied:
-            return denied
-
-        user = request.user if request.user.is_authenticated else None
+        # The PIN identifies the sender: a staff member of the store the stock leaves from
+        user, err = _pin_store_staff(request, source_store, 'send this stock')
+        if err:
+            return err
         transfer_number = f"TRF-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
 
         try:
@@ -9361,8 +9534,17 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                 if not lines:
                     raise ValueError('At least one drug item must be selected for transfer')
 
-                serializer = self.get_serializer(transfer)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                from notifications.services import notify_store
+                notify_store(
+                    dest_store, kind='transfer_new', actor=user,
+                    title=f"Stock sent to you from {source_store.name}",
+                    message=f"#{transfer.transfer_number} · {lines} line(s) sent by {_staff_display(user)}. "
+                            f"Count it and accept with your PIN.",
+                    link='/inventory/transfers', level='info', icon='fa-truck', ref=f'transfer:{transfer.pk}')
+
+                data = dict(self.get_serializer(transfer).data)
+                data['message'] = f"Sent to {dest_store.name} by {_staff_display(user)}. It is in transit until they accept it."
+                return Response(data, status=status.HTTP_201_CREATED)
 
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -9442,6 +9624,14 @@ class StockTransferViewSet(viewsets.ModelViewSet):
             return Response({'error': f"Failed to receive stock: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         transfer.refresh_from_db()
+        from notifications.services import notify_store
+        notify_store(
+            transfer.source_store, kind='transfer_received', actor=user,
+            title=f"{transfer.destination_store.name} accepted #{transfer.transfer_number}",
+            message=(f"Received by {_staff_display(user)} with shortages: {'; '.join(shortages)}." if shortages
+                     else f"Received by {_staff_display(user)}; everything counted correct."),
+            link='/inventory/transfers', level='warning' if shortages else 'success',
+            icon='fa-exclamation-triangle' if shortages else 'fa-check-circle', ref=f'transfer:{transfer.pk}')
         msg = f"Stock received into {transfer.destination_store.name} by {_staff_display(user)}."
         if shortages:
             msg += f" Discrepancy recorded - {'; '.join(shortages)}."
@@ -9462,7 +9652,7 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
         'requesting_store', 'fulfilling_store', 'requested_by', 'approved_by'
     ).prefetch_related('items__product').order_by('-created_date')
     serializer_class = StockRequisitionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -9556,6 +9746,15 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                 if not lines:
                     raise ValueError('At least one medication must be requested')
 
+                from notifications.services import notify_store
+                urgent = requisition.priority in ('urgent', 'emergency')
+                notify_store(
+                    requisition.fulfilling_store, kind='requisition_new', actor=request.user,
+                    title=f"{'URGENT: ' if urgent else ''}Stock request from {requisition.requesting_store.name}",
+                    message=f"#{requisition.requisition_number} · {lines} item(s) requested from {requisition.fulfilling_store.name}.",
+                    link='/inventory/requests', level='danger' if urgent else 'warning', icon='fa-dolly',
+                    ref=f'requisition:{requisition.pk}')
+
                 serializer = self.get_serializer(requisition)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -9585,10 +9784,10 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
                 req = StockRequisition.objects.select_for_update().select_related(
                     'requesting_store', 'fulfilling_store'
                 ).get(pk=self.get_object().pk)
-                from inventory.permissions import store_denied
-                denied = store_denied(request.user, req.fulfilling_store, 'issue stock')
-                if denied:
-                    return denied
+                # The PIN identifies the sender: a staff member of the store that issues the stock
+                user, err = _pin_store_staff(request, req.fulfilling_store, 'issue this stock')
+                if err:
+                    return err
                 if req.status not in ('pending', 'approved'):
                     raise StockError(f"Requisition #{req.requisition_number} is already "
                                      f"{req.get_status_display().lower()} - it cannot be issued again.")
@@ -9652,9 +9851,18 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
             return Response({'error': f"Failed to fulfill requisition: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         partial = [f"{i.product.product_name} {q}/{i.quantity_requested}" for i, q in plan if q < i.quantity_requested]
+        from notifications.services import notify_store
+        notify_store(
+            req.requesting_store, kind='requisition_dispatched', actor=user,
+            title=f"Stock on the way from {req.fulfilling_store.name}",
+            message=f"#{req.requisition_number} sent by {_staff_display(user)} ({transfer.transfer_number})."
+                    + (f" Partly supplied: {', '.join(partial)}." if partial else '')
+                    + " Count it and accept with your PIN.",
+            link='/inventory/requests', level='warning' if partial else 'info', icon='fa-truck',
+            ref=f'requisition:{req.pk}')
         return Response({
             'success': True,
-            'message': f"Requisition #{req.requisition_number} issued and dispatched to {req.requesting_store.name}!"
+            'message': f"Requisition #{req.requisition_number} sent to {req.requesting_store.name} by {_staff_display(user)}."
                        + (f" Partly supplied: {', '.join(partial)}." if partial else ''),
             'transfer_number': transfer.transfer_number
         }, status=status.HTTP_200_OK)
@@ -9687,6 +9895,17 @@ class StockRequisitionViewSet(viewsets.ModelViewSet):
             req.notes = f"{req.notes}\n{tag}" if req.notes else tag
             req.save(update_fields=['status', 'approved_by', 'notes', 'updated_date'])
             req.items.update(quantity_approved=0)
+        from notifications.services import notify_store
+        if new_status == 'rejected':
+            notify_store(req.requesting_store, kind='requisition_rejected', actor=user,
+                         title=f"Request #{req.requisition_number} rejected by {req.fulfilling_store.name}",
+                         message=f"{_staff_display(user)}: {reason}", link='/inventory/requests', level='danger',
+                         icon='fa-times-circle', ref=f'requisition:{req.pk}')
+        else:
+            notify_store(req.fulfilling_store, kind='requisition_cancelled', actor=user,
+                         title=f"Request #{req.requisition_number} cancelled by {req.requesting_store.name}",
+                         message=f"{_staff_display(user)}: {reason}", link='/inventory/requests', level='info',
+                         icon='fa-ban', ref=f'requisition:{req.pk}')
         return Response({'success': True, 'message': f"Requisition #{req.requisition_number} {new_status}.",
                          'requisition': self.get_serializer(req).data}, status=status.HTTP_200_OK)
 
@@ -9707,7 +9926,7 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = StockMovement.objects.all().select_related('store', 'product', 'performed_by').order_by('-created_date')
     serializer_class = StockMovementSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -9731,7 +9950,7 @@ class PharmacyVendorViewSet(viewsets.ModelViewSet):
     """
     queryset = PharmacyVendor.objects.all().order_by('name')
     serializer_class = PharmacyVendorSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):

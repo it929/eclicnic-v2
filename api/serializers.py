@@ -507,7 +507,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
         if vitals.created_date:
             local_dt = timezone.localtime(vitals.created_date)
             created_time_str = local_dt.strftime('%H:%M')
-            created_date_str = local_dt.strftime('%b %d, %Y %H:%M')
+            created_date_str = local_dt.strftime('%d %b %Y, %H:%M')
 
         return {
             'id': vitals.id,
@@ -1252,6 +1252,34 @@ class StockRequisitionSerializer(serializers.ModelSerializer):
     item_count = serializers.SerializerMethodField(read_only=True)
     transfer_id = serializers.SerializerMethodField(read_only=True)
     transfer_number = serializers.SerializerMethodField(read_only=True)
+    dispatched_by_name = serializers.SerializerMethodField(read_only=True)
+    dispatched_at = serializers.SerializerMethodField(read_only=True)
+    received_by_name = serializers.SerializerMethodField(read_only=True)
+    received_at = serializers.SerializerMethodField(read_only=True)
+
+    def _trf(self, obj):
+        if not hasattr(obj, '_first_trf'):
+            obj._first_trf = obj.transfers.select_related('dispatched_by', 'received_by').first()
+        return obj._first_trf
+
+    def _who(self, u):
+        return (u.fullname or u.username) if u else None
+
+    def get_dispatched_by_name(self, obj):
+        t = self._trf(obj)
+        return self._who(t.dispatched_by) if t else None
+
+    def get_dispatched_at(self, obj):
+        t = self._trf(obj)
+        return t.dispatched_at if t else None
+
+    def get_received_by_name(self, obj):
+        t = self._trf(obj)
+        return self._who(t.received_by) if t else None
+
+    def get_received_at(self, obj):
+        t = self._trf(obj)
+        return t.received_at if t else None
 
     def get_item_count(self, obj):
         return obj.items.count()
@@ -1270,6 +1298,7 @@ class StockRequisitionSerializer(serializers.ModelSerializer):
             'id', 'requisition_number', 'requesting_store', 'requesting_store_name',
             'fulfilling_store', 'fulfilling_store_name', 'status', 'priority',
             'notes', 'items', 'item_count', 'transfer_id', 'transfer_number',
+            'dispatched_by_name', 'dispatched_at', 'received_by_name', 'received_at',
             'requested_by', 'requested_by_name',
             'approved_by', 'approved_by_name',
             'created_date', 'updated_date'

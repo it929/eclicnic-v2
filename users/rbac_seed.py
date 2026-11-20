@@ -113,7 +113,7 @@ DEFAULT_MODULES = [
         'submodules': [
             {'code': 'nrVitals', 'name': 'Nurse Triage & Vitals', 'icon': 'fa-heartbeat', 'tab_key': 'queues', 'route': '/queues/vitals', 'order': 1},
             {'code': 'nrQueues', 'name': 'Patient Waiting List', 'icon': 'fa-clock', 'tab_key': 'queues', 'route': '/queues/waiting', 'order': 2},
-            {'code': 'nrBeds', 'name': 'Ward Beds & Admissions', 'icon': 'fa-bed', 'tab_key': 'ipd', 'route': '/ipd/beds', 'order': 3},
+            {'code': 'nrBeds', 'name': 'Ward Beds & Admissions', 'icon': 'fa-bed', 'tab_key': 'ipd', 'sub_tab': 'beds', 'route': '/ipd/beds', 'order': 3},
             {'code': 'nrANC', 'name': 'Antenatal Triage', 'icon': 'fa-baby', 'tab_key': 'anc', 'route': '/anc', 'order': 4},
             {'code': 'nrPatients', 'name': 'Registered Patients', 'icon': 'fa-hospital-user', 'tab_key': 'patients', 'route': '/patients/all', 'order': 5},
         ]
@@ -152,6 +152,23 @@ DEFAULT_MODULES = [
             {'code': 'invRequests', 'name': 'Store Product Requisitions', 'icon': 'fa-dolly', 'tab_key': 'inventory', 'sub_tab': 'request', 'route': '/inventory/requests', 'order': 4},
             {'code': 'invVendors', 'name': 'Vendors & Suppliers', 'icon': 'fa-truck', 'tab_key': 'inventory', 'sub_tab': 'vendor', 'route': '/inventory/vendors', 'order': 5},
             {'code': 'invLog', 'name': 'Inventory Audit Logs', 'icon': 'fa-clipboard-check', 'tab_key': 'inventory', 'sub_tab': 'log', 'route': '/inventory/logs', 'order': 6},
+            {'code': 'invOpening', 'name': 'Opening Stock (Go-live)', 'icon': 'fa-flag-checkered', 'tab_key': 'inventory', 'sub_tab': 'opening', 'route': '/inventory/opening-stock', 'order': 8, 'admin_only': True},
+            {'code': 'invMerge', 'name': 'Merge Duplicate Products', 'icon': 'fa-compress-alt', 'tab_key': 'inventory', 'sub_tab': 'merge', 'route': '/inventory/merge-products', 'order': 7, 'admin_only': True},
+        ]
+    },
+    {
+        'code': 'inpatient',
+        'name': 'Inpatient (IPD)',
+        'icon': 'fa-procedures',
+        'color': '#1e3a8a',
+        'primary_tab': 'ipd',
+        'order': 9,
+        'description': 'Admitted patients, bed assignment, transfers and discharge; bed board; ward & bed setup',
+        'submodules': [
+            {'code': 'ipdAdmitted', 'name': 'Admitted Patients', 'icon': 'fa-procedures', 'tab_key': 'ipd', 'sub_tab': 'admitted', 'route': '/ipd/admitted', 'order': 1},
+            {'code': 'ipdWards', 'name': 'Bed Board', 'icon': 'fa-th', 'tab_key': 'ipd', 'sub_tab': 'beds', 'route': '/ipd/beds', 'order': 2},
+            {'code': 'ipdWardSetup', 'name': 'Wards', 'icon': 'fa-hospital', 'tab_key': 'ipd', 'sub_tab': 'wards', 'route': '/ipd/wards', 'order': 3, 'admin_only': True},
+            {'code': 'ipdBedSetup', 'name': 'Beds', 'icon': 'fa-bed', 'tab_key': 'ipd', 'sub_tab': 'bed-setup', 'route': '/ipd/bed-setup', 'order': 4, 'admin_only': True},
         ]
     },
     {
@@ -305,7 +322,7 @@ DEFAULT_MODULES = [
 
 ALL_SYSTEM_MODULE_CODES = [
     'fd_registration', 'fd_records', 'fd_appointments', 'fd_attendance', 'fd_uploads', 'fd_billing',
-    'nursing', 'clinical', 'inventory', 'ipd_pharmacy', 'opd_pharmacy', 'laboratory',
+    'nursing', 'clinical', 'inpatient', 'inventory', 'ipd_pharmacy', 'opd_pharmacy', 'laboratory',
     'radiology', 'billings', 'anc', 'reporting', 'taskmanager', 'tariffs'
 ]
 
@@ -332,13 +349,13 @@ DEFAULT_ROLE_CONFIGS = [
         'name': 'Nursing',
         'description': 'Nurse station triage, patient waiting list, ward admissions & maternal health nursing',
         'is_system': False,
-        'modules': ['nursing', 'clinical', 'anc', 'ipd_pharmacy']
+        'modules': ['nursing', 'clinical', 'inpatient', 'anc', 'ipd_pharmacy']
     },
     {
         'name': 'Clinical',
         'description': 'Doctor consultations, medical diagnoses, diagnostic test ordering & patient health charts',
         'is_system': False,
-        'modules': ['clinical', 'nursing', 'laboratory', 'radiology', 'anc']
+        'modules': ['clinical', 'nursing', 'inpatient', 'laboratory', 'radiology', 'anc']
     },
     {
         'name': 'Inventory',
@@ -489,8 +506,11 @@ def seed_rbac(force_reassign_frontdesk=True):
                 if not mod_obj:
                     continue
                 perm, _ = RolePermission.objects.get_or_create(role=role_obj, module=mod_obj)
-                # Assign all submodules of this module by default
+                # Assign all submodules of this module by default (admin-only ones to Admin / CMD only)
                 all_subs = mod_obj.submodules.all()
+                if role_obj.name.strip().lower() not in ('admin', 'cmd'):
+                    admin_only = {s['code'] for m in DEFAULT_MODULES for s in m.get('submodules', []) if s.get('admin_only')}
+                    all_subs = all_subs.exclude(code__in=admin_only)
                 perm.submodules.set(all_subs)
 
     # 4. Link existing users to Roles

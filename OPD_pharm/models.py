@@ -194,7 +194,7 @@ class OPDAdministeredDrugs(models.Model):
         if self.start_date:
             from datetime import date
             if self.start_date > date.today():
-                instruction += f" Start on {self.start_date.strftime('%B %d, %Y')}."
+                instruction += f" Start on {self.start_date.strftime('%d %B %Y')}."
         
         return instruction
     

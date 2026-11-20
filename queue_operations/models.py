@@ -429,6 +429,11 @@ class WrittenPrescriptions(models.Model):
     dispensed_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='dispensed_prescriptions')
     is_anc_template = models.BooleanField(default=False, db_index=True)
     anc_template_name = models.CharField(max_length=150, null=True, blank=True)
+    # Price fixed when the doctor orders it (api/pricing.py) - later tariff edits do not change it
+    item_code = models.CharField(max_length=20, null=True, blank=True)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    price_source = models.CharField(max_length=20, null=True, blank=True)   # 'plan' | 'sponsor' | 'general'
+    tariff_id = models.PositiveIntegerField(null=True, blank=True)
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
     provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
     created_date = models.DateTimeField(auto_now_add=True)

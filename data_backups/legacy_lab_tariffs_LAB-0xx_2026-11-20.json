@@ -1,0 +1,597 @@
+[
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 1,
+  "fields": {
+    "item": "Full Blood Count (FBC / CBC)",
+    "item_id": "LAB-001",
+    "rate": "3500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T15:41:00.736Z",
+    "updated_date": "2026-10-13T16:05:13.806Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 21,
+  "fields": {
+    "item": "Full Blood Count (FBC / CBC)",
+    "item_id": "LAB-001",
+    "rate": "3500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.182Z",
+    "updated_date": "2026-10-13T18:19:37.182Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 31,
+  "fields": {
+    "item": "Full Blood Count (FBC / CBC)",
+    "item_id": "LAB-001",
+    "rate": "2500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.163Z",
+    "updated_date": "2026-10-14T11:43:44.163Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 58,
+  "fields": {
+    "item": "Full Blood Count (FBC / CBC)",
+    "item_id": "LAB-001",
+    "rate": "3000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.779Z",
+    "updated_date": "2026-10-20T10:19:45.779Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 72,
+  "fields": {
+    "item": "Full Blood Count (FBC / CBC)",
+    "item_id": "LAB-001",
+    "rate": "3500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.135Z",
+    "updated_date": "2026-10-22T12:29:15.135Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 2,
+  "fields": {
+    "item": "Malaria Parasite (MP by Microscopy)",
+    "item_id": "LAB-002",
+    "rate": "1500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.843Z",
+    "updated_date": "2026-10-13T16:05:13.843Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 22,
+  "fields": {
+    "item": "Malaria Parasite (MP by Microscopy)",
+    "item_id": "LAB-002",
+    "rate": "1500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.218Z",
+    "updated_date": "2026-10-13T18:19:37.218Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 32,
+  "fields": {
+    "item": "Malaria Parasite (MP by Microscopy)",
+    "item_id": "LAB-002",
+    "rate": "1300.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.200Z",
+    "updated_date": "2026-10-14T11:43:44.200Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 57,
+  "fields": {
+    "item": "Malaria Parasite (MP by Microscopy)",
+    "item_id": "LAB-002",
+    "rate": "1500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.778Z",
+    "updated_date": "2026-10-20T10:19:45.778Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 73,
+  "fields": {
+    "item": "Malaria Parasite (MP by Microscopy)",
+    "item_id": "LAB-002",
+    "rate": "1500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.146Z",
+    "updated_date": "2026-10-22T12:29:15.146Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 4,
+  "fields": {
+    "item": "Urinalysis (10-Parameter Strip)",
+    "item_id": "LAB-004",
+    "rate": "1200.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.859Z",
+    "updated_date": "2026-10-13T16:05:13.859Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 24,
+  "fields": {
+    "item": "Urinalysis (10-Parameter Strip)",
+    "item_id": "LAB-004",
+    "rate": "1200.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.229Z",
+    "updated_date": "2026-10-13T18:19:37.229Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 34,
+  "fields": {
+    "item": "Urinalysis (10-Parameter Strip)",
+    "item_id": "LAB-004",
+    "rate": "1000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.219Z",
+    "updated_date": "2026-10-14T11:43:44.219Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 59,
+  "fields": {
+    "item": "Urinalysis (10-Parameter Strip)",
+    "item_id": "LAB-004",
+    "rate": "1200.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.780Z",
+    "updated_date": "2026-10-20T10:19:45.780Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 75,
+  "fields": {
+    "item": "Urinalysis (10-Parameter Strip)",
+    "item_id": "LAB-004",
+    "rate": "1200.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.163Z",
+    "updated_date": "2026-10-22T12:29:15.163Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 6,
+  "fields": {
+    "item": "Lipid Profile (Full)",
+    "item_id": "LAB-006",
+    "rate": "6500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.873Z",
+    "updated_date": "2026-10-13T16:05:13.873Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 26,
+  "fields": {
+    "item": "Lipid Profile (Full)",
+    "item_id": "LAB-006",
+    "rate": "6500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.240Z",
+    "updated_date": "2026-10-13T18:19:37.240Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 36,
+  "fields": {
+    "item": "Lipid Profile (Full)",
+    "item_id": "LAB-006",
+    "rate": "5500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.235Z",
+    "updated_date": "2026-10-14T11:43:44.235Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 53,
+  "fields": {
+    "item": "Lipid Profile (Full)",
+    "item_id": "LAB-006",
+    "rate": "6000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.770Z",
+    "updated_date": "2026-10-20T10:19:45.770Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 77,
+  "fields": {
+    "item": "Lipid Profile (Full)",
+    "item_id": "LAB-006",
+    "rate": "6500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.181Z",
+    "updated_date": "2026-10-22T12:29:15.181Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 8,
+  "fields": {
+    "item": "Kidney Function Test (Electrolytes, Urea, Creatinine)",
+    "item_id": "LAB-008",
+    "rate": "6000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.885Z",
+    "updated_date": "2026-10-13T16:05:13.885Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 28,
+  "fields": {
+    "item": "Kidney Function Test (Electrolytes, Urea, Creatinine)",
+    "item_id": "LAB-008",
+    "rate": "6000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.251Z",
+    "updated_date": "2026-10-13T18:19:37.251Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 38,
+  "fields": {
+    "item": "Kidney Function Test (Electrolytes, Urea, Creatinine)",
+    "item_id": "LAB-008",
+    "rate": "4800.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.252Z",
+    "updated_date": "2026-10-14T11:43:44.252Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 60,
+  "fields": {
+    "item": "Kidney Function Test (Electrolytes, Urea, Creatinine)",
+    "item_id": "LAB-008",
+    "rate": "5500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.782Z",
+    "updated_date": "2026-10-20T10:19:45.782Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 79,
+  "fields": {
+    "item": "Kidney Function Test (Electrolytes, Urea, Creatinine)",
+    "item_id": "LAB-008",
+    "rate": "6000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.200Z",
+    "updated_date": "2026-10-22T12:29:15.200Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 9,
+  "fields": {
+    "item": "Stool Microscopy, Culture & Sensitivity",
+    "item_id": "LAB-009",
+    "rate": "4000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.891Z",
+    "updated_date": "2026-10-13T16:05:13.891Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 29,
+  "fields": {
+    "item": "Stool Microscopy, Culture & Sensitivity",
+    "item_id": "LAB-009",
+    "rate": "4000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.258Z",
+    "updated_date": "2026-10-13T18:19:37.258Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 39,
+  "fields": {
+    "item": "Stool Microscopy, Culture & Sensitivity",
+    "item_id": "LAB-009",
+    "rate": "3000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.259Z",
+    "updated_date": "2026-10-14T11:43:44.259Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 56,
+  "fields": {
+    "item": "Stool Microscopy, Culture & Sensitivity",
+    "item_id": "LAB-009",
+    "rate": "3500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.776Z",
+    "updated_date": "2026-10-20T10:19:45.776Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 80,
+  "fields": {
+    "item": "Stool Microscopy, Culture & Sensitivity",
+    "item_id": "LAB-009",
+    "rate": "4000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.207Z",
+    "updated_date": "2026-10-22T12:29:15.207Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 10,
+  "fields": {
+    "item": "Hepatitis B Surface Antigen (HBsAg Screening)",
+    "item_id": "LAB-010",
+    "rate": "2500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 2,
+    "plan": 74,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T16:05:13.897Z",
+    "updated_date": "2026-10-13T16:05:13.897Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 30,
+  "fields": {
+    "item": "Hepatitis B Surface Antigen (HBsAg Screening)",
+    "item_id": "LAB-010",
+    "rate": "2500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 73,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-13T18:19:37.264Z",
+    "updated_date": "2026-10-13T18:19:37.264Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 40,
+  "fields": {
+    "item": "Hepatitis B Surface Antigen (HBsAg Screening)",
+    "item_id": "LAB-010",
+    "rate": "2000.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 65,
+    "plan": 72,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-14T11:43:44.265Z",
+    "updated_date": "2026-10-14T11:43:44.266Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 51,
+  "fields": {
+    "item": "Hepatitis B Surface Antigen (HBsAg Screening)",
+    "item_id": "LAB-010",
+    "rate": "2500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": null,
+    "plan": null,
+    "parameter_ids": [],
+    "staff": 6,
+    "created_date": "2026-10-20T10:19:45.733Z",
+    "updated_date": "2026-10-20T10:19:45.733Z"
+  }
+},
+{
+  "model": "radio_lab.radiolabinventory",
+  "pk": 81,
+  "fields": {
+    "item": "Hepatitis B Surface Antigen (HBsAg Screening)",
+    "item_id": "LAB-010",
+    "rate": "2500.00",
+    "type": "L",
+    "test_type": "investigation",
+    "sponsor": 11,
+    "plan": 80,
+    "parameter_ids": [],
+    "staff": 2,
+    "created_date": "2026-10-22T12:29:15.214Z",
+    "updated_date": "2026-10-22T12:29:15.214Z"
+  }
+}
+]

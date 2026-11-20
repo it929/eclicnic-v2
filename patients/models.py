@@ -203,8 +203,9 @@ class PatientProfile(models.Model):
     def age(self):
         return self.get_age
     def is_admitted(self):
+        from IPD.models import OPEN_ADMISSION_STATUSES
         return AdmissionTable.objects.filter(
-            doctor_discharge_status=0,
+            status__in=OPEN_ADMISSION_STATUSES,
             patient=self
         ).exists()
     

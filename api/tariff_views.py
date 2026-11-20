@@ -1,4 +1,5 @@
 from rest_framework import status, permissions
+from api.money import parse_money, MoneyError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from decimal import Decimal
@@ -19,7 +20,7 @@ from users.models import User
 
 # 1.1 Registration Fees
 class RegistrationFeeView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         plans = RegFee.objects.all().order_by('plan_name')
@@ -77,8 +78,58 @@ class RegistrationFeeView(APIView):
 
 
 # 1.2 Laboratory Charges
+def lab_catalogue_index():
+    """
+    Lookup used to tell whether a lab price-list test can be found by the lab.
+
+    Result entry (lab_views.LabOrderResultsView) matches the ORDERED NAME, case-insensitively,
+    against investigation name/code first, then parameter name/code. Orders store only the name,
+    so a price-list row is "linked" only when its name matches; a matching code alone is not enough.
+    """
+    by_name, by_code = {}, {}
+    for kind, rows in (('parameter', LabParameter.objects.values_list('code', 'name')),
+                       ('investigation', LabInvestigation.objects.values_list('code', 'name'))):
+        # investigations are written last so they win, as in result entry
+        for code, name in rows:
+            entry = {'kind': kind, 'code': code or '', 'name': name or ''}
+            if name:
+                by_name[name.strip().lower()] = entry
+            if code:
+                by_name[code.strip().lower()] = entry   # an order named exactly like a code also matches
+                by_code[code.strip().upper()] = entry
+    return by_name, by_code
+
+
+def lab_catalogue_link(item_name, item_code, index):
+    """{'status': linked | name_differs | unlinked, 'kind', 'code', 'name'} for one price-list test."""
+    by_name, by_code = index
+    hit = by_name.get((item_name or '').strip().lower())
+    if hit:
+        return {'status': 'linked', **hit}
+    hit = by_code.get((item_code or '').strip().upper())
+    if hit:
+        return {'status': 'name_differs', **hit}
+    return {'status': 'unlinked', 'kind': None, 'code': '', 'name': ''}
+
+
+def lab_link_warning(link, item_name):
+    """Plain-language warning for a test the lab cannot match, or None."""
+    if link['status'] == 'name_differs':
+        return (f'"{item_name}" is not the name used in the lab catalogue ("{link["name"]}", {link["code"]}). '
+                f'Orders under this name will reach the lab without its result sheet. Rename it to "{link["name"]}".')
+    if link['status'] == 'unlinked':
+        return (f'"{item_name}" is not in the lab catalogue (Investigations & Panels or Parameters). '
+                f'Orders for it will reach the lab without a result sheet. Add it to the catalogue or use the catalogue name.')
+    return None
+
+
+def _link_payload(obj):
+    link = lab_catalogue_link(obj.item, obj.item_id, lab_catalogue_index())
+    return {'catalogue_link': link, 'catalogue_warning': lab_link_warning(link, obj.item)}
+
+
 class LabChargesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         qs = RadioLabInventory.objects.filter(type='L').select_related('sponsor', 'plan', 'plan__sponsor').order_by('item')
@@ -154,6 +205,19 @@ class LabChargesView(APIView):
                 Q(item_id__icontains=search)
             )
 
+        # Can the lab find each test? (see lab_catalogue_index). Counted over the whole price list,
+        # so the warning does not depend on the filters in use.
+        link_index = lab_catalogue_index()
+        unlinked_tests = {}
+        for name, code in RadioLabInventory.objects.filter(type='L').values_list('item', 'item_id'):
+            lk = lab_catalogue_link(name, code, link_index)
+            if lk['status'] != 'linked':
+                unlinked_tests.setdefault((name or '').strip().lower(), {
+                    'item': name, 'item_id': code or '', 'status': lk['status'],
+                    'catalogue_code': lk['code'], 'catalogue_name': lk['name'], 'price_rows': 0,
+                })['price_rows'] += 1
+        link_filter = request.query_params.get('link', '').strip().lower()
+
         # Pre-cache code/name to category maps and investigations with parameter mappings
         inv_objs = list(LabInvestigation.objects.prefetch_related('parameter_mappings__parameter').all())
         inv_map = {inv.code.strip().upper(): (inv.category or 'General', inv.name) for inv in inv_objs if inv.code}
@@ -183,6 +247,9 @@ class LabChargesView(APIView):
 
         data = []
         for item in qs:
+            link = lab_catalogue_link(item.item, item.item_id, link_index)
+            if link_filter == 'unlinked' and link['status'] == 'linked':
+                continue
             eff_sponsor = item.sponsor or (item.plan.sponsor if item.plan else None)
             is_gen = bool(not eff_sponsor and not item.plan)
             code_upper = (item.item_id or '').strip().upper()
@@ -300,13 +367,20 @@ class LabChargesView(APIView):
                 'plan_code': item.plan.code if item.plan else ('GENERAL' if is_gen else ''),
                 'is_general': is_gen,
                 'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
+                'catalogue_link': link,
             })
-        return Response({'total': len(data), 'charges': data, 'results': data})
+        return Response({
+            'total': len(data), 'charges': data, 'results': data,
+            'unlinked_tests': sorted(unlinked_tests.values(), key=lambda t: (t['item'] or '').lower()),
+        })
 
     def post(self, request):
         item_name = request.data.get('item', '').strip() or request.data.get('item_name', '').strip()
         item_id = request.data.get('item_id', '').strip()
-        rate = request.data.get('rate', 0)
+        try:
+            rate = parse_money(request.data.get('rate', 0), 'Rate')
+        except MoneyError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         test_type = request.data.get('test_type', '').strip().lower()
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         plan_id = request.data.get('plan_id') or request.data.get('plan')
@@ -438,6 +512,7 @@ class LabChargesView(APIView):
             'plan_code': obj.plan.code if obj.plan else ('GENERAL' if is_gen else ''),
             'is_general': is_gen,
             'payment_label': 'Pay from your purse' if is_gen else 'Covered by Plan',
+            **_link_payload(obj),
         }, status=status.HTTP_201_CREATED if not existing else status.HTTP_200_OK)
 
     def put(self, request, pk=None):
@@ -449,7 +524,10 @@ class LabChargesView(APIView):
         if 'item' in request.data:
             obj.item = request.data['item'].strip()
         if 'rate' in request.data:
-            obj.rate = Decimal(str(request.data['rate']))
+            try:
+                obj.rate = parse_money(request.data['rate'], 'Rate')
+            except MoneyError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if 'item_id' in request.data:
             obj.item_id = request.data['item_id'].strip()
         if 'test_type' in request.data:
@@ -530,6 +608,7 @@ class LabChargesView(APIView):
             'sponsor_name': eff_sponsor.name if eff_sponsor else 'General / Self-Pay',
             'plan_id': obj.plan.id if obj.plan else None,
             'plan_name': obj.plan.plan if obj.plan else 'All Plans',
+            **_link_payload(obj),
         })
 
     def delete(self, request, pk=None):
@@ -542,7 +621,7 @@ class LabChargesView(APIView):
 
 # 1.2.1 Download Laboratory Tariff Template Pre-Filled from Database
 class DownloadLabTariffTemplateView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from django.http import HttpResponse
@@ -640,7 +719,7 @@ class DownloadLabTariffTemplateView(APIView):
 
 # 1.2.2 Bulk Upload Laboratory Tariffs (CSV / Excel)
 class BulkUploadLabTariffView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         import io, csv
@@ -755,11 +834,9 @@ class BulkUploadLabTariffView(APIView):
                 or clean_row.get('amount')
             )
             try:
-                rate_val = Decimal(str(rate_raw).replace(',', '').replace('$', '').strip())
-                if rate_val < 0:
-                    rate_val = Decimal('0.00')
-            except Exception:
-                skipped.append(f"Row {idx} ({item_name}): Invalid rate '{rate_raw}'")
+                rate_val = parse_money(rate_raw, 'Rate')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({item_name}): {e}")
                 continue
 
             test_code = (
@@ -890,7 +967,7 @@ class BulkUploadLabTariffView(APIView):
 
 
 class RadiologyChargesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         qs = RadioLabInventory.objects.filter(type='R').select_related('sponsor', 'plan', 'plan__sponsor').order_by('item')
@@ -982,7 +1059,10 @@ class RadiologyChargesView(APIView):
     def post(self, request):
         item_name = request.data.get('item', '').strip() or request.data.get('item_name', '').strip()
         item_id = request.data.get('item_id', '').strip()
-        rate = request.data.get('rate', 0)
+        try:
+            rate = parse_money(request.data.get('rate', 0), 'Rate')
+        except MoneyError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         plan_id = request.data.get('plan_id') or request.data.get('plan')
 
@@ -1058,9 +1138,9 @@ class RadiologyChargesView(APIView):
             obj.item = request.data['item'].strip()
         if 'rate' in request.data:
             try:
-                obj.rate = Decimal(str(request.data['rate']))
-            except Exception:
-                return Response({'detail': 'Invalid rate format.'}, status=status.HTTP_400_BAD_REQUEST)
+                obj.rate = parse_money(request.data['rate'], 'Rate')
+            except MoneyError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if 'item_id' in request.data:
             obj.item_id = request.data['item_id'].strip()
 
@@ -1121,7 +1201,7 @@ class DownloadRadiologyTariffTemplateView(APIView):
     procedures currently registered in our database.
     If a specific sponsor and plan are requested, existing rates are prefilled; otherwise base prices apply.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from django.http import HttpResponse
@@ -1242,7 +1322,7 @@ class DownloadRadiologyTariffTemplateView(APIView):
 
 # 1.3.2 Bulk Upload Radiology Tariffs
 class BulkUploadRadiologyTariffView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         import csv, io, re
@@ -1431,12 +1511,9 @@ class BulkUploadRadiologyTariffView(APIView):
                 'charge', 'baseprice', 'basepricengn', 'pricengn'
             ])
             try:
-                clean_r_str = re.sub(r'[^\d.]', '', str(rate_raw)) if rate_raw is not None else ''
-                rate_val = Decimal(clean_r_str) if clean_r_str else Decimal('0.00')
-                if rate_val < 0:
-                    rate_val = Decimal('0.00')
-            except Exception:
-                skipped.append(f"Row {idx} ({item_name}): Invalid rate '{rate_raw}'")
+                rate_val = parse_money(rate_raw, 'Rate')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({item_name}): {e}")
                 continue
 
             # 3. PROCEDURE CODE
@@ -1610,7 +1687,7 @@ class BulkUploadRadiologyTariffView(APIView):
         }, status=status.HTTP_200_OK)
 
 class AdmissionFeesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         wards = Ward.objects.all().order_by('ward_name')
@@ -1668,7 +1745,7 @@ class AdmissionFeesView(APIView):
 
 # 1.5 Other Services Fees
 class OtherServicesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         qs = OtherService2.objects.all().select_related('plan', 'plan__sponsor').order_by('service')
@@ -1720,7 +1797,10 @@ class OtherServicesView(APIView):
     def post(self, request):
         service = str(request.data.get('service') or '').strip()
         service_id = str(request.data.get('service_id') or '').strip()
-        rate = request.data.get('rate', 0)
+        try:
+            rate = parse_money(request.data.get('rate', 0), 'Rate')
+        except MoneyError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         plan_id = request.data.get('plan_id')
         sponsor_id = request.data.get('sponsor_id')
 
@@ -1789,11 +1869,10 @@ class OtherServicesView(APIView):
             obj.service = s
 
         if 'rate' in request.data:
-            r = request.data['rate']
             try:
-                obj.rate = Decimal(str(r)) if r not in (None, '') else Decimal('0.00')
-            except Exception:
-                return Response({'detail': 'Please enter a valid rate amount.'}, status=status.HTTP_400_BAD_REQUEST)
+                obj.rate = parse_money(request.data['rate'], 'Rate')
+            except MoneyError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if 'plan_id' in request.data:
             p_id = request.data['plan_id']
@@ -1839,7 +1918,7 @@ class DownloadOtherServiceTariffTemplateView(APIView):
     - If sponsor and plan are provided: outputs pre-filled template with ALL existing hospital services in database,
       prefilled with existing plan rates (or baseline rates) so user only edits prices and uploads.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from django.http import HttpResponse
@@ -1949,7 +2028,7 @@ class BulkUploadOtherServiceTariffView(APIView):
     - If general / no sponsor, creates or updates master catalog services.
     - Matches existing services by code or name to update rates, or inserts new services.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         import csv, io
@@ -2055,9 +2134,10 @@ class BulkUploadOtherServiceTariffView(APIView):
 
             raw_rate = clean_row.get('rate') or clean_row.get('tariff_rate') or clean_row.get('price') or clean_row.get('tariff') or clean_row.get('fee') or clean_row.get('cost')
             try:
-                rate_val = Decimal(str(raw_rate)) if raw_rate not in (None, '') else Decimal('0.00')
-            except Exception:
-                rate_val = Decimal('0.00')
+                rate_val = parse_money(raw_rate, 'Rate')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({service_name}): {e}")
+                continue
 
             # Determine sponsor & plan for this row
             target_plan = default_plan
@@ -2137,7 +2217,7 @@ class BulkUploadOtherServiceTariffView(APIView):
 
 # 2.1 Medication Fees (Pharmacy Tariff)
 class MedicationFeesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         qs = PharmacyTariff.objects.all().select_related('sponsor', 'plan', 'plan__sponsor').order_by('product_name')
@@ -2261,7 +2341,10 @@ class MedicationFeesView(APIView):
     def post(self, request):
         product_name = request.data.get('product_name', '').strip()
         product_id = request.data.get('product_id', '').strip()
-        rate = request.data.get('rate', 0)
+        try:
+            rate = parse_money(request.data.get('rate', 0), 'Rate')
+        except MoneyError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         sponsor_id = request.data.get('sponsor_id') or request.data.get('sponsor')
         plan_id = request.data.get('plan_id') or request.data.get('plan')
 
@@ -2294,7 +2377,8 @@ class MedicationFeesView(APIView):
         staff = request.user if request.user.is_authenticated else User.objects.first()
 
         if not product_id or not str(product_id).strip():
-            existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+            existing_prod = Product.objects.filter(product_name__iexact=product_name).select_related('merged_into').first()
+            existing_prod = existing_prod.live if existing_prod else None
             if existing_prod and existing_prod.product_id:
                 product_id = existing_prod.product_id
             else:
@@ -2359,6 +2443,8 @@ class MedicationFeesView(APIView):
                         staff_user = u
                         break
             if not staff_user:
+                from api.audit import pin_failed
+                pin_failed(request, 'edit a medication tariff', tariff_id=obj.id)
                 return Response({'detail': 'Incorrect Security PIN. Authorization denied.'}, status=status.HTTP_400_BAD_REQUEST)
         elif request.user and request.user.is_authenticated:
             staff_user = request.user
@@ -2369,7 +2455,10 @@ class MedicationFeesView(APIView):
         if 'product_name' in request.data:
             obj.product_name = request.data['product_name'].strip()
         if 'rate' in request.data:
-            obj.rate = Decimal(str(request.data['rate']))
+            try:
+                obj.rate = parse_money(request.data['rate'], 'Rate')
+            except MoneyError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if 'product_id' in request.data:
             obj.product_id = request.data['product_id'].strip()
 
@@ -2419,7 +2508,7 @@ class MedicationFeesView(APIView):
 
 # 2.1b Load / Sync General Medication Prices (Hospital Formulary / Inventory Standard Prices)
 class LoadGeneralMedicationPricesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         from inventory.models import Product, PharmacyTariff
@@ -2530,7 +2619,7 @@ class LoadGeneralMedicationPricesView(APIView):
 
 
 class LoadGeneralLabPricesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         staff = request.user if request.user.is_authenticated else User.objects.first()
@@ -2665,7 +2754,7 @@ class LoadGeneralLabPricesView(APIView):
 
 
 class LoadGeneralRadiologyPricesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         from radio_lab.models import RadioLabInventory, RadiologyProcedure, LabInvestigation, LabParameter
@@ -2758,7 +2847,7 @@ class LoadGeneralRadiologyPricesView(APIView):
 
 # 2.2 Download Medication Tariff Template
 class DownloadMedicationTariffTemplateView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from django.http import HttpResponse
@@ -2900,7 +2989,7 @@ class DownloadMedicationTariffTemplateView(APIView):
 
 # 2.3 Bulk Upload Medication Tariffs
 class BulkUploadMedicationTariffView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         import io, csv, re
@@ -3073,14 +3162,11 @@ class BulkUploadMedicationTariffView(APIView):
             )
 
             # Robust currency/rate parsing: handles '₦4,500', '4,500.00', 'NGN 4500', etc.
-            rate_val = Decimal('0.00')
-            if rate_raw is not None and str(rate_raw).strip() != '':
-                try:
-                    clean_str = ''.join(c for c in str(rate_raw).strip() if c.isdigit() or c == '.')
-                    if clean_str:
-                        rate_val = Decimal(clean_str)
-                except Exception:
-                    pass
+            try:
+                rate_val = parse_money(rate_raw, 'Rate')
+            except MoneyError as e:
+                skipped.append(f"Row {idx} ({product_name}): {e}")
+                continue
 
             sku = (
                 norm.get('sku')
@@ -3092,7 +3178,8 @@ class BulkUploadMedicationTariffView(APIView):
             if sku and str(sku).strip():
                 sku = str(sku).strip()[:13]
             else:
-                existing_prod = Product.objects.filter(product_name__iexact=product_name).first()
+                existing_prod = Product.objects.filter(product_name__iexact=product_name).select_related('merged_into').first()
+                existing_prod = existing_prod.live if existing_prod else None
                 if existing_prod and existing_prod.product_id:
                     sku = existing_prod.product_id
                 else:
@@ -3219,7 +3306,7 @@ class PackageServiceCatalogView(APIView):
     (Laboratory, Radiology, Clinical Procedures, Wards, Pharmacy) with their standard baseline rates
     for bundling into care packages.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         # 1. Laboratory tests
@@ -3318,7 +3405,7 @@ class PackageServiceCatalogView(APIView):
 
 
 class PackagesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         packages = Packages.objects.all().select_related('staff').order_by('-created_date')
@@ -3377,9 +3464,9 @@ class PackagesView(APIView):
                     continue
                 it_type = it.get('type') or 'SR'
                 try:
-                    it_rate = Decimal(str(it.get('rate') or 0))
-                except Exception:
-                    it_rate = Decimal('0.00')
+                    it_rate = parse_money(it.get('rate'), f'Rate for {str(it_name).strip()}')
+                except MoneyError as e:
+                    return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
                 created_item = PackagesData.objects.create(
                     package=pkg,
                     item=str(it_name).strip(),
@@ -3424,9 +3511,9 @@ class PackagesView(APIView):
                     continue
                 it_type = it.get('type') or 'SR'
                 try:
-                    it_rate = Decimal(str(it.get('rate') or 0))
-                except Exception:
-                    it_rate = Decimal('0.00')
+                    it_rate = parse_money(it.get('rate'), f'Rate for {str(it_name).strip()}')
+                except MoneyError as e:
+                    return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
                 created_item = PackagesData.objects.create(
                     package=pkg,
                     item=str(it_name).strip(),
@@ -3456,7 +3543,7 @@ class PackagesView(APIView):
 
 # 3.2 Package Data Items
 class PackageDataView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         package_id = request.query_params.get('package_id')
@@ -3480,7 +3567,10 @@ class PackageDataView(APIView):
         package_id = request.data.get('package_id')
         item_name = request.data.get('item', '').strip()
         item_type = request.data.get('type', 'SR').strip()
-        rate = request.data.get('rate', 0)
+        try:
+            rate = parse_money(request.data.get('rate', 0), 'Rate')
+        except MoneyError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if not package_id or not item_name:
             return Response({'detail': 'Package ID and item name are required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -3516,7 +3606,11 @@ class PackageDataView(APIView):
 
         if 'item' in request.data: item.item = request.data['item'].strip()
         if 'type' in request.data: item.type = request.data['type'].strip()
-        if 'rate' in request.data: item.rate = Decimal(str(request.data['rate']))
+        if 'rate' in request.data:
+            try:
+                item.rate = parse_money(request.data['rate'], 'Rate')
+            except MoneyError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         item.save()
         return Response({'detail': 'Package item updated.', 'id': item.id, 'item': item.item, 'rate': float(item.rate)})
@@ -3528,7 +3622,7 @@ class PackageDataView(APIView):
 
 # 3.3 Immunization Fees
 class ImmunizationFeesView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         # Sample immunization catalog fees
