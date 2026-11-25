@@ -430,7 +430,20 @@ class DashboardStatsView(APIView):
 
         # Category specific
         private_patients = PatientProfile.objects.filter(category__category__iexact='Private').count()
-        anc_patients = PatientProfile.objects.filter(category__category__iexact='ANC').count()
+        # ANC = patients currently on an antenatal journey (not a payment category; there is no "ANC"
+        # category). A journey ends at delivery/outcome, when ended by an administrator, or at 52 weeks.
+        from ANC.models import AntenatalVisit
+        # Close journeys past 52 weeks first (the nightly end_expired_anc_journeys job does this too);
+        # at most once an hour so the dashboard stays fast.
+        from django.core.cache import cache
+        if cache.add('anc:auto_end_expired', 1, 3600):
+            try:
+                AntenatalVisit.auto_end_all_expired_journeys()
+            except Exception:  # never break the dashboard over housekeeping
+                import logging
+                logging.getLogger(__name__).exception('ANC auto-end on dashboard failed')
+        anc_patients = (AntenatalVisit.objects.filter(status=AntenatalVisit.STATUS_ACTIVE, patient__active=1)
+                        .values('patient_id').distinct().count())
         hmo_patients = PatientProfile.objects.filter(category__category__iexact='HMO').count()
         retainership_patients = PatientProfile.objects.filter(category__category__iexact='Retainership').count()
 

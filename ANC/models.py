@@ -166,29 +166,30 @@ class AntenatalVisit(models.Model):
 
         return 0
 
+    MAX_JOURNEY_WEEKS = 52
+
+    def expired_weeks(self, reference_date=None):
+        """Gestational weeks if this active journey has reached the 52-week limit, else None. Read-only."""
+        if self.status != self.STATUS_ACTIVE:
+            return None
+        weeks = self.get_gestational_age_weeks(reference_date)
+        return weeks if weeks is not None and weeks >= self.MAX_JOURNEY_WEEKS else None
+
     def check_and_auto_end_if_expired(self, reference_date=None):
         """
         Automatically end/complete this ANC Journey if gestational age reaches or exceeds 52 weeks
         (1 full year from LMP / episode inception).
         """
-        if self.status != self.STATUS_ACTIVE:
-            return False
-
-        weeks = self.get_gestational_age_weeks(reference_date)
-        if weeks is not None and weeks >= 52:
-            ref = reference_date or timezone.localdate()
-            preg = getattr(self, 'current_pregnancy', None)
-            lmp = preg.last_menstrual_period if preg else None
-
-            # Outcome date defaults to ~40 weeks (EDD) or reference date
-            outcome_dt = (lmp + timedelta(days=280)) if lmp else (self.visit_date + timedelta(days=280) if self.visit_date else ref)
-            if outcome_dt > ref:
-                outcome_dt = ref
-
+        weeks = self.expired_weeks(reference_date)
+        if weeks is not None:
             self.status = self.STATUS_COMPLETED
-            self.outcome = 'live_birth'
-            self.outcome_date = outcome_dt
-            self.outcome_notes = f"Auto-ended: Antenatal journey reached {weeks} weeks (maximum 52-week clinical gestation threshold)."
+            # The system does not know how the pregnancy ended: leave the outcome unrecorded rather than
+            # inventing one (a "live birth" here would be a false clinical record). Staff can still
+            # record the real outcome on the journey afterwards.
+            self.outcome = None
+            self.outcome_date = None
+            self.outcome_notes = (f"Auto-closed by the system: the antenatal journey reached {weeks} weeks "
+                                  f"(52-week limit) without an outcome being recorded. Outcome not recorded.")
             self.ended_at = timezone.now()
             self.save(update_fields=['status', 'outcome', 'outcome_date', 'outcome_notes', 'ended_at'])
 
@@ -199,9 +200,12 @@ class AntenatalVisit(models.Model):
         return False
 
     @classmethod
-    def auto_end_all_expired_journeys(cls):
-        """Scans all active ANC journeys across the system and auto-completes those reaching 52+ weeks."""
-        active_visits = cls.objects.filter(status=cls.STATUS_ACTIVE).select_related('current_pregnancy')
+    def auto_end_all_expired_journeys(cls, dry_run=False):
+        """Scans all active ANC journeys across the system and auto-completes those reaching 52+ weeks.
+        Returns the number ended (with dry_run: the journeys that would be ended, untouched)."""
+        active_visits = cls.objects.filter(status=cls.STATUS_ACTIVE).select_related('current_pregnancy', 'patient')
+        if dry_run:
+            return [(v, w) for v in active_visits if (w := v.expired_weeks()) is not None]
         ended_count = 0
         for v in active_visits:
             if v.check_and_auto_end_if_expired():
