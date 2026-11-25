@@ -32,6 +32,8 @@ class Invoice(models.Model):
     original_source_id = models.PositiveIntegerField(null=True, blank=True)
     staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
     created_date = models.DateTimeField(auto_now_add=True, null=True)
+    # HMO pre-authorization (PA) code of a claim line (OPD claims and inpatient CLM- lines)
+    pa_code = models.CharField(max_length=60, blank=True, default='')
 
     def __str__(self):
         return f" Invoice for {self.patient.surname} {self.patient.first_name} (#{self.invoice_number})  - {self.created_date}"
