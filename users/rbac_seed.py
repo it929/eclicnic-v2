@@ -167,6 +167,7 @@ DEFAULT_MODULES = [
         'submodules': [
             {'code': 'ipdAdmitted', 'name': 'Admitted Patients', 'icon': 'fa-procedures', 'tab_key': 'ipd', 'sub_tab': 'admitted', 'route': '/ipd/admitted', 'order': 1},
             {'code': 'ipdWards', 'name': 'Bed Board', 'icon': 'fa-th', 'tab_key': 'ipd', 'sub_tab': 'beds', 'route': '/ipd/beds', 'order': 2},
+            {'code': 'ipdBilling', 'name': 'Inpatient Billing', 'icon': 'fa-file-invoice-dollar', 'tab_key': 'ipd', 'sub_tab': 'billing', 'route': '/ipd/billing', 'order': 3},
             {'code': 'ipdWardSetup', 'name': 'Wards', 'icon': 'fa-hospital', 'tab_key': 'ipd', 'sub_tab': 'wards', 'route': '/ipd/wards', 'order': 3, 'admin_only': True},
             {'code': 'ipdBedSetup', 'name': 'Beds', 'icon': 'fa-bed', 'tab_key': 'ipd', 'sub_tab': 'bed-setup', 'route': '/ipd/bed-setup', 'order': 4, 'admin_only': True},
         ]
@@ -244,6 +245,7 @@ DEFAULT_MODULES = [
             {'code': 'billReceipts', 'name': 'Payment Receipts', 'icon': 'fa-receipt', 'tab_key': 'billings', 'route': '/billings/receipts', 'order': 3},
             {'code': 'billDeposits', 'name': 'Customer Deposit Accounts', 'icon': 'fa-wallet', 'tab_key': 'billings', 'route': '/billings/deposits', 'order': 4},
             {'code': 'billRefunds', 'name': 'Patient Refunds', 'icon': 'fa-hand-holding-usd', 'tab_key': 'billings', 'route': '/billings/refunds', 'order': 5},
+            {'code': 'billInpatient', 'name': 'Inpatient Bills', 'icon': 'fa-procedures', 'tab_key': 'ipd', 'sub_tab': 'billing', 'route': '/billings/inpatient', 'order': 6},
         ]
     },
     {

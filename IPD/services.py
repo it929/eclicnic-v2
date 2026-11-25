@@ -74,7 +74,7 @@ def _sync_legacy(adm):
     s = adm.status
     adm.nurse_admit_status = 1 if s in ('in_ward', 'discharge_ordered', 'discharged') else 0
     adm.doctor_discharge_status = 1 if s in ('discharge_ordered', 'discharged', 'cancelled') else 0
-    adm.bill_discharge_status = 1 if s == 'discharged' else 0
+    adm.bill_discharge_status = 1 if (s == 'discharged' or getattr(adm, 'bill_cleared_at', None)) else 0
 
 
 def _release_bed(adm, by, now):
@@ -285,6 +285,8 @@ def reverse_discharge(admission, *, by, reason=''):
     adm.discharge_ordered_by = None
     adm.doctor_discharged = None
     adm.doctor_discharge_date = None
+    from .billing_services import on_discharge_withdrawn
+    on_discharge_withdrawn(adm, by)
     _sync_legacy(adm)
     adm.save()
     _log(adm, 'discharge_reversed', 'discharge_ordered', (reason or '').strip(), by)
@@ -294,12 +296,15 @@ def reverse_discharge(admission, *, by, reason=''):
 @transaction.atomic
 def complete_discharge(admission, *, by):
     """The patient leaves the ward: release the bed and close the admission.
-    (Bill clearance checks will be added here when IPD billing is built.)"""
+    The bill must be cleared first (IPD/billing_services.clear_for_discharge)."""
     adm = _lock(admission)
     if adm.status != 'discharge_ordered':
         raise AdmissionError('The doctor has not signed a discharge for this patient.', 'no_discharge_order')
     if not by:
         raise AdmissionError('A staff PIN is required.', 'pin_required')
+    if not adm.bill_cleared_at:
+        raise AdmissionError('The bill has not been cleared. Accounts must generate the final bill and clear it '
+                             'before the patient leaves.', 'bill_not_cleared')
     now = timezone.now()
     _release_bed(adm, by, now)
     adm.status = 'discharged'
@@ -311,6 +316,8 @@ def complete_discharge(admission, *, by):
     _sync_legacy(adm)
     adm.save()
     _log(adm, 'discharged', 'discharge_ordered', f'Left the ward; released by {staff_name(by)}.', by)
+    from .billing_services import post_to_ledger
+    post_to_ledger(adm, by)
     return adm
 
 

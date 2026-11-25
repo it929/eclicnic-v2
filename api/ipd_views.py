@@ -99,10 +99,13 @@ def admission_row(a):
         'source': a.source,
         'source_label': a.get_source_display(),
         'patient': _patient_summary(p),
+        'sponsor_id': a.sponsor_id,
         'sponsor_name': getattr(a.sponsor, 'name', None),
+        'plan_id': a.plan_id,
         'plan_name': getattr(a.plan, 'plan', None),
         'ward_id': a.ward_id,
         'ward_name': getattr(a.ward, 'ward_name', None),
+        'ward_pharmacy_name': getattr(getattr(a.ward, 'pharmacy_store', None), 'name', None),
         'bed_id': a.bed_id,
         'bed_name': getattr(a.bed, 'bed_name', None),
         'reason': a.reason,
@@ -121,12 +124,14 @@ def admission_row(a):
         'cancel_reason': a.cancel_reason,
         'los_days': _los_days(a),
         'is_open': a.is_open,
+        'bill_cleared': bool(a.bill_cleared_at),
+        'clearance_type': a.clearance_type,
     }
 
 
 def _admission_qs():
     return AdmissionTable.objects.select_related(
-        'patient', 'patient__sponsor', 'patient__plan', 'patient__category', 'sponsor', 'plan',
+        'patient', 'patient__sponsor', 'patient__plan', 'patient__category', 'sponsor', 'plan', 'ward__pharmacy_store',
         'ward', 'bed', 'doctor_admitted', 'consultant', 'received_by', 'discharge_ordered_by')
 
 

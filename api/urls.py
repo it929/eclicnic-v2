@@ -11,6 +11,9 @@ from . import pricing_views
 from . import immunization_schedule_views
 from . import opening_stock_views
 from . import ipd_views
+from . import ipd_chart_views
+from . import ipd_billing_views
+from . import ipd_order_views
 from . import notification_views
 from .views import (
     LoginView,
@@ -193,6 +196,38 @@ urlpatterns = [
     path('ipd/admissions/check/', ipd_views.AdmissionCheckView.as_view(), name='api-ipd-admission-check'),
     path('ipd/admissions/admit/', ipd_views.AdmitView.as_view(), name='api-ipd-admit'),
     path('ipd/admissions/<int:pk>/', ipd_views.AdmissionDetailView.as_view(), name='api-ipd-admission-detail'),
+    path('ipd/admissions/<int:pk>/chart/', ipd_chart_views.ChartOverviewView.as_view(), name='api-ipd-chart'),
+    path('ipd/admissions/<int:pk>/notes/', ipd_chart_views.NotesView.as_view(), name='api-ipd-notes'),
+    path('ipd/admissions/<int:pk>/observations/', ipd_chart_views.ObservationsView.as_view(), name='api-ipd-obs'),
+    path('ipd/admissions/<int:pk>/fluids/', ipd_chart_views.FluidsView.as_view(), name='api-ipd-fluids'),
+    path('ipd/admissions/<int:pk>/medications/', ipd_chart_views.MedicationsView.as_view(), name='api-ipd-meds'),
+    path('ipd/admissions/<int:pk>/treatments/', ipd_chart_views.TreatmentsView.as_view(), name='api-ipd-treatments'),
+    path('ipd/chart-entries/<str:kind>/<int:pk>/void/', ipd_chart_views.VoidEntryView.as_view(), name='api-ipd-void'),
+    path('ipd/admissions/<int:pk>/catalogue/', ipd_order_views.CatalogueView.as_view(), name='api-ipd-catalogue'),
+    path('ipd/admissions/<int:pk>/investigations/', ipd_order_views.InvestigationsView.as_view(), name='api-ipd-investigations'),
+    path('ipd/investigations/<int:pk>/cancel/', ipd_order_views.InvestigationCancelView.as_view(), name='api-ipd-investigation-cancel'),
+    path('ipd/medications/<int:pk>/supply/', ipd_order_views.SupplyRequestView.as_view(), name='api-ipd-supply-request'),
+    path('ipd/supplies/<int:pk>/cancel/', ipd_order_views.SupplyCancelView.as_view(), name='api-ipd-supply-cancel'),
+    path('ipd/supplies/<int:pk>/dispense/', ipd_order_views.SupplyDispenseView.as_view(), name='api-ipd-supply-dispense'),
+    path('ipd/pharmacy/queue/', ipd_order_views.PharmacyQueueView.as_view(), name='api-ipd-pharmacy-queue'),
+    path('ipd/pharmacy/requestable/', ipd_order_views.RequestableView.as_view(), name='api-ipd-pharmacy-requestable'),
+    path('ipd/pharmacy/products/', ipd_order_views.PharmacyProductsView.as_view(), name='api-ipd-pharmacy-products'),
+    path('ipd/medications/<int:pk>/<str:action>/', ipd_chart_views.MedicationActionView.as_view(), name='api-ipd-med-action'),
+    path('ipd/treatments/<int:pk>/<str:action>/', ipd_chart_views.TreatmentActionView.as_view(), name='api-ipd-treatment-action'),
+    path('ipd/billing/accounts/', ipd_billing_views.AccountListView.as_view(), name='api-ipd-billing-accounts'),
+    path('ipd/admissions/<int:pk>/account/', ipd_billing_views.AccountView.as_view(), name='api-ipd-account'),
+    path('ipd/admissions/<int:pk>/billable/', ipd_billing_views.BillableSearchView.as_view(), name='api-ipd-billable'),
+    path('ipd/admissions/<int:pk>/charges/', ipd_billing_views.ChargesView.as_view(), name='api-ipd-charges'),
+    path('ipd/admissions/<int:pk>/approvals/', ipd_billing_views.ApprovalsView.as_view(), name='api-ipd-approvals'),
+    path('ipd/admissions/<int:pk>/payments/', ipd_billing_views.PaymentsView.as_view(), name='api-ipd-payments'),
+    path('ipd/admissions/<int:pk>/bills/', ipd_billing_views.BillsView.as_view(), name='api-ipd-bills'),
+    path('ipd/admissions/<int:pk>/clear/', ipd_billing_views.ClearView.as_view(), name='api-ipd-clear'),
+    path('ipd/admissions/<int:pk>/change-type/', ipd_billing_views.ChangeTypeView.as_view(), name='api-ipd-change-type'),
+    path('ipd/charges/<int:pk>/<str:action>/', ipd_billing_views.ChargeActionView.as_view(), name='api-ipd-charge-action'),
+    path('ipd/payments/<int:pk>/reverse/', ipd_billing_views.PaymentReverseView.as_view(), name='api-ipd-payment-reverse'),
+    path('ipd/bills/<int:pk>/cancel/', ipd_billing_views.BillCancelView.as_view(), name='api-ipd-bill-cancel'),
+    path('ipd/wards/<int:pk>/tariffs/', ipd_billing_views.WardTariffsView.as_view(), name='api-ipd-ward-tariffs'),
+    path('ipd/ward-tariffs/<int:pk>/', ipd_billing_views.WardTariffDetailView.as_view(), name='api-ipd-ward-tariff'),
     path('ipd/admissions/<int:pk>/<str:action>/', ipd_views.AdmissionActionView.as_view(), name='api-ipd-admission-action'),
     path('ipd/wards/', ipd_views.WardListView.as_view(), name='api-ipd-wards'),
     path('ipd/wards/<int:pk>/', ipd_views.WardDetailView.as_view(), name='api-ipd-ward-detail'),

@@ -1239,6 +1239,14 @@ class SponsorViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
+    def destroy(self, request, *args, **kwargs):
+        # Sponsor → plans → patient history all CASCADE; refuse while anything uses it.
+        from .plan_guard import sponsor_delete_block_reason
+        reason = sponsor_delete_block_reason(self.get_object())
+        if reason:
+            return Response({'detail': reason}, status=status.HTTP_409_CONFLICT)
+        return super().destroy(request, *args, **kwargs)
+
     def get_queryset(self):
         qs = super().get_queryset()
         category_id = self.request.query_params.get('category', None)
@@ -1489,6 +1497,14 @@ class PatientPlanViewSet(viewsets.ModelViewSet):
     serializer_class = PatientPlanSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
+
+    def destroy(self, request, *args, **kwargs):
+        # Patient history (orders, drugs given, services) CASCADEs from the plan; refuse while in use.
+        from .plan_guard import plan_delete_block_reason
+        reason = plan_delete_block_reason(self.get_object())
+        if reason:
+            return Response({'detail': reason}, status=status.HTTP_409_CONFLICT)
+        return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -5380,6 +5396,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     completed=1 if mark_as_paid else 0,
                     original_source_model=inv_source_model,
                     original_source_id=inv_source_id,
+                    pa_code=str(pa_code or '').strip()[:60] if str(pay_option).strip().lower() == 'claim' else '',
                 ))
 
                 # Mark source records as billed!
@@ -7439,6 +7456,22 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
         treat_payload = data.get('treatment', {})
         action_type = data.get('action', 'process')
 
+        # A patient can only be on one admission at a time. Refuse "admit" before anything is
+        # written, so the clinician keeps the form and can save the review another way.
+        if action_type == 'admit':
+            from IPD import services as ipd_services
+            current = ipd_services.open_admission(patient)
+            if current:
+                return Response({
+                    'detail': (f"{patient.get_full_name()} is already on admission "
+                               f"({current.admission_no or current.pk}, {current.get_status_display().lower()}"
+                               f"{', ' + current.ward.ward_name if current.ward else ''}). "
+                               "Nothing was saved. Use Process to record this review instead."),
+                    'code': 'already_admitted',
+                    'admission_id': current.pk,
+                    'admission_no': current.admission_no,
+                }, status=status.HTTP_409_CONFLICT)
+
         # 1. Create Examination record linked to active ANC Journey
         active_visit = self._get_or_create_active_visit(patient)
         exam = Examination.objects.create(
@@ -7589,13 +7622,30 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
 
         # 5. Handle Ward Admission if requested
         admitted = False
+        admission_no = None
+        admission_notice = None
         if action_type == 'admit' and current_user:
-            AdmissionTable.objects.create(
-                patient=patient,
-                doctor_admitted=current_user,
-                nurse_admit_status=0
-            )
-            admitted = True
+            # Through IPD/services.admit: one-open-admission lock + check, admission number,
+            # event log and the ward's notification.
+            from django.db import transaction
+            from IPD import services as ipd_services
+            dx = data.get('diagnosis') or {}
+            dx_text = (dx.get('title') or dx.get('name') or '').strip()
+            signs = data.get('danger_signs') or {}
+            has_danger_sign = any(signs.values()) if isinstance(signs, dict) else bool(signs)
+            try:
+                with transaction.atomic():
+                    adm = ipd_services.admit(
+                        patient, doctor=current_user, created_by=current_user, source='anc',
+                        admission_type='emergency' if has_danger_sign else 'elective',
+                        reason=(data.get('remarks') or '').strip() or dx_text or 'Admitted from antenatal clinic',
+                        provisional_diagnosis=dx_text,
+                    )
+                admitted = True
+                admission_no = adm.admission_no
+            except ipd_services.AdmissionError as e:
+                # Another screen admitted her between the check above and now.
+                admission_notice = e.message
 
         # 6. Record Clinical Diagnosis & Patient Encounter (ICD-11 WHO standard)
         diag_payload = data.get('diagnosis', {})
@@ -7624,6 +7674,8 @@ class ANCRegistrationViewSet(viewsets.ModelViewSet):
             'examination_id': exam.id,
             'appointment_id': created_appt_id,
             'admitted': admitted,
+            'admission_no': admission_no,
+            'admission_notice': admission_notice,
             'encounter_id': encounter_obj.id if encounter_obj else None
         }, status=status.HTTP_200_OK)
 
