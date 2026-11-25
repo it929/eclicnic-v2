@@ -20,3 +20,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 
 # 23:05 daily: email the day book (11pm-11pm) to DAY_BOOK_EMAIL. Needs EMAIL_HOST in the env file.
 5 23 * * * clinic365 /usr/local/bin/clinic365-manage send_daily_day_book >> /var/log/clinic365/day_book.log 2>&1
+
+# 01:15 daily: close ANC journeys past the 52-week limit (outcome left "not recorded", never guessed)
+# so the dashboard's active-ANC count stays accurate. Test: clinic365-manage end_expired_anc_journeys --dry-run
+15 1 * * * clinic365 /usr/local/bin/clinic365-manage end_expired_anc_journeys >> /var/log/clinic365/anc_journeys.log 2>&1
