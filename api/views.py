@@ -1,8 +1,9 @@
 import re
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import authenticate, login as auth_login
 from django.utils import timezone
-from django.db.models import Q, Count, Sum
+from django.db.models import Q, Count, Sum, Prefetch
 from datetime import date
 from rest_framework import status, viewsets, permissions, filters
 from rest_framework.decorators import api_view, permission_classes, action
@@ -14,13 +15,15 @@ from rest_framework.pagination import PageNumberPagination
 from users.models import User, Category, SystemModule
 from patients.models import (
     PatientProfile, PatientCategory, PatientPlan, PatientAppointment, Sponsor,
-    FamilyFolder, FamilyMember, format_family_number
+    FamilyFolder, FamilyMember, format_family_number, PatientSafetyAlert
 )
 from queue_operations.models import (
     NurseWaitingList, VisitPurpose, DoctorWaitingList, PatientEncounter,
     PatientDiagnosis, PresentingComplaint, WrittenPrescriptions, ConsultationDraft
 )
 from Billings.models import Invoice, Receipt, Deposit, Refund
+from Billings.numbering import next_receipt_number
+from api.clinical_history import SignedRecordMixin, TrackedEditMixin
 from IPD.models import AdmissionTable, Ward, Bed, BedAllocation
 from ANC.models import (
     ANCRegistration, AntenatalVisit, ObstetricHistory,
@@ -448,7 +451,14 @@ class DashboardStatsView(APIView):
         retainership_patients = PatientProfile.objects.filter(category__category__iexact='Retainership').count()
 
         # Inpatients & Admissions
-        inpatients = AdmissionTable.objects.filter(doctor_discharge_status=0).count()
+        # Currently admitted = an open admission (awaiting a bed, in the ward, or discharge
+        # ordered but still on the bed). The old doctor_discharge_status flag also counted
+        # cancelled and fully discharged admissions.
+        from IPD.models import OPEN_ADMISSION_STATUSES
+        open_admissions = AdmissionTable.objects.filter(status__in=OPEN_ADMISSION_STATUSES)
+        inpatients = open_admissions.count()
+        inpatients_awaiting_bed = open_admissions.filter(status='awaiting_bed').count()
+        inpatients_admitted_today = AdmissionTable.objects.filter(doctor_admit_date__date=today).exclude(status='cancelled').count()
 
         # Pharmacy & Inventory
         low_stock_drugs = OpdDrugs.objects.filter(stock__lte=10).count()
@@ -477,6 +487,8 @@ class DashboardStatsView(APIView):
                 'hmo_patients': hmo_patients,
                 'retainership_patients': retainership_patients,
                 'inpatients': inpatients,
+                'inpatients_awaiting_bed': inpatients_awaiting_bed,
+                'inpatients_admitted_today': inpatients_admitted_today,
                 'today_appointments': today_appointments,
                 'nurse_queue_count': queued_patients,
                 'total_staff': User.objects.count(),
@@ -490,7 +502,44 @@ class DashboardStatsView(APIView):
         })
 
 
-class PatientViewSet(viewsets.ModelViewSet):
+# ---------------------------------------------------------------------------
+# Record-safety guards. Patient and money records are never edited or deleted
+# through the generic REST verbs: a patient is deactivated (toggle_active), a
+# bill is settled only by issue-receipt, and a mistake is put right with a new
+# record (refund, credit) so the original stays for audit.
+# ---------------------------------------------------------------------------
+def _refused(message):
+    return Response({'error': message}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class NoDestroyMixin:
+    destroy_refusal = 'This record cannot be deleted.'
+
+    def destroy(self, request, *args, **kwargs):
+        return _refused(self.destroy_refusal)
+
+
+class ImmutableRecordMixin(NoDestroyMixin):
+    """Create and read only: no PUT, PATCH or DELETE."""
+    edit_refusal = 'This record cannot be changed once saved.'
+
+    def update(self, request, *args, **kwargs):
+        return _refused(self.edit_refusal)
+
+    def partial_update(self, request, *args, **kwargs):
+        return _refused(self.edit_refusal)
+
+
+def _billing_staff(user):
+    """Admin/CMD, or a role holding a billing module in the permission matrix."""
+    from api.notification_views import _has_module
+    return _has_module(user, 'billings') or _has_module(user, 'fd_billing')
+
+
+class PatientViewSet(NoDestroyMixin, TrackedEditMixin, viewsets.ModelViewSet):
+    # Demographic changes (name, date of birth, phone, sponsor...) are kept in ClinicalRecordHistory.
+    destroy_refusal = ('Patients are never deleted, because that would erase their clinical and billing '
+                       'records. Deactivate the patient instead.')
     queryset = PatientProfile.objects.all().select_related('category', 'plan', 'created_by')
     serializer_class = PatientProfileSerializer
     pagination_class = StandardResultsSetPagination
@@ -501,7 +550,12 @@ class PatientViewSet(viewsets.ModelViewSet):
     ordering = ['-created_date']
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related('sponsor', 'family_folder')
+        from django.db.models import Prefetch
+        from patients.models import PatientSafetyAlert
+        qs = super().get_queryset().select_related('sponsor', 'family_folder').prefetch_related(
+            # Infection-control alerts for the whole page in one query (PatientProfileSerializer.safety_alerts)
+            Prefetch('safety_alerts', queryset=PatientSafetyAlert.objects.filter(is_active=True).select_related('raised_by'),
+                     to_attr='active_safety_alerts'))
         query = self.request.query_params.get('search', None)
         if query:
             q = query.strip()
@@ -1586,119 +1640,138 @@ class FamilyFolderViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
+        """Create a family folder (private jacket) or HMO family group.
+
+        Every bad input comes back as a 400 with a `detail` the front desk can act on;
+        the folder, the principal's membership and the principal's new hospital number
+        are written together or not at all.
+        """
+        from django.db import transaction, IntegrityError
+        import secrets
+
+        data = request.data
         user = request.user if request.user.is_authenticated else None
 
-        family_name = data.get('family_name', '').strip()
+        def text(key, limit=None):
+            # Accept missing / null / non-string values without crashing.
+            v = data.get(key)
+            if v is None:
+                return ''
+            v = str(v).strip()
+            return v[:limit] if limit else v
+
+        def bad(msg, code=status.HTTP_400_BAD_REQUEST):
+            return Response({'detail': msg}, status=code)
+
+        family_name = text('family_name')
         if not family_name:
-            return Response({'detail': 'Family name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return bad('Family name is required.')
+        if len(family_name) > 200:
+            return bad('Family name is too long (200 characters max).')
 
+        valid_types = {k for k, _ in FamilyFolder.FOLDER_TYPE_CHOICES}
+        folder_type = text('folder_type')
+        if folder_type and folder_type not in valid_types:
+            return bad('Folder type must be a Private Family Folder or an HMO Family Group.')
+
+        category = sponsor = principal_patient = None
         category_id = data.get('category')
-        sponsor_id = data.get('sponsor')
-        principal_patient_id = data.get('principal_patient_id') or data.get('principal_patient')
-
-        category = None
-        if category_id:
+        if category_id not in (None, ''):
             category = PatientCategory.objects.filter(id=category_id).first()
-
-        sponsor = None
-        if sponsor_id:
+            if not category:
+                return bad('The selected patient category no longer exists. Pick it again.')
+        sponsor_id = data.get('sponsor')
+        if sponsor_id not in (None, ''):
             sponsor = Sponsor.objects.filter(id=sponsor_id).first()
+            if not sponsor:
+                return bad('The selected HMO / sponsor no longer exists. Pick it again.')
+        principal_id = data.get('principal_patient_id') or data.get('principal_patient')
+        if principal_id not in (None, ''):
+            principal_patient = PatientProfile.objects.filter(id=principal_id).first()
+            if not principal_patient:
+                return bad('The selected principal patient was not found.')
 
-        principal_patient = None
-        if principal_patient_id:
-            principal_patient = PatientProfile.objects.filter(id=principal_patient_id).first()
-
-        # Determine folder_type (default to private_folder if Private category, hmo_group if HMO)
-        folder_type = data.get('folder_type')
-        if not folder_type:
-            if category and 'hmo' in category.category.lower():
-                folder_type = 'hmo_group'
-            else:
-                folder_type = 'private_folder'
-
-        # Auto-detect category & sponsor from principal patient if not provided
         if principal_patient:
-            if not category and principal_patient.category:
-                category = principal_patient.category
-            if not sponsor and principal_patient.sponsor:
-                sponsor = principal_patient.sponsor
-            if not folder_type:
-                if category and 'hmo' in category.category.lower():
-                    folder_type = 'hmo_group'
-                else:
-                    folder_type = 'private_folder'
+            existing = FamilyMember.objects.filter(patient=principal_patient).select_related('family').first()
+            if existing:
+                return bad(
+                    f'{principal_patient.get_full_name()} is already in the family '
+                    f'"{existing.family.family_name}" ({existing.family.family_number}) as -{existing.letter_suffix}. '
+                    'Open that family, or remove them from it first.'
+                )
+            # Members follow the principal's category and sponsor.
+            category = category or principal_patient.category
+            sponsor = sponsor or principal_patient.sponsor
 
-        # Generate Family Number
-        family_number = data.get('family_number', '').strip()
+        if not folder_type:
+            is_hmo = bool(category and 'hmo' in (category.category or '').lower())
+            folder_type = 'hmo_group' if is_hmo else 'private_folder'
+        if folder_type == 'hmo_group' and not sponsor:
+            return bad('An HMO Family Group needs an HMO / sponsor. Choose the HMO, or link a principal who has one.')
+
+        # Family number: given, else from the principal's hospital number, else generated.
+        family_number = text('family_number', 110)
+        if not family_number and principal_patient and principal_patient.hospital_number:
+            family_number = format_family_number(principal_patient.hospital_number)
         if not family_number:
-            if principal_patient and principal_patient.hospital_number:
-                family_number = format_family_number(principal_patient.hospital_number)
-            elif sponsor and sponsor.code:
-                import random
-                rand_num = random.randint(1000, 9999)
-                family_number = f"F/{sponsor.code.strip().upper()}/ISL-{rand_num}"
-            else:
-                import random
-                rand_num = random.randint(1000, 9999)
-                family_number = f"F/ISL-{rand_num}"
-
-        # Clean family number: ensure it starts with F/
+            prefix = f"F/{sponsor.code.strip().upper()}/" if sponsor and sponsor.code else 'F/'
+            family_number = f"{prefix}ISL-{secrets.randbelow(9000) + 1000}"
         if not family_number.upper().startswith('F/'):
             family_number = f"F/{family_number}"
+        base_number = family_number
+        for _ in range(50):
+            if not FamilyFolder.objects.filter(family_number__iexact=family_number).exists():
+                break
+            family_number = f"{base_number}-{secrets.randbelow(90) + 10}"
+        else:
+            return bad('Could not find a free family number. Enter one manually.')
 
-        # Check uniqueness of family_number
-        if FamilyFolder.objects.filter(family_number__iexact=family_number).exists():
-            import random
-            rand_suffix = random.randint(10, 99)
-            family_number = f"{family_number}-{rand_suffix}"
+        is_private = folder_type == 'private_folder'
+        physical_folder_number = (text('physical_folder_number', 100) or family_number[:100]) if is_private else None
+        storage_location = (text('storage_location', 150) or None) if is_private else None
+        phone_number = text('phone_number', 50) or ((principal_patient.phone_number or '')[:50] if principal_patient else '')
+        address = text('address') or ((principal_patient.address or '') if principal_patient else '')
+        notes = text('notes')
 
-        # Physical folder number for private families
-        physical_folder_number = data.get('physical_folder_number', '').strip()
-        if not physical_folder_number and folder_type == 'private_folder':
-            physical_folder_number = family_number
+        try:
+            with transaction.atomic():
+                folder = FamilyFolder.objects.create(
+                    family_name=family_name,
+                    family_number=family_number,
+                    category=category,
+                    sponsor=sponsor,
+                    folder_type=folder_type,
+                    physical_folder_number=physical_folder_number,
+                    storage_location=storage_location,
+                    principal_patient=principal_patient,
+                    phone_number=phone_number or None,
+                    address=address or None,
+                    notes=notes or None,
+                    created_by=user,
+                )
 
-        storage_location = data.get('storage_location', '').strip()
-        phone_number = data.get('phone_number') or (principal_patient.phone_number if principal_patient else '')
-        address = data.get('address') or (principal_patient.address if principal_patient else '')
-        notes = data.get('notes', '')
+                # The principal becomes member A and takes the family hospital number.
+                if principal_patient:
+                    assigned_number = f"{family_number}-A"
+                    orig_hosp_num = principal_patient.hospital_number
+                    principal_patient.hospital_number = assigned_number
+                    principal_patient.family_folder = folder
+                    principal_patient.family_member_suffix = 'A'
+                    principal_patient.save()
 
-        folder = FamilyFolder.objects.create(
-            family_name=family_name,
-            family_number=family_number,
-            category=category,
-            sponsor=sponsor,
-            folder_type=folder_type,
-            physical_folder_number=physical_folder_number if folder_type == 'private_folder' else None,
-            storage_location=storage_location if folder_type == 'private_folder' else None,
-            principal_patient=principal_patient,
-            phone_number=phone_number,
-            address=address,
-            notes=notes,
-            created_by=user
-        )
-
-        # If a principal patient was specified, add them as the first member (Suffix 'A')
-        if principal_patient:
-            assigned_number = f"{family_number}-A"
-            orig_hosp_num = principal_patient.hospital_number
-
-            # Update patient profile
-            principal_patient.hospital_number = assigned_number
-            principal_patient.family_folder = folder
-            principal_patient.family_member_suffix = 'A'
-            principal_patient.save()
-
-            FamilyMember.objects.create(
-                family=folder,
-                patient=principal_patient,
-                letter_suffix='A',
-                assigned_hospital_number=assigned_number,
-                original_hospital_number=orig_hosp_num,
-                relationship='Principal',
-                is_principal=True,
-                added_by=user
-            )
+                    FamilyMember.objects.create(
+                        family=folder,
+                        patient=principal_patient,
+                        letter_suffix='A',
+                        assigned_hospital_number=assigned_number,
+                        original_hospital_number=orig_hosp_num,
+                        relationship='Principal',
+                        is_principal=True,
+                        added_by=user,
+                    )
+        except IntegrityError:
+            return bad('This family number or patient was just used by someone else. Refresh and try again.',
+                       status.HTTP_409_CONFLICT)
 
         serializer = self.get_serializer(folder)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1984,8 +2057,13 @@ class FamilyFolderViewSet(viewsets.ModelViewSet):
         })
 
 
-class NurseWaitingListViewSet(viewsets.ModelViewSet):
-    queryset = NurseWaitingList.objects.all().select_related('attendant', 'patient')
+class NurseWaitingListViewSet(TrackedEditMixin, viewsets.ModelViewSet):
+    # Only the queue status may change (with history); patient, purpose and price stay as booked.
+    editable_fields = {'waiting_status', 'critical_request', 'completed', 'completed_by', 'attendant'}
+    delete_refusal = 'Queue entries are kept as part of the visit record and are never deleted.'
+    queryset = NurseWaitingList.objects.all().select_related('attendant', 'patient').prefetch_related(
+        Prefetch('patient__safety_alerts', queryset=PatientSafetyAlert.objects.filter(is_active=True).select_related('raised_by'),
+                 to_attr='active_safety_alerts'))
     serializer_class = NurseWaitingListSerializer
     pagination_class = StandardResultsSetPagination
     permission_classes = [permissions.IsAuthenticated]
@@ -2021,7 +2099,8 @@ class NurseWaitingListViewSet(viewsets.ModelViewSet):
         serializer.save(attendant=user, category=category, plan=plan)
 
 
-class DoctorWaitingListViewSet(viewsets.ModelViewSet):
+class DoctorWaitingListViewSet(SignedRecordMixin, viewsets.ModelViewSet):
+    edit_refusal = 'Recorded vital signs cannot be changed. Take and record a new set of vitals instead.'
     queryset = DoctorWaitingList.objects.all().select_related('patient', 'staff', 'category', 'plan').order_by('-created_date')
     serializer_class = DoctorWaitingListSerializer
     pagination_class = StandardResultsSetPagination
@@ -2126,7 +2205,9 @@ class DoctorWaitingListViewSet(viewsets.ModelViewSet):
         serializer.save(staff=user, category=category, plan=plan)
 
 
-class PatientEncounterViewSet(viewsets.ModelViewSet):
+class PatientEncounterViewSet(SignedRecordMixin, viewsets.ModelViewSet):
+    # Consultation notes are signed with the doctor's PIN: never edited or deleted afterwards.
+    edit_refusal = 'A signed consultation note cannot be changed. Add a new consultation note (addendum) instead.'
     """
     Doctor Consultation & Clinical Encounter ViewSet.
     Handles documentation of doctor clinical encounters, chief complaints,
@@ -3434,8 +3515,13 @@ class VisitPurposeViewSet(viewsets.ModelViewSet):
             'results': result
         }, status=status.HTTP_200_OK)
 
-class PatientAppointmentViewSet(viewsets.ModelViewSet):
-    queryset = PatientAppointment.objects.all().select_related('patient', 'provider').order_by('-arrival_date', '-arrival_time', '-created_date')
+class PatientAppointmentViewSet(TrackedEditMixin, viewsets.ModelViewSet):
+    delete_refusal = 'Appointments are kept as part of the patient record. Cancel the appointment instead.'
+    queryset = PatientAppointment.objects.all().select_related('patient', 'provider').prefetch_related(
+        # infection-control alerts per patient in one query (PatientAppointmentSerializer.patient_safety_alerts)
+        Prefetch('patient__safety_alerts', queryset=PatientSafetyAlert.objects.filter(is_active=True).select_related('raised_by'),
+                 to_attr='active_safety_alerts'),
+    ).order_by('-arrival_date', '-arrival_time', '-created_date')
     serializer_class = PatientAppointmentSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
@@ -3541,7 +3627,7 @@ class PatientAppointmentViewSet(viewsets.ModelViewSet):
         arrival_date = serializer.validated_data.get('arrival_date', inst.arrival_date)
         if ('purpose' in serializer.validated_data or 'arrival_date' in serializer.validated_data) and serializer.validated_data.get('completed', inst.completed) != 2:
             self._ensure_no_duplicate_purpose(patient, purpose, arrival_date, exclude_id=inst.id)
-        serializer.save()
+        self.save_tracked(serializer)
 
     @staticmethod
     def _purpose_tokens(raw):
@@ -3773,7 +3859,10 @@ def dispatch_care_package_items(package_id=None, patient=None, user=None, packag
     return dispatched_summary
 
 # Billings ViewSets
-class InvoiceViewSet(viewsets.ModelViewSet):
+class InvoiceViewSet(ImmutableRecordMixin, viewsets.ModelViewSet):
+    edit_refusal = ('Bills cannot be edited directly. Payments go through Issue Receipt; '
+                    'to correct a bill, cancel it through billing so the original is kept.')
+    destroy_refusal = 'Bills cannot be deleted; the original must be kept for audit.'
     queryset = Invoice.objects.all().select_related('patient', 'patient__sponsor', 'patient__plan', 'patient__category', 'category', 'staff').order_by('-created_date')
     serializer_class = InvoiceSerializer
     pagination_class = StandardResultsSetPagination
@@ -4095,16 +4184,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         radiology_orders = request.data.get('radiology_orders', [])
         other_service_orders = request.data.get('other_service_orders', [])
 
-        user = request.user if request.user.is_authenticated else None
-        if not user and request.data.get('doctor_id'):
-            try:
-                user = User.objects.filter(id=request.data.get('doctor_id'), is_active=True).first()
-            except Exception:
-                pass
-        if not user and request.data.get('doctor_username'):
-            user = User.objects.filter(username__iexact=str(request.data.get('doctor_username')).strip(), is_active=True).first()
-        if not user:
-            user = User.objects.filter(is_staff=True).first() or User.objects.first()
+        # Orders are signed by the doctor who is signed in, with their own security PIN.
+        # `interim`: sent while the consultation is still open (the note is signed later).
+        from api.consultation_views import verify_signing_pin
+        refused = verify_signing_pin(request, 'sign and send consultation orders')
+        if refused:
+            return refused
+        user = request.user
+        interim = str(request.data.get('interim') or '').lower() in ('1', 'true', 'yes')
         category = patient.category
 
         # Prices are set by the server from the tariff (sponsor + plan -> sponsor -> General).
@@ -4119,6 +4206,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         saved_counts = {'prescriptions': 0, 'lab': 0, 'radiology': 0, 'services': 0}
+        sent = []   # what was ordered: [{'kind', 'id', 'name'}]
 
         with transaction.atomic():
             # 1. Prescriptions
@@ -4162,7 +4250,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     dispense_detail = dispense_detail.replace('(Pieces)', '').replace('(pieces)', '').strip()
                 comment = p.get('comment') or p.get('notes') or ''
                 start_date = p.get('start_date') or timezone.now().date()
-                instruction = p.get('instruction') or f"{dose_qty} {dose_unit} {frequency} for {duration} {duration_unit}"
+                route = (p.get('route') or 'Oral')[:60]
+                instruction = p.get('instruction') or f"{dose_qty} {dose_unit} via {route}, {frequency} for {duration} {duration_unit}"
 
                 if p.get('is_pay_from_purse') or p.get('payment_mode') == 'pay_from_purse':
                     if not comment:
@@ -4170,9 +4259,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     elif '[Pay from your purse]' not in comment:
                         comment = f"[Pay from your purse] {comment}".strip()
 
-                # Avoid duplicate insertion if exact prescription already exists today
+                # Same drug already prescribed today and not yet dispensed: the same order (double send)
                 existing_rx = WrittenPrescriptions.objects.filter(
-                    patient=patient, item=drug_name[:200],
+                    patient=patient, item=drug_name[:200], status='pending',
                     created_date__date=timezone.now().date()
                 ).first()
                 if existing_rx and existing_rx.unit_price is None and existing_rx.status == 'pending':
@@ -4181,10 +4270,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         item_code=pq.code or None, unit_price=pq.rate,
                         price_source=pq.source, tariff_id=pq.tariff_id)
                 if not existing_rx:
-                    WrittenPrescriptions.objects.create(
+                    existing_rx = WrittenPrescriptions.objects.create(
                         patient=patient,
                         provider=user,
                         item=drug_name[:200],
+                        route=route,
                         instruction=instruction,
                         quantity=disp_qty,
                         dosage_form=dosage_form,
@@ -4205,6 +4295,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         price_source=priced[id(p)].source,
                         tariff_id=priced[id(p)].tariff_id,
                     )
+                sent.append({'kind': 'prescription', 'id': existing_rx.id, 'name': existing_rx.item})
                 saved_counts['prescriptions'] += 1
 
             # 2. Laboratory Orders
@@ -4226,7 +4317,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     created_date__date=timezone.now().date()
                 ).first()
                 if not existing_lab:
-                    RadiologyLab.objects.create(
+                    existing_lab = RadiologyLab.objects.create(
                         item=test_name,
                         item_type='L',
                         rate=unit_price,
@@ -4238,6 +4329,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         billing_waiting_status=1,
                         completed=0,
                     )
+                sent.append({'kind': 'lab', 'id': existing_lab.id, 'name': existing_lab.item})
                 saved_counts['lab'] += 1
 
             # 3. Radiology Scans
@@ -4259,7 +4351,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     created_date__date=timezone.now().date()
                 ).first()
                 if not existing_rad:
-                    RadiologyLab.objects.create(
+                    existing_rad = RadiologyLab.objects.create(
                         item=scan_name,
                         item_type='R',
                         rate=unit_price,
@@ -4271,6 +4363,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         billing_waiting_status=1,
                         completed=0,
                     )
+                sent.append({'kind': 'radiology', 'id': existing_rad.id, 'name': existing_rad.item})
                 saved_counts['radiology'] += 1
 
             # 4. Other Clinical Services
@@ -4285,7 +4378,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     created_date__date=timezone.now().date()
                 ).first()
                 if not existing_srv:
-                    OtherService.objects.create(
+                    existing_srv = OtherService.objects.create(
                         patient=patient,
                         provider=user,
                         category=category,
@@ -4294,6 +4387,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         price=int(unit_price),
                         completed=0,
                     )
+                sent.append({'kind': 'service', 'id': existing_srv.id, 'name': existing_srv.purpose})
                 saved_counts['services'] += 1
 
             # Update TransactionUpdate record
@@ -4301,18 +4395,21 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             tu.updated_date = timezone.now()
             tu.save()
 
-            # Mark active doctor waiting list as consultation done
-            DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
-                waiting_status=1,
-                encounter_status=1,
-                completed_by=getattr(user, 'fullname', 'Doctor') if user else 'Doctor'
-            )
+            # Mark active doctor waiting list as consultation done (not while the consultation is still open)
+            if not interim:
+                DoctorWaitingList.objects.filter(patient=patient, completed=0).update(
+                    waiting_status=1,
+                    encounter_status=1,
+                    completed_by=getattr(user, 'fullname', 'Doctor') if user else 'Doctor'
+                )
 
         total_saved = sum(saved_counts.values())
         return Response({
             'status': 'success',
             'saved_counts': saved_counts,
             'total_items': total_saved,
+            'orders': sent,
+            'sent_at': timezone.now(),
             'message': f'Consultation orders ({total_saved} items) routed to Encounters Billing Queue for cashier generation.'
         }, status=status.HTTP_201_CREATED)
 
@@ -5263,7 +5360,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         ).exclude(invoice_number__isnull=True).exclude(invoice_number='').order_by('created_date').first()
         invoice_number = existing_inv_today.invoice_number if existing_inv_today else f"INV-{uuid.uuid4().hex[:8].upper()}"
 
-        receipt_number = f"REC-{random.randint(10000, 99999)}" if mark_as_paid else None
+        receipt_number = next_receipt_number() if mark_as_paid else None
         invoices_to_create = []
         total_amount = 0.0
 
@@ -5586,122 +5683,58 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='issue-receipt')
     def issue_receipt(self, request):
         """
-        Settles a private patient invoice (or batch of invoices under invoice_number),
-        marks them as completed=1, records official Receipt with receipt_number,
-        and updates patient TransactionUpdate.
+        Take a payment (full or part / instalment) against a private patient's bill.
+        Body: invoice_numbers | invoice_number | invoice_id, amount_paid (cash received now),
+        payment_type, reference, use_deposit, keep_change_as_deposit, remarks, request_id.
+        All the money rules live in Billings/cashdesk.py.
         """
-        import random
-        from django.db import transaction
-        from Billings.models import TransactionUpdate, Receipt, Invoice
+        from Billings.cashdesk import settle_bill, CashDeskError
+        if not _billing_staff(request.user):
+            return Response({'error': 'Only billing staff can take payments.'}, status=status.HTTP_403_FORBIDDEN)
 
-        invoice_numbers = request.data.get('invoice_numbers')
-        invoice_number = request.data.get('invoice_number')
-        invoice_id = request.data.get('invoice_id')
-        payment_type = request.data.get('payment_type') or 'Cash'
-        remarks = request.data.get('remarks') or ''
-        amount_paid = request.data.get('amount_paid')
-
-        if not invoice_numbers and invoice_number:
-            invoice_numbers = [invoice_number]
-
-        if not invoice_numbers and not invoice_id:
-            return Response({'error': 'invoice_number, invoice_numbers or invoice_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            if invoice_numbers:
-                invoices = list(Invoice.objects.select_related('patient', 'category').filter(invoice_number__in=invoice_numbers))
-            else:
-                invoices = list(Invoice.objects.select_related('patient', 'category').filter(id=invoice_id))
-
-            if not invoices:
-                return Response({'error': 'Invoice not found'}, status=status.HTTP_404_NOT_FOUND)
-
-            patient = invoices[0].patient
-            inv_num = invoices[0].invoice_number or f"INV-{invoices[0].id}"
-            category = invoices[0].category or (patient.category if patient else None)
-            user = request.user if request.user.is_authenticated else None
-            staff_id = request.data.get('staff_id')
-            if not user and staff_id:
-                try:
-                    from users.models import User
-                    user = User.objects.filter(id=staff_id).first()
-                except Exception:
-                    pass
-            if not user and invoices[0].staff:
-                user = invoices[0].staff
-
-            # Idempotency guard: if all invoices are already settled and a Receipt exists, return it instead of double-charging
-            if all(int(getattr(it, 'completed', 0) or 0) == 1 for it in invoices):
-                existing_receipt = Receipt.objects.filter(invoice_number=inv_num).order_by('-id').first()
-                if existing_receipt:
-                    return Response({
-                        'status': 'success',
-                        'already_settled': True,
-                        'receipt_number': existing_receipt.receipt_number,
-                        'invoice_number': inv_num,
-                        'patient_name': f'{patient.surname} {patient.first_name}' if patient else 'Patient',
-                        'hospital_number': patient.hospital_number if patient else '',
-                        'total_amount': float(existing_receipt.total_price or 0),
-                        'payment_type': existing_receipt.payment_type or payment_type,
-                        'message': f'Invoice #{inv_num} is already settled (Receipt #{existing_receipt.receipt_number}).',
-                    }, status=status.HTTP_200_OK)
-
-            # Calculate total
-            total_calc = sum(float(it.price or 0) * int(it.qty or 1) * (1 - (float(it.discount or 0) / 100.0)) for it in invoices)
-            final_amount = float(amount_paid) if amount_paid is not None else total_calc
-
-            # Mark invoices as completed; only update item price when settling a single-item invoice
-            if invoice_numbers:
-                qs_upd = Invoice.objects.filter(invoice_number__in=invoice_numbers)
-            else:
-                qs_upd = Invoice.objects.filter(id=invoice_id)
-            if len(invoices) == 1 and amount_paid is not None:
-                qs_upd.update(completed=1, payment_option=payment_type, price=int(round(final_amount)))
-            else:
-                qs_upd.update(completed=1, payment_option=payment_type)
-
-            receipt_number = f"REC-{random.randint(10000, 99999)}"
-            receipt = Receipt.objects.create(
-                patient=patient,
-                invoice_number=inv_num,
-                receipt_number=receipt_number,
-                remarks=remarks or f"Payment settled for {len(invoices)} item(s) on {inv_num}",
-                total_price=int(round(final_amount)),
-                category=category,
-                payment_type=payment_type,
-                staff=user,
+        d = request.data
+        invoice_numbers = d.get('invoice_numbers') or ([d['invoice_number']] if d.get('invoice_number') else None)
+        invoice_id = d.get('invoice_id')
+        if invoice_numbers:
+            lines = Invoice.objects.filter(invoice_number__in=[str(n) for n in invoice_numbers])
+        elif invoice_id:
+            lines = Invoice.objects.filter(id=invoice_id)
+        else:
+            return Response({'error': 'invoice_number, invoice_numbers or invoice_id is required'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = settle_bill(
+                lines, by=request.user,
+                amount_received=d.get('amount_paid'),
+                method=d.get('payment_type') or 'Cash',
+                reference=d.get('reference') or '',
+                use_deposit=str(d.get('use_deposit')).lower() in ('1', 'true', 'yes'),
+                deposit_source=d.get('deposit_source'),
+                keep_change_as_deposit=str(d.get('keep_change_as_deposit')).lower() in ('1', 'true', 'yes'),
+                remarks=d.get('remarks') or '',
+                request_id=d.get('request_id'),
             )
+        except CashDeskError as e:
+            if e.code == 'already_settled':
+                return Response({'status': 'success', 'already_settled': True, 'error': e.message,
+                                 'receipt_number': e.extra.get('receipt_number'),
+                                 'message': e.message}, status=status.HTTP_200_OK)
+            return Response({'error': e.message, 'code': e.code, **e.extra}, status=e.status)
 
-            if patient:
-                try:
-                    tu, _ = TransactionUpdate.objects.get_or_create(patient=patient, completed=0)
-                    tu.receipt_given = (tu.receipt_given or 0) + 1
-                    tu.save()
-                except Exception:
-                    pass
-
-            # If any settled invoices were billed from a care package, dispatch their items to clinical queues now
-            pkg_ids = set(
-                inv.original_source_id for inv in invoices
-                if getattr(inv, 'original_source_model', None) == 'Packages' and inv.original_source_id
-            )
-            for p_id in pkg_ids:
-                try:
-                    dispatch_care_package_items(package_id=p_id, patient=patient, user=user)
-                except Exception as ex:
-                    print(f"Error dispatching care package {p_id} during receipt issuance:", ex)
-
-        return Response({
-            'status': 'success',
-            'receipt_number': receipt_number,
-            'invoice_number': inv_num,
-            'patient_name': f"{patient.surname} {patient.first_name}" if patient else 'Patient',
-            'hospital_number': patient.hospital_number if patient else '',
-            'sponsor': patient.sponsor.name if (patient and patient.sponsor) else 'Self-Pay / Cash',
-            'total_amount': final_amount,
-            'payment_type': payment_type,
-            'message': f"Official Receipt #{receipt_number} successfully issued for Invoice #{inv_num} (₦{final_amount:,.2f})!"
-        }, status=status.HTTP_201_CREATED)
+        rn = result['receipt_number']
+        if result['fully_paid']:
+            msg = f"Receipt #{rn}: ₦{result['paid_now']:,} received. Bill #{result['invoice_number']} is fully paid."
+        else:
+            msg = (f"Receipt #{rn}: ₦{result['paid_now']:,} received (part payment). "
+                   f"₦{result['balance_left']:,} is still owed on bill #{result['invoice_number']}; "
+                   f"items are released only when fully paid.")
+        if result.get('from_deposit'):
+            which = 'the family deposit' if result.get('deposit_source') == 'family' else "the patient's own deposit"
+            msg += f" ₦{result['from_deposit']:,} was taken from {which}."
+        if result.get('kept_on_deposit'):
+            msg += f" ₦{result['kept_on_deposit']:,} change kept on deposit."
+        result['message'] = msg
+        return Response(result, status=status.HTTP_200_OK if result.get('repeated') else status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='approve-hmo-claim')
     def approve_hmo_claim(self, request):
@@ -5757,7 +5790,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             if existing_rec:
                 receipt_number = existing_rec.receipt_number
             else:
-                receipt_number = f'REC-{random.randint(10000, 99999)}'
+                receipt_number = next_receipt_number()
                 Receipt.objects.create(
                     patient=patient,
                     invoice_number=inv_num,
@@ -5965,7 +5998,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             # If paid immediately, generate official Receipt
             receipt_number = None
             if is_paid:
-                receipt_number = f"REC-PKG-{random.randint(10000, 99999)}"
+                receipt_number = next_receipt_number()
                 Receipt.objects.create(
                     patient=patient,
                     invoice_number=doc_number,
@@ -6036,7 +6069,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
 
-class ReceiptViewSet(viewsets.ModelViewSet):
+class ReceiptViewSet(ImmutableRecordMixin, viewsets.ModelViewSet):
+    edit_refusal = 'Receipts cannot be changed once issued.'
+    destroy_refusal = 'Receipts cannot be deleted; issue a refund instead.'
+
+    def create(self, request, *args, **kwargs):
+        # A receipt must come with settling its bill, which only issue-receipt does (one transaction).
+        return _refused('Receipts are issued by settling the bill (Issue Receipt), not created on their own.')
     queryset = Receipt.objects.all().select_related('patient', 'category', 'staff').order_by('-created_date')
     serializer_class = ReceiptSerializer
     pagination_class = StandardResultsSetPagination
@@ -6056,7 +6095,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         user = self.request.user if self.request.user.is_authenticated else None
         patient = serializer.validated_data.get('patient')
         category = serializer.validated_data.get('category') or (patient.category if patient else None)
-        receipt_number = serializer.validated_data.get('receipt_number') or f"REC-{random.randint(10000, 99999)}"
+        receipt_number = next_receipt_number()
         receipt = serializer.save(staff=user, category=category, receipt_number=receipt_number)
         if patient:
             try:
@@ -6067,18 +6106,31 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                 pass
 
 
-class DepositViewSet(viewsets.ModelViewSet):
+class DepositViewSet(ImmutableRecordMixin, viewsets.ModelViewSet):
+    """Read-only list of deposit movements. Deposits are taken through
+    billing/patients/<id>/deposits/ (and refunded through .../deposit-refund/)."""
     queryset = Deposit.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = DepositSerializer
     pagination_class = StandardResultsSetPagination
     permission_classes = [permissions.IsAuthenticated]
+    edit_refusal = 'Deposits cannot be changed once saved.'
+    destroy_refusal = 'Deposits cannot be deleted; the record must be kept for audit.'
+
+    def create(self, request, *args, **kwargs):
+        return _refused('Record deposits from the patient account (billing/patients/<id>/deposits/).')
 
 
-class RefundViewSet(viewsets.ModelViewSet):
+class RefundViewSet(ImmutableRecordMixin, viewsets.ModelViewSet):
+    """Read-only list of refunds. Deposit refunds go through billing/patients/<id>/deposit-refund/."""
     queryset = Refund.objects.all().select_related('patient', 'staff').order_by('-created_date')
     serializer_class = RefundSerializer
     pagination_class = StandardResultsSetPagination
     permission_classes = [permissions.IsAuthenticated]
+    edit_refusal = 'Refunds cannot be changed once saved.'
+    destroy_refusal = 'Refunds cannot be deleted; the record must be kept for audit.'
+
+    def create(self, request, *args, **kwargs):
+        return _refused('Refund from the patient account (billing/patients/<id>/deposit-refund/), with a reason.')
 
 
 # IPD ViewSets
@@ -6128,7 +6180,12 @@ class BedAllocationViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ANC ViewSets
-class ANCRegistrationViewSet(viewsets.ModelViewSet):
+class ANCRegistrationViewSet(TrackedEditMixin, viewsets.ModelViewSet):
+    # Booking details may be corrected; every change is kept with who/when/why.
+    editable_fields = {'antenatal_visit', 'status', 'visit_date', 'last_menstrual_period', 'gestational_age_weeks',
+                       'expected_delivery_date', 'number_of_foetus', 'bleeding', 'vomiting', 'oedema', 'placenta_previa',
+                       'blurred_vision', 'breathlessness', 'discharge', 'current_stage', 'completed'}
+    delete_refusal = 'ANC registrations are part of the patient record and are never deleted.'
     queryset = ANCRegistration.objects.all().select_related('patient', 'created_by', 'antenatal_visit').order_by('-visit_date')
     serializer_class = ANCRegistrationSerializer
     pagination_class = StandardResultsSetPagination
@@ -7717,7 +7774,20 @@ class PharmacyDrugViewSet(viewsets.ModelViewSet):
 
 
 # Radiology & Laboratory ViewSets
-class RadioLabViewSet(viewsets.ModelViewSet):
+class RadioLabViewSet(TrackedEditMixin, viewsets.ModelViewSet):
+    # Lab / radiology staff may only mark an order done (never undo it, never change item or price).
+    editable_fields = {'completed'}
+    edit_modules = ('laboratory', 'radiology')
+    delete_refusal = 'Lab and radiology orders are part of the patient record and are never deleted.'
+
+    def perform_update(self, serializer):
+        from inventory.permissions import is_admin
+        new = serializer.validated_data.get('completed')
+        if new is not None and int(new or 0) < int(serializer.instance.completed or 0) and not is_admin(self.request.user):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'error': 'A completed order cannot be re-opened here.'})
+        self.save_tracked(serializer)
+
     queryset = RadiologyLab.objects.all().select_related('patient', 'category', 'plan', 'staff').order_by('-created_date')
     serializer_class = RadiologyLabSerializer
     pagination_class = None
@@ -7899,7 +7969,9 @@ class InventoryProductRequestViewSet(viewsets.ModelViewSet):
         serializer.save(staff=staff)
 
 
-class WrittenPrescriptionViewSet(viewsets.ModelViewSet):
+class WrittenPrescriptionViewSet(SignedRecordMixin, viewsets.ModelViewSet):
+    edit_refusal = 'A written prescription cannot be changed after it is saved. Write a new prescription instead.'
+    delete_refusal = 'Prescriptions are part of the patient record and are never deleted. Write a new one to replace it.'
     """
     Prescription and Pharmacy Dispensing ViewSet.
     Handles doctor clinical prescriptions, calculated pieces/bottles,

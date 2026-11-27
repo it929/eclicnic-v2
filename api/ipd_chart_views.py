@@ -124,7 +124,9 @@ def _dose_row(a):
     return {'id': a.id, 'status': a.status, 'status_label': cs.DOSE_STATUSES.get(a.status, a.status),
             'scheduled_time': _dt(a.scheduled_time), 'given_at': _dt(a.administered_time or a.updated_at),
             'by': staff_name(a.administered_by), 'dose_given': a.dose_given, 'comment': a.comments,
-            'batch_no': a.batch_no}
+            'batch_no': a.batch_no,
+            # When it was entered in the system (can be after the time given).
+            'charted_at': _dt(a.updated_at)}
 
 
 def medication_rows(adm, d_from, d_to, now=None):
@@ -403,6 +405,25 @@ class MedicationActionView(_Auth):
             return Response({'detail': f'{rx.drug_name} stopped.', 'warning': getattr(rx, 'supply_warning', None)})
         except AdmissionError as e:
             return _err(e)
+
+
+class MedicationBulkAdministerView(_Auth):
+    """Chart several doses given together on one round, with one PIN. All or nothing."""
+
+    def post(self, request, pk):
+        adm = _adm(pk)
+        if adm.is_open is False:
+            return Response({'error': 'This admission is closed.', 'code': 'admission_closed'}, status=400)
+        user, err = _pin_user(request, 'chart these doses')
+        if err:
+            return err
+        try:
+            done = cs.administer_bulk(adm, by=user, data=request.data)
+        except AdmissionError as e:
+            return _err(e)
+        n = len(done)
+        return Response({'detail': f'{n} dose{"s" if n != 1 else ""} charted as given (signed by {staff_name(user)}).',
+                         'doses': [_dose_row(a) for a in done]})
 
 
 class TreatmentsView(_Auth):

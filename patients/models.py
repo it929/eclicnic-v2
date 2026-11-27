@@ -265,7 +265,7 @@ class FamilyMember(models.Model):
     ]
 
     family = models.ForeignKey(FamilyFolder, on_delete=models.CASCADE, related_name='members')
-    patient = models.OneToOneField(PatientProfile, on_delete=models.CASCADE, related_name='family_membership')
+    patient = models.OneToOneField(PatientProfile, on_delete=models.PROTECT, related_name='family_membership')
     letter_suffix = models.CharField(max_length=10, help_text="e.g. A, B, C...")
     assigned_hospital_number = models.CharField(max_length=120, help_text="e.g. F/ISLH/ISL-4572-A")
     original_hospital_number = models.CharField(max_length=120, null=True, blank=True)
@@ -480,3 +480,74 @@ class PatientAppointment(models.Model):
     #         is_active=True,
     #         created_date__lte=expiration_threshold
     #     ).update(is_active=False)
+
+# ------------------------------------------------------------------------------------------------
+# Infection-control (safety) alerts
+# ------------------------------------------------------------------------------------------------
+INFECTION_PRECAUTIONS = [
+    ('blood', 'Blood & body fluid precautions'),
+    ('contact', 'Contact precautions'),
+    ('droplet', 'Droplet precautions'),
+    ('airborne', 'Airborne precautions'),
+]
+
+
+class PatientSafetyAlert(models.Model):
+    """Tells staff HOW to protect themselves and others with this patient, never WHY.
+
+    The diagnosis (e.g. a reactive HIV or HBsAg result) stays in the lab result, which only
+    clinicians open. The alert carries the precaution only, so it can be shown on every list
+    and chart nurses use without disclosing the condition (HIV and AIDS Anti-Discrimination
+    Act 2014). Raised by the lab with a result, or by a clinician; cleared only with a reason.
+    Changes go through patients/safety_alerts.py.
+    """
+    patient = models.ForeignKey(PatientProfile, on_delete=models.PROTECT, related_name='safety_alerts')
+    precaution = models.CharField(max_length=20, choices=INFECTION_PRECAUTIONS)
+    instruction = models.CharField(max_length=300, blank=True, default='')  # e.g. "Double-glove for cannulation"
+    source = models.CharField(max_length=20, default='clinician')            # 'lab' or 'clinician'
+    source_order = models.ForeignKey('radio_lab.RadiologyLab', on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='+')
+    raised_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, related_name='+')
+    raised_at = models.DateTimeField(default=timezone.now)
+    is_active = models.BooleanField(default=True, db_index=True)
+    cleared_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    cleared_at = models.DateTimeField(null=True, blank=True)
+    clear_reason = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['-raised_at']
+        constraints = [
+            # One active alert per precaution per patient (a second lab result just refreshes it).
+            models.UniqueConstraint(fields=['patient', 'precaution'], condition=Q(is_active=True),
+                                    name='one_active_safety_alert_per_precaution'),
+        ]
+
+    def __str__(self):
+        return f'{self.patient_id}: {self.get_precaution_display()}{"" if self.is_active else " (cleared)"}'
+
+
+class ClinicalRecordHistory(models.Model):
+    """
+    Every change to a patient's record (demographics, appointments, queue, lab orders, ANC, ...) and
+    every allowed removal (e.g. a vaccine entered in error): who, when, why, and the values before
+    and after. Written only by api/clinical_history.py. Never edited or deleted.
+    """
+    ACTIONS = [('update', 'Changed'), ('delete', 'Removed (entered in error)')]
+    model = models.CharField(max_length=80, db_index=True)          # e.g. patients.PatientAppointment
+    object_id = models.CharField(max_length=40, db_index=True)
+    patient = models.ForeignKey('PatientProfile', on_delete=models.PROTECT, null=True, blank=True,
+                                related_name='record_history')
+    action = models.CharField(max_length=10, choices=ACTIONS)
+    changes = models.JSONField(default=dict, blank=True)              # {field: [before, after]}
+    snapshot = models.JSONField(default=dict, blank=True)             # the whole record before the change
+    reason = models.CharField(max_length=300, blank=True, default='')
+    changed_by = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True, related_name='+')
+    changed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_address = models.CharField(max_length=45, blank=True, default='')
+
+    class Meta:
+        ordering = ['-changed_at', '-id']
+        indexes = [models.Index(fields=['model', 'object_id'])]
+
+    def __str__(self):
+        return f'{self.model}#{self.object_id} {self.action} by {self.changed_by_id} at {self.changed_at:%Y-%m-%d %H:%M}'

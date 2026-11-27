@@ -12,7 +12,7 @@ class ANCRegistration(models.Model):
         ('completed', 'Completed'),
     ]
 
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='anc_registrations')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='anc_registrations')
     antenatal_visit = models.ForeignKey(
         'AntenatalVisit',
         on_delete=models.SET_NULL,
@@ -123,7 +123,7 @@ class AntenatalVisit(models.Model):
         ('other', 'Other'),
     ]
 
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='antenatal_visits')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='antenatal_visits')
     visit_date = models.DateField(default=timezone.now)
     status = models.CharField(max_length=20, choices=JOURNEY_STATUS_CHOICES, default=STATUS_ACTIVE, db_index=True)
     journey_number = models.PositiveIntegerField(default=1)
@@ -282,7 +282,7 @@ class ObstetricHistory(models.Model):
     isoimmunization_rh = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     pelvic_mass = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     insulin_dependent_diabetes = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
     def __str__(self):
         if self.visit and self.visit.patient:
@@ -305,7 +305,7 @@ class CurrentPregnancy(models.Model):
     breathlessness = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     discharge = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     history_of_present_pregnancy = models.TextField(null=True, blank=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
 
     def __str__(self):
@@ -361,7 +361,7 @@ class GeneralMedical(models.Model):
     asthma = models.CharField(max_length=3, choices=YES_NO_CHOICES, default='No')
     others_medical_history = models.TextField(null=True, blank=True)
     family_history = models.TextField(null=True, blank=True) 
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
     def __str__(self):
         if self.visit and self.visit.patient:
@@ -384,7 +384,7 @@ class LabTests(models.Model):
     urine_protein = models.CharField(max_length=20, default='Negative') 
     urine_glucose = models.CharField(max_length=20, default='Negative') 
     pregnancy_test = models.CharField(max_length=20, default='Positive') 
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
 
     def __str__(self):
@@ -426,7 +426,7 @@ VAGINA_POSITION = (
 class ANCDetails(models.Model):
     patient = models.OneToOneField(
         'patients.PatientProfile',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="anc_details"
     )
 
@@ -451,7 +451,7 @@ class ANCDetails(models.Model):
     malaria_ipt3 = models.CharField(max_length=3, choices=YES_NO, blank=True)
     maternal_nutrition_counseled = models.CharField(max_length=3, choices=YES_NO, blank=True)
     haematinics_received = models.CharField(max_length=3, choices=YES_NO, blank=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

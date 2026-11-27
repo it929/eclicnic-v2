@@ -40,6 +40,14 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = 'users.User'
 
 LOGIN_URL = 'login'
+# Old Django pages (outside /api/): 'readonly' (default) = signed-in staff may view, not change; 'login' = full use; 'off' = closed. See legacy_guard.py.
+LEGACY_PAGES = 'readonly'
+
+# Backups (deploy/bin/clinic365-backup writes status files here; manage.py check_backups reads them)
+BACKUP_DIR = os.environ.get('BACKUP_DIR', '/var/backups/clinic365')
+BACKUP_MAX_AGE_HOURS = 26
+BACKUP_RESTORE_TEST_MAX_DAYS = 8
+BACKUP_ALERT_EMAIL = ''
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -49,6 +57,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'clinic365.legacy_guard.LegacyPagesGuard',   # old Django pages need sign-in (see legacy_guard.py)
     'myAdmins.middleware.OnlineUsersMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -65,6 +74,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',   # endpoints that must be public opt out explicitly (only LoginView)
     ],
+    'EXCEPTION_HANDLER': 'api.exceptions.api_exception_handler',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }

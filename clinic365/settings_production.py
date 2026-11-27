@@ -38,6 +38,11 @@ def env_list(name, default='', required=False):
 
 # --------------------------------------------------------------------------- core
 DEBUG = env_bool('DJANGO_DEBUG', False)
+# Old Django pages outside /api/ (the React app does not use them): 'readonly' (default), 'login' or 'off'.
+LEGACY_PAGES = env('DJANGO_LEGACY_PAGES', 'readonly')
+# Backups: the same BACKUP_DIR the backup script uses; who is emailed when backups need attention.
+BACKUP_DIR = env('BACKUP_DIR', '/var/backups/clinic365')
+BACKUP_ALERT_EMAIL = env('BACKUP_ALERT_EMAIL', '')
 
 SECRET_KEY = env('DJANGO_SECRET_KEY', required=True)
 if SECRET_KEY.startswith('django-insecure') or len(SECRET_KEY) < 50:

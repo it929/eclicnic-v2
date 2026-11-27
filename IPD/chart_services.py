@@ -521,6 +521,12 @@ def administer(rx, *, by, data):
             if DrugAdministration.objects.filter(content_type=ct, object_id=rx.pk, scheduled_time=slot) \
                     .exclude(status='pending').exists():
                 raise AdmissionError('This dose has already been charted.', 'already_charted')
+            # The time the drug actually went in (nurses often chart after the round):
+            # it may be later than the dose time, but not before it could be given.
+            if status == 'administered' and given_at < slot - EARLY_LIMIT:
+                raise AdmissionError(
+                    f'Time given is more than 2 hours before this dose was due '
+                    f'({timezone.localtime(slot):%d/%m %H:%M}). Check the time.', 'given_too_early')
         values = dict(status=status, administered_by=by, comments=comment,
                       administered_time=given_at if status == 'administered' else None,
                       dose_given=_text(data.get('dose_given') or rx.dose, 'Dose given', max_len=50),
@@ -534,6 +540,47 @@ def administer(rx, *, by, data):
             pending.save()
             return pending
         return DrugAdministration.objects.create(content_type=ct, object_id=rx.pk, scheduled_time=slot, **values)
+
+
+BULK_MAX = 30
+
+
+def administer_bulk(adm, *, by, data):
+    """Chart several scheduled doses given together on one round, under one signature.
+
+    data: doses [{prescription_id, scheduled_time, dose_given?}], given_at, comment.
+    All or nothing: if any dose fails, none is charted and the error names the drug.
+    """
+    items = data.get('doses') or []
+    if not isinstance(items, list) or not items:
+        raise AdmissionError('Choose at least one dose to chart.', 'doses_required')
+    if len(items) > BULK_MAX:
+        raise AdmissionError(f'Chart at most {BULK_MAX} doses at a time.', 'too_many')
+    seen = set()
+    for it in items:
+        key = (str(it.get('prescription_id')), str(it.get('scheduled_time')))
+        if key in seen:
+            raise AdmissionError('The same dose was chosen twice.', 'duplicate')
+        seen.add(key)
+    rx_ids = {it.get('prescription_id') for it in items}
+    rxs = {rx.pk: rx for rx in DrugPrescription.objects.filter(admission=adm, pk__in=[i for i in rx_ids if str(i).isdigit()])}
+    out = []
+    with transaction.atomic():
+        for it in items:
+            rx = rxs.get(int(it['prescription_id'])) if str(it.get('prescription_id')).isdigit() else None
+            if not rx:
+                raise AdmissionError('One of the chosen medications is not on this patient\'s chart.', 'rx_not_found')
+            if rx.prescription_type == 'prn' or rx.frequency == 'prn':
+                raise AdmissionError(f'{rx.drug_name} is as-needed (PRN); chart it on its own with "Give dose".', 'prn_not_bulk')
+            try:
+                out.append(administer(rx, by=by, data={
+                    'status': 'administered', 'scheduled_time': it.get('scheduled_time'),
+                    'dose_given': it.get('dose_given') or rx.dose, 'given_at': data.get('given_at'),
+                    'comment': data.get('comment'),
+                }))
+            except AdmissionError as e:
+                raise AdmissionError(f'{rx.drug_name}: {e}', getattr(e, 'code', 'invalid'))
+    return out
 
 
 # ------------------------------------------------------------------------------------------------

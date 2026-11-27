@@ -38,7 +38,7 @@ class Ipd2Drugs(models.Model):
     expiry_date = models.DateField(null=True, blank=True)
     expiry_flag_in = models.CharField(choices=EXPIRY_FLAG_IN, default="", null=True, max_length=10, blank=True)
     expiry_flag_in_num = models.IntegerField(blank=True, null=True, default=0)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     class Meta:
         ordering = ['-created_date']
@@ -64,7 +64,7 @@ class Ipd2DrugsUpdate(models.Model):
     destination = models.CharField(max_length=30, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     minimum_UoM = models.CharField(max_length=20, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     transaction_id = models.PositiveIntegerField(default=0)
 
     def __str__(self):
@@ -91,10 +91,10 @@ class IPD2AdministeredDrugs(models.Model):
     rate = models.DecimalField(max_digits=15, decimal_places=2)
     # total = models.DecimalField(max_digits=15, decimal_places=2)
     start_date = models.DateField(null=True, blank=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     doctor_waiting_status = models.IntegerField(default=0, null=True)
     billing_waiting_status = models.IntegerField(default=0, null=True)
     completed = models.IntegerField(default=0, null=True)

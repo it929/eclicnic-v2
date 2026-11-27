@@ -41,7 +41,7 @@ class Product(models.Model):
     expiry_date = models.DateField(null=True, blank=True)
     expiry_flag_in = models.CharField(choices=EXPIRY_FLAG_IN, default="", null=True, max_length=10, blank=True)
     expiry_flag_in_num = models.IntegerField(blank=True, null=True, default=0)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     # Set when an administrator merges this duplicate into another product. The record stays
     # (old prescriptions, ledgers and reports still open) but every new use goes to merged_into.
@@ -82,7 +82,7 @@ class Transaction(models.Model):
     destination = models.CharField(max_length=30, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     minimum_UoM = models.CharField(max_length=20, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
     def __str__(self):
         return f"{self.transaction_type} - {self.product.product_name} ({self.quantity} to {self.destination})"
@@ -104,7 +104,7 @@ class ProductRequests(models.Model):
     destination = models.CharField(max_length=30, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     minimum_UoM = models.CharField(max_length=20, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     staff2 = models.CharField(max_length=50, null=True)
     status = models.PositiveBigIntegerField(default=0)
     def __str__(self):
@@ -125,10 +125,10 @@ class AdministerDrugs(models.Model):
     quantity = models.PositiveIntegerField()
     rate = models.DecimalField(max_digits=15, decimal_places=2)
     total = models.DecimalField(max_digits=15, decimal_places=2)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     class Meta:
         ordering = ['-created_date']
@@ -148,7 +148,7 @@ class Expense(models.Model):
     total_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     payment = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     due = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     class Meta:
         ordering = ['-created_date']
@@ -172,7 +172,7 @@ class VendorTransaction(models.Model):
     total_cost = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     expense_id = models.PositiveIntegerField(default=0)
     created_date = models.DateTimeField(auto_now_add=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
     def __str__(self):
         return f" {self.vendor.vendor_name} ({self.payment})"
@@ -190,7 +190,7 @@ class PharmacyTariff(models.Model):
     sponsor = models.ForeignKey('patients.Sponsor', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='medication_tariffs')
     rate = models.DecimalField(max_digits=15, decimal_places=2)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
 

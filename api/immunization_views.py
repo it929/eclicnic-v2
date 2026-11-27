@@ -1246,11 +1246,32 @@ class ConfirmImmunizationAdministrationView(APIView):
 
 
 class DeleteImmunizationRecordView(APIView):
-    """Deletes or reverses an immunization record entered in error."""
+    """
+    Remove a vaccine entry made in error, BEFORE the vaccine was given and before it was billed.
+    A reason is required and the removed entry is kept in ClinicalRecordHistory. A vaccine that was
+    given (or billed) stays on the record: correct it with a note / AEFI report instead.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def delete(self, request, pk):
-        record = get_object_or_404(ImmunizationRecord, id=pk)
-        record.delete()
-        return Response({'success': True, 'message': 'Immunization record removed successfully.'})
+        from django.db import transaction
+        from api.clinical_history import record_change, snapshot
+        reason = str((request.data or {}).get('reason') or request.query_params.get('reason') or '').strip()
+        if not reason:
+            return Response({'error': 'Say why this vaccine entry is being removed.', 'code': 'reason_required'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            record = get_object_or_404(ImmunizationRecord.objects.select_for_update(), id=pk)
+            if record.administration_confirmed:
+                return Response({'error': f'{record.vaccine_name} was recorded as GIVEN, so it stays on the patient record. '
+                                          'If it was recorded by mistake, add a note to the record (or an AEFI report).',
+                                 'code': 'already_given'}, status=status.HTTP_409_CONFLICT)
+            if record.billing_status == 'billed':
+                return Response({'error': f'{record.vaccine_name} has already been billed, so the entry cannot be removed. '
+                                          'Ask Billing to handle the bill first.', 'code': 'already_billed'},
+                                status=status.HTTP_409_CONFLICT)
+            name = record.vaccine_name
+            record_change(record, before=snapshot(record), action='delete', by=request.user, reason=reason, request=request)
+            record.delete()
+        return Response({'success': True, 'message': f'{name} entry removed (reason kept in the record history).'})
 

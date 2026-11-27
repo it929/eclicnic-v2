@@ -1,0 +1,7 @@
+# Everything in deploy/ runs on the Linux server: keep Unix line endings (LF).
+# Windows line endings (CRLF) break the scripts ("bash\r: No such file") and cron files.
+root = false
+
+[*]
+end_of_line = lf
+insert_final_newline = true

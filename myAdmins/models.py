@@ -22,7 +22,7 @@ class UserActivityLog(models.Model):
         ('failed_pin', 'Wrong PIN Entered'),
     ]
     
-    user = models.ForeignKey('users.User', on_delete=models.CASCADE, related_name='activities')
+    user = models.ForeignKey('users.User', on_delete=models.PROTECT, related_name='activities')
     activity_type = models.CharField(max_length=50, choices=ACTIVITY_TYPES)
     description = models.TextField(null=True, blank=True)
     
@@ -94,7 +94,7 @@ class OtherService2(models.Model):
     rate = models.DecimalField(max_digits=15, decimal_places=2)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, related_name='service_tariffs')
     
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -108,10 +108,10 @@ class OtherService2(models.Model):
 class OtherServiceConsumed(models.Model):
     service = models.CharField(max_length=200)
     rate = models.DecimalField(max_digits=15, decimal_places=2)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     exception_bill = models.BooleanField(default=False)
     completed = models.PositiveIntegerField(default=0)
     created_date = models.DateTimeField(auto_now_add=True)
@@ -137,7 +137,7 @@ class OtherServiceConsumed(models.Model):
 
 class Packages(models.Model):
     name = models.CharField(max_length=200) 
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -148,7 +148,7 @@ class PackagesData(models.Model):
     item = models.CharField(max_length=200)
     type = models.CharField(max_length=2)
     rate = models.DecimalField(max_digits=15, decimal_places=2)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True, null=True)
     updated_date = models.DateTimeField(null=True, blank=True)
     def __str__(self):

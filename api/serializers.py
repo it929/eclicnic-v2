@@ -239,6 +239,15 @@ class PatientProfileSerializer(serializers.ModelSerializer):
     family_name = serializers.CharField(source='family_folder.family_name', read_only=True)
     family_number = serializers.CharField(source='family_folder.family_number', read_only=True)
     family_folder_type = serializers.CharField(source='family_folder.folder_type', read_only=True)
+    # Infection-control precautions (never the diagnosis): see patients/safety_alerts.py
+    safety_alerts = serializers.SerializerMethodField(read_only=True)
+
+    def get_safety_alerts(self, obj):
+        from patients.safety_alerts import active_alerts, alert_row
+        pre = getattr(obj, 'active_safety_alerts', None)   # prefetched by PatientViewSet
+        if pre is not None:
+            return [alert_row(a) for a in pre]
+        return active_alerts(obj) if obj.pk else []
 
     def validate_email_address(self, value):
         if not value or not str(value).strip():
@@ -271,7 +280,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             'phone_numbers', 'next_of_kin_name', 'next_of_kin_relationship', 'next_of_kin_phone',
             'insurance_policy_number', 'active', 'deactivated_date', 'deactivated_by', 'packages',
             'family_folder', 'family_name', 'family_number', 'family_folder_type', 'family_member_suffix',
-            'created_date', 'created_by', 'created_by_name'
+            'created_date', 'created_by', 'created_by_name', 'safety_alerts',
         ]
 
 
@@ -416,10 +425,23 @@ class NurseWaitingListSerializer(serializers.ModelSerializer):
     plan_name = serializers.CharField(source='plan.plan', read_only=True)
     gender = serializers.CharField(source='patient.gender', read_only=True)
     age = serializers.IntegerField(source='patient.get_age', read_only=True)
+    patient_safety_alerts = serializers.SerializerMethodField(read_only=True)
+
+    def get_patient_safety_alerts(self, obj):
+        return _patient_alerts(obj.patient)
 
     class Meta:
         model = NurseWaitingList
         fields = '__all__'
+
+
+def _patient_alerts(patient):
+    """Active infection-control alerts of a patient: prefetched (to_attr active_safety_alerts) or one query."""
+    if not patient:
+        return []
+    from patients.safety_alerts import active_alerts, alert_row
+    pre = getattr(patient, 'active_safety_alerts', None)
+    return [alert_row(a) for a in pre] if pre is not None else active_alerts(patient)
 
 
 class DoctorWaitingListSerializer(serializers.ModelSerializer):
@@ -461,6 +483,10 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
     has_vitals = serializers.SerializerMethodField(read_only=True)
     has_action_taken = serializers.SerializerMethodField(read_only=True)
     can_cancel = serializers.SerializerMethodField(read_only=True)
+    patient_safety_alerts = serializers.SerializerMethodField(read_only=True)
+
+    def get_patient_safety_alerts(self, obj):
+        return _patient_alerts(obj.patient)
 
     class Meta:
         model = PatientAppointment
@@ -471,7 +497,7 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
             'arrival_date', 'arrival_time', 'comment', 'anc_weeks', 'created_date',
             'completed', 'is_today', 'is_upcoming', 'is_expired', 'is_completed', 'is_cancelled',
             'consultation_paid', 'consultation_invoiced', 'has_draft',
-            'today_vitals', 'has_vitals', 'has_action_taken', 'can_cancel'
+            'today_vitals', 'has_vitals', 'has_action_taken', 'can_cancel', 'patient_safety_alerts',
         ]
 
     def get_today_vitals(self, obj):
@@ -575,6 +601,9 @@ class PatientAppointmentSerializer(serializers.ModelSerializer):
 
 # Billings Serializers
 class InvoiceSerializer(serializers.ModelSerializer):
+    # Instalments: what is still owed on this line (0 once paid in full).
+    balance = serializers.IntegerField(read_only=True)
+    amount_paid = serializers.IntegerField(read_only=True)
     patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
     hospital_number = serializers.CharField(source='patient.hospital_number', read_only=True)
     staff_name = serializers.SerializerMethodField()

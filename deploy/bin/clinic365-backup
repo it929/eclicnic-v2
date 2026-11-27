@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# Clinic365 nightly backup: database + uploaded files (lab results, scans, photos) + server config.
+#
+#   clinic365-backup            run a backup now
+#   clinic365-backup --dry-run  show what would happen, change nothing
+#
+# Install:  sudo install -m 755 deploy/bin/clinic365-backup /usr/local/bin/clinic365-backup
+#           sudo mkdir -p /var/backups/clinic365 && sudo chown clinic365: /var/backups/clinic365 && sudo chmod 700 /var/backups/clinic365
+# Scheduled by deploy/cron/clinic365-backup. Runs as the clinic365 user.
+#
+# Settings (in /etc/clinic365/clinic365.env, all optional except the DB ones the app already uses):
+#   DB_NAME DB_USER DB_PASSWORD DB_HOST DB_PORT     same as the app
+#   DJANGO_MEDIA_ROOT        uploaded files            (default /opt/clinic365/media)
+#   BACKUP_DIR               where backups are kept    (default /var/backups/clinic365)
+#   BACKUP_KEEP_DAILY=14     nightly database copies kept
+#   BACKUP_KEEP_WEEKLY=8     plus the first copy of each of the last N weeks
+#   BACKUP_KEEP_MONTHLY=12   plus the first copy of each of the last N months
+#   BACKUP_KEEP_MEDIA=7      uploaded-file snapshots kept (rsync hard links: unchanged files cost no space)
+#   BACKUP_REMOTE            OFF-SITE copy target for rsync: user@host:/path, or a mounted disk path
+#   BACKUP_RCLONE            OFF-SITE copy with rclone (cloud), e.g. gdrive:clinic365-backups
+#   PG_BIN                   folder with pg_dump/pg_restore if they are not on PATH
+#
+# A backup on the same disk as the database does not survive a disk failure, theft or fire:
+# set BACKUP_REMOTE or BACKUP_RCLONE. Until then every run reports "off-site: NOT CONFIGURED".
+#
+# Writes $BACKUP_DIR/last_status.json, which the app reads (manage.py check_backups) to warn
+# Admin/CMD in the notification bell when a backup failed, is late, or has no off-site copy.
+set -Eeuo pipefail
+umask 077
+
+DRY=0
+[[ "${1:-}" == "--dry-run" ]] && DRY=1
+
+ENVFILE="${CLINIC365_ENV:-/etc/clinic365/clinic365.env}"
+if [[ -r "$ENVFILE" ]]; then
+  # Read KEY=value lines without executing the file (same rules as clinic365-manage).
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    key="${line%%=*}"; value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # do not override values already set in the environment (lets you test with other paths)
+    [[ -z "${!key:-}" ]] && export "$key=$value"
+  done < "$ENVFILE"
+fi
+
+DB_NAME="${DB_NAME:-clinic365}"; DB_USER="${DB_USER:-clinic365}"
+DB_HOST="${DB_HOST:-127.0.0.1}"; DB_PORT="${DB_PORT:-5432}"
+MEDIA_ROOT="${DJANGO_MEDIA_ROOT:-/opt/clinic365/media}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/clinic365}"
+KEEP_DAILY="${BACKUP_KEEP_DAILY:-14}"; KEEP_WEEKLY="${BACKUP_KEEP_WEEKLY:-8}"
+KEEP_MONTHLY="${BACKUP_KEEP_MONTHLY:-12}"; KEEP_MEDIA="${BACKUP_KEEP_MEDIA:-7}"
+[[ -n "${PG_BIN:-}" ]] && PATH="$PG_BIN:$PATH"
+export PGPASSWORD="${DB_PASSWORD:-}"      # passed to pg_dump through the environment, never on the command line
+
+STAMP="$(date +%Y-%m-%d_%H%M%S)"
+STARTED="$(date -Iseconds)"
+STEP="start"
+LOG() { echo "[$(date '+%F %T')] $*"; }
+
+json_escape() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/ }"; printf '%s' "$s"; }
+
+write_status() {   # ok error db_file db_bytes db_sha media_ref media_files media_bytes offsite
+  local tmp="$BACKUP_DIR/.last_status.json.tmp"
+  cat > "$tmp" <<EOF
+{
+  "started_at": "$STARTED",
+  "finished_at": "$(date -Iseconds)",
+  "ok": $1,
+  "error": "$(json_escape "$2")",
+  "database": {"name": "$(json_escape "$DB_NAME")", "file": "$(json_escape "$3")", "bytes": ${4:-0}, "sha256": "$5"},
+  "media": {"snapshot": "$(json_escape "$6")", "files": ${7:-0}, "bytes": ${8:-0}},
+  "offsite": "$(json_escape "$9")",
+  "host": "$(json_escape "$(hostname)")"
+}
+EOF
+  mv -f "$tmp" "$BACKUP_DIR/last_status.json"
+}
+
+on_error() {
+  local code=$?
+  LOG "BACKUP FAILED during: $STEP (exit $code)"
+  [[ $DRY -eq 0 ]] && write_status false "Failed during: $STEP (exit $code)" "" 0 "" "" 0 0 "not attempted" || true
+  exit "$code"
+}
+trap on_error ERR
+
+for tool in pg_dump pg_restore sha256sum; do
+  command -v "$tool" >/dev/null || { STEP="checking tools: $tool not found (set PG_BIN?)"; false; }
+done
+
+LOG "Backup of database '$DB_NAME' and $MEDIA_ROOT to $BACKUP_DIR"
+if [[ $DRY -eq 1 ]]; then
+  LOG "(dry run) would write $BACKUP_DIR/db/${DB_NAME}_$STAMP.dump, a media snapshot and a config copy"
+  LOG "(dry run) off-site: ${BACKUP_REMOTE:-${BACKUP_RCLONE:-NOT CONFIGURED}}"
+  exit 0
+fi
+mkdir -p "$BACKUP_DIR/db" "$BACKUP_DIR/media" "$BACKUP_DIR/config"
+
+# ---------------------------------------------------------------- 1. database
+STEP="database dump"
+DUMP="$BACKUP_DIR/db/${DB_NAME}_$STAMP.dump"
+pg_dump --format=custom --compress=6 --no-owner --no-privileges \
+        --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" --dbname="$DB_NAME" --file="$DUMP.partial"
+
+STEP="checking the dump can be read"
+ENTRIES="$(pg_restore --list "$DUMP.partial" | grep -c ' TABLE DATA ' || true)"
+if [[ "${ENTRIES:-0}" -lt 10 ]]; then
+  STEP="checking the dump: only ${ENTRIES:-0} tables in it"; false
+fi
+mv -f "$DUMP.partial" "$DUMP"
+DB_BYTES="$(stat -c %s "$DUMP" 2>/dev/null || wc -c < "$DUMP")"
+DB_SHA="$(sha256sum "$DUMP" | cut -d' ' -f1)"
+echo "$DB_SHA  $(basename "$DUMP")" > "$DUMP.sha256"
+LOG "Database: $(basename "$DUMP") ($DB_BYTES bytes, $ENTRIES tables)"
+
+# ---------------------------------------------------------------- 2. uploaded files
+STEP="uploaded files"
+MEDIA_REF=""; MEDIA_FILES=0; MEDIA_BYTES=0
+if [[ -d "$MEDIA_ROOT" ]]; then
+  MEDIA_FILES="$(find "$MEDIA_ROOT" -type f | wc -l | tr -d ' ')"
+  MEDIA_BYTES="$(du -sb "$MEDIA_ROOT" 2>/dev/null | cut -f1 || echo 0)"
+  if command -v rsync >/dev/null; then
+    # Daily snapshot folders; files unchanged since the last snapshot are hard links (no extra space).
+    SNAP="$BACKUP_DIR/media/$STAMP"
+    LATEST="$(ls -1d "$BACKUP_DIR"/media/20*/ 2>/dev/null | tail -n1 || true)"
+    if [[ -n "$LATEST" ]]; then
+      rsync -a --link-dest="$LATEST" "$MEDIA_ROOT"/ "$SNAP"/
+    else
+      rsync -a "$MEDIA_ROOT"/ "$SNAP"/
+    fi
+    MEDIA_REF="$(basename "$SNAP")"
+    STEP="removing old media snapshots"
+    ls -1d "$BACKUP_DIR"/media/20*/ 2>/dev/null | head -n -"$KEEP_MEDIA" | xargs -r rm -rf
+  else
+    # No rsync (e.g. a test machine): a compressed archive instead.
+    SNAP="$BACKUP_DIR/media/media_$STAMP.tar.gz"
+    tar --force-local -czf "$SNAP" -C "$MEDIA_ROOT" .
+    MEDIA_REF="$(basename "$SNAP")"
+    STEP="removing old media archives"
+    ls -1 "$BACKUP_DIR"/media/media_*.tar.gz 2>/dev/null | head -n -"$KEEP_MEDIA" | xargs -r rm -f
+  fi
+  LOG "Uploaded files: $MEDIA_FILES files ($MEDIA_REF)"
+else
+  LOG "WARNING: $MEDIA_ROOT not found; uploaded files were not backed up"
+  MEDIA_REF="MISSING: $MEDIA_ROOT"
+fi
+
+# ---------------------------------------------------------------- 3. server config (secrets: kept 0600)
+STEP="config copy"
+CONF="$BACKUP_DIR/config/$STAMP"
+mkdir -p "$CONF"
+for f in "$ENVFILE" /etc/nginx/sites-available/clinic365* /etc/nginx/conf.d/clinic365* /etc/systemd/system/clinic365*.service; do
+  [[ -f "$f" ]] && cp -p "$f" "$CONF/" 2>/dev/null || true
+done
+chmod -R go-rwx "$CONF" 2>/dev/null || true
+ls -1d "$BACKUP_DIR"/config/20*/ 2>/dev/null | head -n -"$KEEP_DAILY" | xargs -r rm -rf
+
+# ---------------------------------------------------------------- 4. keep N daily / weekly / monthly dumps
+STEP="removing old database copies"
+mapfile -t ALL < <(ls -1 "$BACKUP_DIR"/db/*.dump 2>/dev/null | sort -r)   # newest first
+declare -A KEEP=() SEEN_W=() SEEN_M=()
+nw=0; nm=0
+for i in "${!ALL[@]}"; do
+  f="${ALL[$i]}"
+  [[ "$f" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})_[0-9]{6}\.dump$ ]] || { KEEP["$f"]=1; continue; }   # unknown name: keep it
+  d="${BASH_REMATCH[1]}"                                                                       # YYYY-MM-DD
+  (( i < KEEP_DAILY )) && KEEP["$f"]=1
+  wk="$(date -d "$d" +%G-%V 2>/dev/null || echo "$d")"; mo="${d:0:7}"
+  # walking newest -> oldest, the LAST file seen for a week/month is its first copy; remember the oldest
+  SEEN_W["$wk"]="$f"; SEEN_M["$mo"]="$f"
+done
+for wk in $(printf '%s\n' "${!SEEN_W[@]}" | sort -r | head -n "$KEEP_WEEKLY"); do KEEP["${SEEN_W[$wk]}"]=1; done
+for mo in $(printf '%s\n' "${!SEEN_M[@]}" | sort -r | head -n "$KEEP_MONTHLY"); do KEEP["${SEEN_M[$mo]}"]=1; done
+removed=0
+for f in "${ALL[@]}"; do
+  if [[ -z "${KEEP[$f]:-}" ]]; then rm -f "$f" "$f.sha256"; removed=$((removed + 1)); fi
+done
+LOG "Database copies kept: ${#KEEP[@]}, removed: $removed"
+
+# ---------------------------------------------------------------- 5. off-site copy
+STEP="off-site copy"
+OFFSITE="NOT CONFIGURED"
+if [[ -n "${BACKUP_REMOTE:-}" ]]; then
+  if command -v rsync >/dev/null; then
+    # database copies and config: add, never delete on the far side; media: mirror the newest snapshot
+    rsync -a "$BACKUP_DIR/db/" "$BACKUP_REMOTE/db/" \
+      && rsync -a "$BACKUP_DIR/config/" "$BACKUP_REMOTE/config/" \
+      && { [[ -z "$MEDIA_REF" || "$MEDIA_REF" == MISSING* ]] || rsync -a "$BACKUP_DIR/media/$MEDIA_REF" "$BACKUP_REMOTE/media/"; } \
+      && OFFSITE="ok: $BACKUP_REMOTE" || OFFSITE="FAILED: $BACKUP_REMOTE"
+  elif [[ -d "$BACKUP_REMOTE" ]]; then
+    mkdir -p "$BACKUP_REMOTE/db" "$BACKUP_REMOTE/media" \
+      && cp -p "$DUMP" "$DUMP.sha256" "$BACKUP_REMOTE/db/" \
+      && { [[ -z "$MEDIA_REF" || "$MEDIA_REF" == MISSING* ]] || cp -rp "$BACKUP_DIR/media/$MEDIA_REF" "$BACKUP_REMOTE/media/"; } \
+      && OFFSITE="ok: $BACKUP_REMOTE" || OFFSITE="FAILED: $BACKUP_REMOTE"
+  else
+    OFFSITE="FAILED: rsync not installed and $BACKUP_REMOTE is not a folder"
+  fi
+fi
+if [[ -n "${BACKUP_RCLONE:-}" ]]; then
+  if command -v rclone >/dev/null && rclone copy "$BACKUP_DIR/db" "$BACKUP_RCLONE/db" \
+       && { [[ -z "$MEDIA_REF" || "$MEDIA_REF" == MISSING* ]] || rclone copy "$BACKUP_DIR/media/$MEDIA_REF" "$BACKUP_RCLONE/media/$MEDIA_REF"; }; then
+    [[ "$OFFSITE" == FAILED* ]] || OFFSITE="ok: $BACKUP_RCLONE${BACKUP_REMOTE:+ + $BACKUP_REMOTE}"
+  else
+    OFFSITE="FAILED: $BACKUP_RCLONE"
+  fi
+fi
+LOG "Off-site: $OFFSITE"
+
+STEP="writing status"
+write_status true "" "$(basename "$DUMP")" "$DB_BYTES" "$DB_SHA" "$MEDIA_REF" "$MEDIA_FILES" "$MEDIA_BYTES" "$OFFSITE"
+LOG "Backup finished OK"
+[[ "$OFFSITE" == FAILED* ]] && exit 2   # the local backup is fine, but say loudly that off-site failed
+exit 0

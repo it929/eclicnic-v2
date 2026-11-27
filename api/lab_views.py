@@ -1467,6 +1467,17 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
         if isinstance(finalize, str):
             finalize = finalize.lower() in ['true', '1']
         file_obj = request.FILES.get('file') or request.FILES.get('file_upload')
+        # Optional infection-control alert the scientist raises with this result:
+        # {"precaution": "blood"|"contact"|"droplet"|"airborne", "instruction": "..."}
+        infection_alert = request.data.get('infection_alert') or None
+        if isinstance(infection_alert, str):
+            import json
+            try:
+                infection_alert = json.loads(infection_alert) if infection_alert.strip() else None
+            except Exception:
+                return Response({'detail': 'Invalid infection-control alert.'}, status=status.HTTP_400_BAD_REQUEST)
+        if infection_alert is not None and not isinstance(infection_alert, dict):
+            return Response({'detail': 'Invalid infection-control alert.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if not order_id:
             return Response({'detail': 'order_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1612,8 +1623,27 @@ class LabOrderResultItemViewSet(viewsets.ModelViewSet):
             order.radiolab_waiting_status = 1 if is_completed else 0
             order.save(update_fields=['completed', 'radiolab_waiting_status'])
 
+            # Infection-control alert: saved with the result or not at all. It carries the
+            # precaution only; the diagnosis stays in this lab report.
+            alert_created = None
+            if infection_alert and order.patient_id:
+                from patients import safety_alerts as sa
+                try:
+                    alert, alert_created = sa.raise_alert(
+                        order.patient, precaution=infection_alert.get('precaution'), by=user,
+                        instruction=infection_alert.get('instruction'), source='lab', source_order=order)
+                except sa.SafetyAlertError as e:
+                    transaction.set_rollback(True)
+                    return Response({'detail': f'Infection-control alert: {e.message}', 'code': e.code},
+                                    status=status.HTTP_400_BAD_REQUEST)
+
         msg = 'Lab results verified and completed successfully.' if is_completed else f'Partial lab results saved successfully ({len(non_empty_items)} of {len(items_data)} parameters ready).'
         msg += f' Entered by {author_name}.'
+        if alert_created is not None:
+            from patients.safety_alerts import PRECAUTION_LABELS
+            label = PRECAUTION_LABELS[infection_alert.get('precaution')]
+            msg += (f' Infection-control alert raised ({label}); Nursing and the doctors have been told.' if alert_created
+                    else f' Infection-control alert ({label}) was already active.')
 
         return Response({
             'message': msg,

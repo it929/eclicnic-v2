@@ -2020,10 +2020,8 @@ def get_case_note(request, patient_id):
     if not request.user.is_authenticated:
         return redirect(f"/?next={request.path}")
 
-    # Department permission check
-    dept_name = getattr(request.user.department, 'department', None) if getattr(request.user, 'department', None) else None
-    allowed_depts = ['Nursing', 'Clinical', 'Billings', 'Admin', 'CMD']
-    if not request.user.is_superuser and dept_name not in allowed_depts:
+    # Department permission check (same rule as the case-note data endpoint)
+    if not _can_view_case_note(request.user):
         return HttpResponseForbidden("Access Denied: Case note requires clinical or admin department access.")
 
     patient = get_object_or_404(PatientProfile, id=patient_id)
@@ -2131,11 +2129,46 @@ def get_case_note(request, patient_id):
     return render(request, 'queue_operations/case_note.html', context)
 
 
+# Who may read a patient's case note: the clinical departments, or anyone whose role holds a
+# clinical module (so a renamed department or a new role set up in the matrix still works).
+CASE_NOTE_DEPARTMENTS = ('Nursing', 'Nursing Station', 'Clinical', 'Billings', 'Admin', 'CMD')
+CASE_NOTE_MODULES = ('clinical', 'nursing', 'inpatient', 'anc')
+
+
+def _case_note_user(request):
+    """The signed-in user: session cookie, or the app's 'Authorization: Token ...' header."""
+    if request.user.is_authenticated:
+        return request.user
+    auth = request.META.get('HTTP_AUTHORIZATION', '')
+    if auth.startswith('Token '):
+        tok = Token.objects.select_related('user', 'user__department').filter(key=auth[6:].strip()).first()
+        if tok and tok.user.is_active:
+            return tok.user
+    return None
+
+
+def _can_view_case_note(user):
+    if user.is_superuser:
+        return True
+    dept = getattr(getattr(user, 'department', None), 'department', None)
+    if dept in CASE_NOTE_DEPARTMENTS:
+        return True
+    from api.notification_views import _has_module
+    return any(_has_module(user, code) for code in CASE_NOTE_MODULES)
+
+
 @csrf_exempt
 def get_filtered_case_note(request, patient_id):
     if request.method != 'POST':
         return JsonResponse({'error': 'Invalid request method'}, status=400)
-        
+
+    # This returns the whole clinical record, so it must never answer an anonymous caller.
+    user = _case_note_user(request)
+    if user is None:
+        return JsonResponse({'error': 'Your session has expired. Please sign in again.'}, status=401)
+    if not _can_view_case_note(user):
+        return JsonResponse({'error': 'You do not have access to case notes.'}, status=403)
+
     patient = get_object_or_404(PatientProfile, id=patient_id)
     
     try:
@@ -2627,8 +2660,11 @@ def get_filtered_case_note(request, patient_id):
         
     except ValueError as e:
         return JsonResponse({'error': f'Invalid date format: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': f'Server error: {str(e)}\n{traceback.format_exc()}'}, status=500)
+    except Exception:
+        # Log the details on the server; never send a traceback to the browser.
+        import logging
+        logging.getLogger(__name__).exception('Case note failed for patient %s', patient_id)
+        return JsonResponse({'error': 'The case note could not be loaded. Please try again; if it keeps failing, tell IT.'}, status=500)
 
 
 @csrf_exempt
