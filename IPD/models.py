@@ -91,7 +91,7 @@ class AdmissionTable(models.Model):
     bill_discharged = models.CharField(null=True,max_length=50)
     bill_discharge_status = models.PositiveIntegerField(default=0)
     bill_discharge_date = models.DateTimeField(null=True, blank=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
 
     class Meta:
         ordering = ['-doctor_admit_date']
@@ -152,8 +152,8 @@ class Bed(models.Model):
 class BedAllocation(models.Model):
     ward = models.ForeignKey(Ward, on_delete=models.CASCADE, related_name='allocations', null=True)
     bed = models.ForeignKey(Bed, on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)  # request.user.username
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)  # request.user.username
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     admission_record = models.ForeignKey(AdmissionTable, on_delete=models.SET_NULL, null=True, blank=True)
     created_date = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
@@ -178,8 +178,8 @@ class AdmissionFee(models.Model):
     price = models.PositiveIntegerField(default=0)
     num_of_days = models.PositiveIntegerField(default=0)
     completed = models.PositiveIntegerField(default=0)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)  # request.user.username
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)  # request.user.username
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     admission_record = models.ForeignKey(AdmissionTable, on_delete=models.SET_NULL, null=True, blank=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
@@ -192,8 +192,8 @@ class AdmissionFee(models.Model):
 class AdmissionNote(models.Model):
     admission = models.ForeignKey(AdmissionTable, on_delete=models.CASCADE, null=True, blank=True, related_name='admission_notes')
     admission_note =  models.TextField(null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -202,8 +202,8 @@ class AdmissionNote(models.Model):
 class DoctorNote(models.Model):
     admission = models.ForeignKey(AdmissionTable, on_delete=models.CASCADE, null=True, blank=True, related_name='doctor_notes')
     doctor_note =  models.TextField(null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -212,8 +212,8 @@ class DoctorNote(models.Model):
 class NurseNote(models.Model):
     admission = models.ForeignKey(AdmissionTable, on_delete=models.CASCADE, null=True, blank=True, related_name='nurse_notes')
     nurse_note =  models.TextField(null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -222,8 +222,8 @@ class NurseNote(models.Model):
 class WardRound(models.Model):
     admission = models.ForeignKey(AdmissionTable, on_delete=models.CASCADE, null=True, blank=True, related_name='ward_rounds')
     notes = models.TextField(null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -274,7 +274,7 @@ class DrugPrescription(models.Model):
         ('stat', 'Stat (Immediate)'),
     ]
 
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='prescriptions')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='prescriptions')
     admission = models.ForeignKey(AdmissionTable, on_delete=models.CASCADE, null=True, blank=True, related_name='drug_prescriptions')
     prescription_type = models.CharField(max_length=20, choices=PRESCRIPTION_TYPES, default='regular')
     drug_name = models.CharField(max_length=200)

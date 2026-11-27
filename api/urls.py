@@ -4,6 +4,12 @@ from . import task_manager_views as tm_views
 from . import tariff_views
 from . import rbac_views
 from . import lab_views
+from . import safety_alert_views
+from . import cashdesk_views
+from . import report_views
+from . import system_views
+from . import consultation_views
+from queue_operations import views as qo_views
 from . import immunization_views
 from . import immunization_drug_views
 from . import product_merge_views
@@ -200,7 +206,26 @@ urlpatterns = [
     path('ipd/admissions/<int:pk>/notes/', ipd_chart_views.NotesView.as_view(), name='api-ipd-notes'),
     path('ipd/admissions/<int:pk>/observations/', ipd_chart_views.ObservationsView.as_view(), name='api-ipd-obs'),
     path('ipd/admissions/<int:pk>/fluids/', ipd_chart_views.FluidsView.as_view(), name='api-ipd-fluids'),
+    path('patients/<int:pk>/safety-alerts/', safety_alert_views.PatientSafetyAlertsView.as_view(),
+         name='api-patient-safety-alerts'),
+    # Case note under /api/ so it reaches Django behind any proxy that only forwards /api/
+    # (the old /filtered_case_note/ and /case_note/ paths still work).
+    # Cash desk: deposits, instalments and the patient's account (rules in Billings/cashdesk.py)
+    path('system/backup-status/', system_views.BackupStatusView.as_view(), name='api-backup-status'),
+    # Reporting page: live reports (api/reports.py)
+    path('reports/summary/', report_views.ReportSummaryView.as_view(), name='api-report-summary'),
+    path('reports/<slug:key>/', report_views.ReportView.as_view(), name='api-report'),
+    path('billing/cash-up/', cashdesk_views.CashUpView.as_view(), name='api-cashdesk-cashup'),
+    path('billing/patients/<int:pk>/account/', cashdesk_views.PatientAccountView.as_view(), name='api-cashdesk-account'),
+    path('billing/patients/<int:pk>/deposits/', cashdesk_views.PatientDepositView.as_view(), name='api-cashdesk-deposit'),
+    path('billing/patients/<int:pk>/deposit-refund/', cashdesk_views.PatientDepositRefundView.as_view(), name='api-cashdesk-deposit-refund'),
+    path('consultation/visit-orders/', consultation_views.ConsultationVisitOrdersView.as_view(), name='consultation-visit-orders'),
+    path('case-note/<int:patient_id>/', qo_views.get_filtered_case_note, name='api-case-note'),
+    path('case-note/<int:patient_id>/page/', qo_views.get_case_note, name='api-case-note-page'),
+    path('safety-alerts/<int:pk>/clear/',safety_alert_views.SafetyAlertClearView.as_view(), name='api-safety-alert-clear'),
     path('ipd/admissions/<int:pk>/medications/', ipd_chart_views.MedicationsView.as_view(), name='api-ipd-meds'),
+    path('ipd/admissions/<int:pk>/medications/administer-bulk/', ipd_chart_views.MedicationBulkAdministerView.as_view(),
+         name='api-ipd-meds-bulk'),
     path('ipd/admissions/<int:pk>/treatments/', ipd_chart_views.TreatmentsView.as_view(), name='api-ipd-treatments'),
     path('ipd/chart-entries/<str:kind>/<int:pk>/void/', ipd_chart_views.VoidEntryView.as_view(), name='api-ipd-void'),
     path('ipd/admissions/<int:pk>/catalogue/', ipd_order_views.CatalogueView.as_view(), name='api-ipd-catalogue'),

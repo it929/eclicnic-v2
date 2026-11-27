@@ -1442,7 +1442,7 @@
             
             // Create AJAX request
             const xhr = new XMLHttpRequest();
-            xhr.open('POST', `/filtered_case_note/{{ patient.id }}/`, true);
+            xhr.open('POST', `/api/case-note/{{ patient.id }}/`, true);   // under /api/ so it works behind any proxy
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             xhr.setRequestHeader('X-CSRFToken', getCSRFToken());
             

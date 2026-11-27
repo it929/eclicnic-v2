@@ -13,10 +13,12 @@ from rest_framework.response import Response
 
 
 def _module_holders(module):
-    """Active users who may use `module`, with a PIN set. Mirrors notification_views._has_module."""
+    """Active users who may use `module` (a code, or a list/tuple of codes: any of them),
+    with a PIN set. Mirrors notification_views._has_module."""
     from inventory.permissions import is_admin
     from users.models import RolePermission, User
-    roles = list(RolePermission.objects.filter(module__code=module).values_list('role_id', 'role__name'))
+    codes = list(module) if isinstance(module, (list, tuple, set)) else [module]
+    roles = list(RolePermission.objects.filter(module__code__in=codes).values_list('role_id', 'role__name'))
     role_ids = {rid for rid, _ in roles}
     role_names = {str(n or '').strip().lower() for _, n in roles}
     out = []

@@ -64,7 +64,7 @@ class GetRegistrationFee(models.Model):
     patient = models.ForeignKey('patients.PatientProfile', on_delete=models.SET_NULL, null=True)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.SET_NULL, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.SET_NULL, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT)
     completed = models.PositiveIntegerField(default=0)
     created_date = models.DateTimeField(auto_now_add=True, null=True)
 
@@ -74,8 +74,8 @@ class GetRegistrationFee(models.Model):
 class AntenatalFee(models.Model):
     price = models.PositiveIntegerField(default=0)
     completed = models.PositiveIntegerField(default=0)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True) 
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True) 
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -213,7 +213,7 @@ class ICD11Code(models.Model):
 
 
 class Diagnosis(models.Model):
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='diagnoses')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='diagnoses')
     icd11_code = models.ForeignKey(ICD11Code, on_delete=models.PROTECT, related_name='diagnoses')
     diagnosis_date = models.DateField()
     confirmed = models.BooleanField(default=False)
@@ -272,8 +272,8 @@ class PresentingComplaint(models.Model):
         return f"{self.get_category_display()} - {self.name}"
 
 class PatientEncounter(models.Model):
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
-    provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT)
+    provider = models.ForeignKey('users.User', on_delete=models.PROTECT)
     chief_complaint = models.CharField(max_length=500,null=True, blank=True)
     history_of_present_illness = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -320,8 +320,8 @@ class PatientReferral(models.Model):
     referred_department_clinic = models.CharField(max_length=255, blank=True, null=True)
     refer_to_clinician = models.CharField(max_length=255, blank=True, null=True)
     reason_for_referring = models.TextField(blank=True, null=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
-    provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT)
+    provider = models.ForeignKey('users.User', on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -342,8 +342,8 @@ class PatientFollowUp(models.Model):
     visit_type = models.CharField(max_length=50, null=True, blank=True)
     treatment_progress = models.CharField(max_length=50, null=True, blank=True)
     drugs_compliance = models.CharField(max_length=50, null=True, blank=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
-    provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT)
+    provider = models.ForeignKey('users.User', on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -357,8 +357,8 @@ class PatientFollowUp(models.Model):
     
 
 class PatientOtherDetails(models.Model):
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
-    provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT)
+    provider = models.ForeignKey('users.User', on_delete=models.PROTECT)
     condition_status = models.CharField(max_length=500,null=True, blank=True)
     to_be_admitted = models.CharField(max_length=500,null=True, blank=True)
     assigned_doctor = models.CharField(max_length=500,null=True, blank=True)
@@ -434,8 +434,8 @@ class WrittenPrescriptions(models.Model):
     unit_price = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     price_source = models.CharField(max_length=20, null=True, blank=True)   # 'plan' | 'sponsor' | 'general'
     tariff_id = models.PositiveIntegerField(null=True, blank=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE)
-    provider = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT)
+    provider = models.ForeignKey('users.User', on_delete=models.PROTECT)
     created_date = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -446,7 +446,7 @@ class WrittenPrescriptions(models.Model):
 
 
 class ConsultationDraft(models.Model):
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='consultation_drafts')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='consultation_drafts')
     doctor = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True)
     appointment = models.ForeignKey('patients.PatientAppointment', on_delete=models.SET_NULL, null=True, blank=True)
     draft_data = models.JSONField(default=dict)
@@ -461,7 +461,7 @@ class ConsultationDraft(models.Model):
 
 
 class ImmunizationRecord(models.Model):
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, related_name='immunizations')
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, related_name='immunizations')
     appointment = models.ForeignKey('patients.PatientAppointment', on_delete=models.SET_NULL, null=True, blank=True)
     vaccine_name = models.CharField(max_length=200)
     vaccine_code = models.CharField(max_length=50, blank=True, null=True)

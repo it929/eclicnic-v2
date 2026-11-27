@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Prove the newest backup can actually be restored: restore it into a throwaway database, check the
+# key tables have data and match the live database closely, then drop the throwaway database.
+# The live database is only READ (row counts); it is never written to.
+#
+#   clinic365-restore-test
+#
+# Install:  sudo install -m 755 deploy/bin/clinic365-restore-test /usr/local/bin/clinic365-restore-test
+# The database user needs permission to create databases, once:
+#   sudo -u postgres psql -c "ALTER ROLE clinic365 CREATEDB;"
+# Scheduled weekly by deploy/cron/clinic365-backup. Writes $BACKUP_DIR/restore_test.json, which
+# manage.py check_backups reads (a failed or missing drill is reported to Admin/CMD).
+set -Eeuo pipefail
+umask 077
+
+ENVFILE="${CLINIC365_ENV:-/etc/clinic365/clinic365.env}"
+if [[ -r "$ENVFILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    key="${line%%=*}"; value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [[ -z "${!key:-}" ]] && export "$key=$value"
+  done < "$ENVFILE"
+fi
+DB_NAME="${DB_NAME:-clinic365}"; DB_USER="${DB_USER:-clinic365}"
+DB_HOST="${DB_HOST:-127.0.0.1}"; DB_PORT="${DB_PORT:-5432}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/clinic365}"
+[[ -n "${PG_BIN:-}" ]] && PATH="$PG_BIN:$PATH"
+export PGPASSWORD="${DB_PASSWORD:-}"
+SCRATCH="${DB_NAME}_restore_test"
+STARTED="$(date -Iseconds)"
+STEP="start"
+DUMP=""
+LOG() { echo "[$(date '+%F %T')] $*"; }
+PSQL() { psql --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" --no-psqlrc -v ON_ERROR_STOP=1 -At "$@"; }
+esc() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "${s//$'\n'/ }"; }
+
+finish() {   # ok error details_json
+  cat > "$BACKUP_DIR/.restore_test.json.tmp" <<EOF
+{"started_at": "$STARTED", "finished_at": "$(date -Iseconds)", "ok": $1, "error": "$(esc "$2")",
+ "dump": "$(esc "$(basename "${DUMP:-none}")")", "tables": ${3:-[]}}
+EOF
+  mv -f "$BACKUP_DIR/.restore_test.json.tmp" "$BACKUP_DIR/restore_test.json"
+}
+cleanup() { PSQL --dbname=postgres -c "DROP DATABASE IF EXISTS \"$SCRATCH\";" >/dev/null 2>&1 || true; }
+on_error() {
+  local code=$?
+  LOG "RESTORE TEST FAILED during: $STEP (exit $code)"
+  finish false "Failed during: $STEP (exit $code)" "[]" || true
+  cleanup
+  exit "$code"
+}
+trap on_error ERR
+
+STEP="finding the newest backup"
+DUMP="$(ls -1 "$BACKUP_DIR"/db/*.dump 2>/dev/null | sort | tail -n1 || true)"
+[[ -n "$DUMP" ]] || { STEP="no backup found in $BACKUP_DIR/db"; false; }
+
+STEP="checking the file has not changed since it was written"
+if [[ -f "$DUMP.sha256" ]]; then
+  (cd "$(dirname "$DUMP")" && sha256sum --check --status "$(basename "$DUMP").sha256")
+fi
+
+STEP="creating the throwaway database"
+cleanup
+PSQL --dbname=postgres -c "CREATE DATABASE \"$SCRATCH\";" >/dev/null
+
+STEP="restoring $(basename "$DUMP")"
+pg_restore --no-owner --no-privileges --exit-on-error --host="$DB_HOST" --port="$DB_PORT" \
+           --username="$DB_USER" --dbname="$SCRATCH" "$DUMP"
+
+STEP="comparing key tables with the live database"
+# Patients, clinical records, bills and money. A restored table must have data if the live one does,
+# and (since the dump is at most a day old) at least 90% of today's live rows.
+TABLES=(patients_patientprofile patients_patientappointment queue_operations_patientencounter
+        queue_operations_writtenprescriptions radio_lab_radiologylab radio_lab_labresult radio_lab_laborderresultitem
+        "IPD_admissiontable" "Billings_invoice" "Billings_receipt" "Billings_deposit" users_user)
+JSON="["; FAILS=""
+for t in "${TABLES[@]}"; do
+  live="$(PSQL --dbname="$DB_NAME" -c "SELECT count(*) FROM \"$t\";" 2>/dev/null || echo "")"
+  [[ -z "$live" ]] && continue                     # table not in this install
+  restored="$(PSQL --dbname="$SCRATCH" -c "SELECT count(*) FROM \"$t\";" 2>/dev/null || echo -1)"
+  ok=true
+  if (( restored < 0 )) || (( live > 0 && restored == 0 )) || (( restored * 10 < live * 9 )); then ok=false; FAILS="$FAILS $t"; fi
+  JSON="$JSON{\"table\": \"$t\", \"live\": $live, \"restored\": $restored, \"ok\": $ok},"
+  LOG "  $t: live $live, restored $restored $([[ $ok == true ]] && echo OK || echo PROBLEM)"
+done
+JSON="${JSON%,}]"
+
+STEP="dropping the throwaway database"
+cleanup
+if [[ -n "$FAILS" ]]; then
+  finish false "Restored data is missing or far behind for:$FAILS" "$JSON"
+  LOG "RESTORE TEST: PROBLEM with$FAILS"
+  exit 1
+fi
+finish true "" "$JSON"
+LOG "Restore test passed: $(basename "$DUMP")"

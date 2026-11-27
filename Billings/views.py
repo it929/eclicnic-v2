@@ -993,7 +993,8 @@ def download_invoice(request, invoice_number, format):
 
 
 def generate_receipt_number():
-    return f"RCPT-{uuid.uuid4().hex[:8].upper()}"
+    from Billings.numbering import next_receipt_number
+    return next_receipt_number()
 
 @login_required
 @department_required('Billings', 'Admin', 'CMD')

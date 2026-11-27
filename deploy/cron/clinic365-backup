@@ -1,0 +1,20 @@
+# Clinic365 EMR: backups (database, uploaded files, server config), restore drill and health check.
+#
+# Install on the Linux server (as root), after installing the two scripts (see deploy/README.md, Backups):
+#   sudo cp deploy/cron/clinic365-backup /etc/cron.d/clinic365-backup
+#   sudo chmod 644 /etc/cron.d/clinic365-backup
+# Times are the SERVER's clock (set it to Lagos time: sudo timedatectl set-timezone Africa/Lagos).
+# Files in /etc/cron.d need the user column (here: clinic365) and must end with a newline.
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# 01:30 every night: back up the database, uploaded files and config; copy off-site.
+30 1 * * * clinic365 /usr/local/bin/clinic365-backup >> /var/log/clinic365/backup.log 2>&1
+
+# 04:00 every Sunday: restore the newest backup into a throwaway database and check it (proves it works).
+0 4 * * 0 clinic365 /usr/local/bin/clinic365-restore-test >> /var/log/clinic365/restore_test.log 2>&1
+
+# 07:30 every day: if a backup failed, is late, has no off-site copy, or the drill failed, tell Admin/CMD
+# (notification bell; email too when BACKUP_ALERT_EMAIL and EMAIL_HOST are set).
+30 7 * * * clinic365 /usr/local/bin/clinic365-manage check_backups >> /var/log/clinic365/check_backups.log 2>&1

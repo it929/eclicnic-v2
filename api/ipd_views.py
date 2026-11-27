@@ -76,7 +76,14 @@ def _patient_summary(p):
         'sponsor_name': getattr(p.sponsor, 'name', None),
         'plan_name': getattr(p.plan, 'plan', None),
         'category': getattr(p.category, 'category', None),
+        # Infection-control precautions for the wards (never the diagnosis)
+        'safety_alerts': _alerts(p),
     }
+
+
+def _alerts(p):
+    from patients.safety_alerts import active_alerts
+    return active_alerts(p)
 
 
 def _los_days(a):

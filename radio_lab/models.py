@@ -12,10 +12,10 @@ class RadiologyLab(models.Model):
     samples = models.CharField(max_length=100,null=True, blank=True)
     emergency = models.CharField(max_length=20,null=True, blank=True)
     comment = models.TextField(null=True, blank=True)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
     category = models.ForeignKey('patients.PatientCategory', on_delete=models.CASCADE, null=True)
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
 
     radiolab_waiting_status = models.PositiveIntegerField(default=0)
     doctor_waiting_status = models.PositiveIntegerField(default=0)
@@ -71,7 +71,7 @@ class RadioLabInventory(models.Model):
     plan = models.ForeignKey('patients.PatientPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='lab_tariffs')
     parameter_ids = models.JSONField(default=list, blank=True)
     
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True)
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True, null=True)
     
@@ -97,8 +97,8 @@ class LabResult(models.Model):
     results = models.TextField(null=True)
     file_upload = models.FileField(null=True, blank=True, upload_to='lab-results/')
     waiting_status = models.PositiveIntegerField(default=0)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True) 
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True) 
     created_date = models.DateTimeField(auto_now_add=True)
 
 
@@ -108,8 +108,8 @@ class ScanResult(models.Model):
     results = models.TextField(null=True)
     scan = models.ImageField(null=True, blank=True, upload_to='scan-image/')
     waiting_status = models.PositiveIntegerField(default=0)
-    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.CASCADE, null=True)
-    staff = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True) 
+    patient = models.ForeignKey('patients.PatientProfile', on_delete=models.PROTECT, null=True)
+    staff = models.ForeignKey('users.User', on_delete=models.PROTECT, null=True) 
     created_date = models.DateTimeField(auto_now_add=True)
     
     def can_edit_delete(self):

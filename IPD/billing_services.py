@@ -437,7 +437,9 @@ def decline_charge(charge, *, by, reason):
 # Payments
 # ------------------------------------------------------------------------------------------------
 def _receipt_no():
-    return f'REC-{timezone.now():%y%m%d}-{random.randint(1000, 9999)}'
+    # Shared running counter with OPD receipts, so a receipt number is never issued twice.
+    from Billings.numbering import next_receipt_number
+    return next_receipt_number()
 
 
 def record_payment(adm, *, by, amount, method='Cash', kind='deposit', reference=''):
